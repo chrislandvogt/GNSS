@@ -6,11 +6,18 @@ This is the technical design. The reasons behind the major choices are in [DECIS
 
 All the logic lives in a Rust core. Each front end is a thin client of one typed command API, and baseline engines are swappable components behind a single interface.
 
+The core is built two ways (D-023):
+
+- **For the web app**, it's compiled to WebAssembly and runs entirely in the user's browser. This is the main front end. The site is static files, and project data never leaves the user's machine unless they export it or configure a destination.
+- **Natively**, for the CLI, the Python bindings and the server. The CLI also runs the benchmark and serves the web app for offline use.
+
+Engines run as WebAssembly modules, so the same engine binary runs in the browser and in the CLI.
+
 ```mermaid
 flowchart TB
   subgraph FE[Front ends]
-    UI["Desktop UI<br/>Tauri 2 + Svelte + MapLibre"]
-    CLI[CLI]
+    UI["Web app<br/>Svelte + MapLibre<br/>core in WebAssembly"]
+    CLI["CLI<br/>native"]
     PY["Python wheel<br/>ArcGIS Pro toolbox"]
     SRV["HTTP server + MCP"]
   end
@@ -27,9 +34,10 @@ flowchart TB
   PIPE --> ADJ[adjust]
   PIPE --> REP[report]
   PIPE --> FMT[formats]
-  ENG --> RTK["engine-rtklib<br/>rnx2rtkp sidecar"]
-  ENG --> GIN["engine-ginan<br/>pea sidecar"]
-  ENG --> NAT["engine-native<br/>Phase 3"]
+  PIPE --> STO["store<br/>disk or browser storage"]
+  ENG --> RTK["engine-rtklib<br/>rnx2rtkp WebAssembly module"]
+  ENG --> GIN["engine-ginan<br/>pea, native only, Phase 2"]
+  ENG --> OWN["engine-rust<br/>WebAssembly module, Phase 3"]
   ADJ --> DAT[datum]
   REP --> DAT
   RIO --> MOD[model]
@@ -48,29 +56,34 @@ crates/
   formats/        import/export: DynaML, STAR*NET, RTKLIB .pos, SINEX, LandXML, CSV, GeoPackage
   rinex-io/       RINEX ingest, header reconciliation, QC metrics
   fetch/          CORS data, orbits/clocks, ANTEX, site logs; cache; offline data packs
-  engine/         BaselineEngine trait and shared job/result types
-  engine-rtklib/  RTKLIB-EX sidecar driver
-  engine-ginan/   Ginan sidecar driver (Phase 2)
+  engine/         BaselineEngine and ModuleHost traits, shared job/result types
+  engine-rtklib/  RTKLIB-EX driver: config generation and output parsing
+  engine-ginan/   Ginan driver (Phase 2); pea itself runs natively only
+  engine-host/    runs engine modules natively with wasmtime
   checks/         blunder detection rules
   pipeline/       build graph, content-addressed cache, provenance, verify
+  store/          storage interface: the file system natively; File System Access API and OPFS in the browser
   report/         standards evaluation and report generation
   api/            typed command API used by every front end
 apps/
-  cli/            command-line interface
-  desktop/        Tauri 2 app: src-tauri/ (Rust) and ui/ (Svelte + TypeScript)
+  web/            web app: core/ (the api crate compiled to WebAssembly) and ui/ (Svelte + TypeScript, workers, service worker)
+  cli/            command-line interface; also serves the web app locally
+  relay/          optional relay for data sources that browsers can't reach directly
   py/             PyO3 bindings and ArcGIS Pro toolbox (Phase 2)
   server/         axum HTTP server and MCP server (Phase 2)
 packs/
   au/             Australian jurisdiction pack: frames, transformations, grids, standards, data sources
 data/
   antennas/       antenna geometry catalogue (ARP and measure-up points, slant conversion)
-sidecars/
-  rtklib-ex/      pinned source reference, build scripts, checksums
+engine-modules/
+  rtklib-ex/      pinned source reference, WebAssembly build scripts, module checksums
 benchmarks/       dataset manifests and runners (see VALIDATION.md)
 docs/
 ```
 
 Once the project is named (D-014), package names take a common prefix (for example `<name>-adjust`). The directory names stay short.
+
+Every crate except `engine-host` compiles to both native code and WebAssembly. CI builds and tests both targets.
 
 ## 3. Crates
 
@@ -79,18 +92,20 @@ Once the project is named (D-014), package names take a common prefix (for examp
 | `model` | Domain entities, IDs, serialisation, schema versions | serde, toml, schemars |
 | `datum` | Frames, epochs, Helmert transformations, plate motion, grids, geoid, projections | hifitime, nalgebra |
 | `adjust` | Least squares, statistics, reliability, VCE, uncertainty, loops | faer (sparse), nalgebra, statrs |
-| `formats` | Parsers and writers for exchange formats | quick-xml, csv, rusqlite (GeoPackage) |
+| `formats` | Parsers and writers for exchange formats | quick-xml, csv, rusqlite (GeoPackage; needs a SQLite build for WebAssembly, checked in M3) |
 | `rinex-io` | RINEX parsing (wrapped), header extraction, QC | rinex (nav-solutions, MPL-2.0) |
-| `fetch` | Source registry, download, cache, data packs | reqwest, object_store or rust-s3, sha2 |
-| `engine` | Engine trait, job and result types | none of note |
-| `engine-rtklib` | Config generation, process management, output parsing | tokio (process) |
-| `engine-ginan` | YAML config, process management, output parsing | serde_yaml |
+| `fetch` | Source registry, download, cache, data packs | reqwest (uses the browser's fetch in the web app), sha2 |
+| `engine` | Engine and module host traits, job and result types | none of note |
+| `engine-rtklib` | Config generation, output parsing | none of note |
+| `engine-ginan` | YAML config, output parsing | serde_yaml |
+| `engine-host` | Runs engine modules natively | wasmtime |
 | `checks` | Rule framework and built-in checks | none of note |
-| `pipeline` | DAG execution, hashing, cache, provenance | tokio, rayon, blake3 |
+| `pipeline` | DAG execution, hashing, cache, provenance. The executor is supplied by the host. | blake3; natively tokio and rayon |
+| `store` | One interface for project, cache and download storage | natively std::fs; in the browser web-sys (File System Access API, OPFS) |
 | `report` | SP1 evaluation, HTML/PDF reports | minijinja; PDF per D-012 |
-| `api` | Request/response types, jobs, events | serde, specta |
+| `api` | Request/response types, jobs, events | serde, specta; wasm-bindgen for the web app |
 
-Dependencies are pinned and reviewed. cargo-deny enforces the licence policy (D-005): no GPL, AGPL or LGPL code is linked into our binaries. Copyleft tools may only run as separate processes.
+Dependencies are pinned and reviewed. cargo-deny enforces the licence policy (D-005): no GPL, AGPL or LGPL code is linked into our binaries. Copyleft tools may only run as separate processes, or as separately built engine modules that talk to our code only through files and arguments (D-023). The web app's JavaScript dependencies follow the same policy, checked in CI.
 
 ## 4. Conventions
 
@@ -105,7 +120,11 @@ These are detailed in `docs/CONVENTIONS.md` (milestone M0). The essentials:
 - **Errors.** `thiserror` in libraries and `anyhow` only in binaries. Code never panics on user data, and the parsers are fuzzed to prove it.
 - **Logging.** Structured logging with `tracing`. Provenance is a separate, durable record, not a log.
 - **Numerics.** f64 throughout. Numeric paths iterate in a deterministic order (`BTreeMap` or `IndexMap`, never `HashMap`). Tolerances are defined centrally.
-- **Determinism.** The same platform and build produce bit-identical outputs. Across platforms, results agree within 1e-6 m (FMA and SIMD can differ).
+- **Host access.** The core never touches the file system, network, clock or threads directly. The host provides them through interfaces (`store`, the fetch client, the pipeline executor, the module host): the standard library natively, and browser APIs in the web app. This is what lets one core build for both targets.
+- **Determinism.**
+  - WebAssembly arithmetic is fully specified, so a given web build produces bit-identical outputs in every browser on every operating system. We don't enable relaxed SIMD, which isn't deterministic.
+  - Native builds produce bit-identical outputs on the same platform. Across platforms, and between native and web builds, results agree within 1e-6 m (FMA, SIMD and maths libraries can differ).
+  - Engine modules are the same binary everywhere, so they give identical outputs for identical inputs in any browser and in the CLI.
 
 ## 5. Domain model
 
@@ -147,7 +166,7 @@ pub struct BaselineSolution {
     pub dxyz: Vector3<f64>,            // ECEF, metres
     pub cov: Matrix3<f64>,             // m², as reported by the engine
     pub quality: BaselineQuality,      // fix status, ratio, % fixed, RMS, overlap
-    pub engine: EngineId,              // name, version, binary hash
+    pub engine: EngineId,              // name, version, module hash
 }
 
 /// What the adjustment consumes.
@@ -165,6 +184,8 @@ Sessions are derived by grouping overlapping occupations. Candidate baselines ar
 
 A project is a folder. It's text-diffable, works in Git, and can be zipped and handed to someone else.
 
+In the web app the folder is on the user's disk, opened through the File System Access API. In browsers without that API, the project lives in browser storage and moves in and out as a zip (section 14.2). Either way the format is the same.
+
 ```
 my-survey/
   project.toml           # name, jurisdiction pack, target frame, standards spec, defaults
@@ -176,7 +197,7 @@ my-survey/
   overlays/              # recorded corrections (e.g. header fixes), each with a reason
   results/               # adjustments and reports (regenerable)
   provenance.jsonl       # append-only record of every run
-  .cache/                # content-addressed derived data (git-ignored)
+  .cache/                # content-addressed derived data (git-ignored; in browser storage in the web app)
 ```
 
 An occupation file looks like this:
@@ -211,7 +232,7 @@ The rules:
 
 - `raw/` is immutable. Every load verifies its hashes against `raw.lock`.
 - Corrections, such as a wrong antenna height in a RINEX header, are overlays that record the reason. They're never edits to the raw files.
-- Everything in `results/` and `.cache/` can be regenerated from the rest.
+- Everything in `results/` and `.cache/` can be regenerated from the rest. The web app keeps `.cache/` in browser storage (OPFS) rather than in the folder, because writing many small files through the File System Access API is slow.
 - Every file has a schema version, and migrations are automatic and logged.
 - Each file has a JSON Schema (generated with schemars), so editors validate as you type.
 
@@ -226,17 +247,19 @@ ingest(raw) → normalise(occupation) → qc(occupation)
 checks run as nodes alongside, wherever their inputs exist
 ```
 
-- **Node keys** are `blake3(canonical inputs + upstream keys + settings + tool versions)`. Tool versions include the crate version, git hash and sidecar binary hash.
+- **Node keys** are `blake3(canonical inputs + upstream keys + settings + tool versions)`. Tool versions include the crate version, git hash, build target (web or native) and engine module hash.
 - **The cache** lives in `.cache/<key>/`, holding outputs plus metadata. Garbage collection is by reachability from the current graph.
-- **Execution.** tokio orchestrates, rayon handles CPU-bound maths, and a process pool runs sidecars. Every job supports cancellation and emits progress events.
+- **Execution** is supplied by the host. Every job supports cancellation and emits progress events.
+  - Natively, tokio orchestrates, rayon handles CPU-bound maths, and engine modules run in a pool of wasmtime instances.
+  - In the web app, the core runs in a dedicated worker and engine modules run in a pool of engine workers (section 14.1).
 - **Incremental by construction.** Changing an antenna height invalidates that occupation's baselines and everything downstream of them, and nothing else.
 - **Provenance.** Every run appends a JSONL record per node: computed or cached, inputs, settings, engine, outputs and duration. For example:
 
 ```json
-{"run":"2026-10-15T03:12:44Z","app":"0.3.0+3f2a1c","node":"baseline/9c1e","status":"computed","inputs":["rinex/77ab","rinex/12cd","nav/aa01"],"settings":"set/41fe","engine":"rtklib-ex 2.5.0 blake3:5d0e","outputs":["sol/9c1e"],"ms":4210}
+{"run":"2026-10-15T03:12:44Z","app":"0.3.0+3f2a1c","build":"web","node":"baseline/9c1e","status":"computed","inputs":["rinex/77ab","rinex/12cd","nav/aa01"],"settings":"set/41fe","engine":"rtklib-ex 2.5.0 blake3:5d0e","outputs":["sol/9c1e"],"ms":4210}
 ```
 
-- **`verify`** re-runs the whole graph while ignoring the cache, then compares output hashes. This is the audit answer to "how did you get this number?"
+- **`verify`** re-runs the whole graph while ignoring the cache, then compares output hashes. This is the audit answer to "how did you get this number?" Hashes must match when the re-run uses the same build: the same web release on any operating system, or the same native build on the same platform. Across builds, outputs are compared numerically against the tolerances in section 4.
 
 ## 8. Command API and front ends
 
@@ -246,13 +269,13 @@ checks run as nodes alongside, wherever their inputs exist
 
   | Transport | Used by |
   |---|---|
-  | Tauri IPC | Desktop app |
+  | Worker messages (postMessage) | Web app: the UI on the main thread, the core in a dedicated worker |
   | In-process calls | CLI |
   | PyO3 | Python |
   | HTTP/JSON (axum) | Server |
   | MCP tools | Agents |
 
-- TypeScript types are generated from the Rust types with specta and tauri-specta, so the UI and core can't drift apart.
+- TypeScript types are generated from the Rust types with specta, so the UI and core can't drift apart.
 - **Rule: front ends contain no domain logic.** Anything a user can do in the UI can also be done through the CLI and Python, because they all call the same commands.
 
 ## 9. Baseline engines
@@ -261,14 +284,27 @@ checks run as nodes alongside, wherever their inputs exist
 
 ```rust
 pub trait BaselineEngine: Send + Sync {
-    /// Name, version and binary hash, recorded in provenance.
+    /// Name, version and module hash, recorded in provenance.
     fn id(&self) -> EngineId;
     /// Supported modes, constellations, frequencies and recommended baseline lengths.
     fn capabilities(&self) -> Capabilities;
-    /// Process one baseline. Must be deterministic for the same inputs.
-    fn process(&self, job: &BaselineJob, cx: &JobContext) -> Result<BaselineOutcome, EngineError>;
+    /// Turn one baseline job into module runs: arguments, config and input files.
+    fn plan(&self, job: &BaselineJob) -> Result<Vec<ModuleRun>, EngineError>;
+    /// Read the runs' outputs into an outcome.
+    fn interpret(&self, job: &BaselineJob, outputs: &[ModuleOutput]) -> Result<BaselineOutcome, EngineError>;
+}
+
+/// Runs engine modules. Supplied by the host: engine workers in the browser, wasmtime natively.
+pub trait ModuleHost {
+    async fn run(&self, run: &ModuleRun, cx: &JobContext) -> Result<ModuleOutput, HostError>;
 }
 ```
+
+Engine drivers are pure. `plan` and `interpret` do no I/O and must be deterministic, so they can be tested without running anything, and they behave the same in both builds. Running the module is the host's job:
+
+- A `ModuleRun` names the module by hash and lists its arguments, input files and expected outputs.
+- A `ModuleOutput` holds the output files, stderr and exit status.
+- One baseline usually needs several runs, for example the combined solution plus the forward-only and backward-only runs for the agreement check (section 9.3).
 
 A `BaselineJob` carries:
 - the normalised rover and base RINEX
@@ -280,18 +316,25 @@ A `BaselineJob` carries:
 
 A `BaselineOutcome` carries the solution, the quality metrics, a residuals reference, the engine log and the list of attempts.
 
-### 9.2 Why sidecars
+### 9.2 Why WebAssembly modules
 
-Engines run as separate processes rather than linked libraries:
+Engines run as separately built WebAssembly modules, rather than as linked libraries or native processes:
 
-- **Re-entrancy.** RTKLIB's post-processing keeps state in file-level globals, so it can't run several baselines in parallel within one process. One process per baseline gives parallelism for free.
-- **Crash isolation.** A malformed file can crash C code. Here, it kills one job, not the app.
-- **Version pinning.** Each engine is a binary with a hash, recorded in provenance.
-- **Licence hygiene.** The same mechanism lets us use copyleft tools without linking them (D-005).
+- **They run in the browser.** It's the only way to run C engines such as RTKLIB-EX there.
+- **One binary everywhere.** The same module, identified by its hash, runs in every browser and in the CLI. WebAssembly's arithmetic is fully specified, so identical inputs give identical outputs on every host, and the CI benchmark validates the exact engine that users run.
+- **Re-entrancy.** RTKLIB's post-processing keeps state in file-level globals, so one instance can't process several baselines at once. Each run gets a fresh instance with its own memory, which also resets that state. Parallelism comes from running instances in separate workers (or wasmtime instances). The module is compiled once and instantiated per run, which is cheap.
+- **Crash isolation.** A malformed file can crash C code. Here, it traps one instance and fails one job, not the app. The host discards the instance and reports the failure.
+- **Sandboxing.** A module sees only the files the host hands it, and has no network access.
+- **Version pinning.** Each module has a hash, which is verified before use and recorded in provenance.
+- **Licence hygiene.** Modules are built separately and talk to our code only through files and arguments, so the same boundary as for separate processes applies (D-005, D-023).
 
-### 9.3 RTKLIB-EX sidecar
+Native-only engines (Ginan, section 9.4) run as separate processes, which only the native hosts support.
 
-- **Build.** `rnx2rtkp` is built in CI from a pinned RTKLIB-EX tag for each target, with checksums. Tauri bundles it with `externalBin`, and the CLI ships it alongside. At runtime the binary's hash is verified before use.
+### 9.3 RTKLIB-EX module
+
+- **Build.** `rnx2rtkp` is compiled in CI from a pinned RTKLIB-EX tag to a single WASI module (`wasm32-wasip1`) with wasi-sdk, and its checksum is published. The web app serves it as a static asset, and the CLI embeds it. The M0 spike confirms that this build works and agrees with the native build (D-023).
+- **Hosts.** In the browser, each engine worker runs the module through a small WASI shim. File reads are served from the input files in slices, so large files are never copied into memory whole, and outputs are collected in memory. Natively, wasmtime runs the module with a preopened temporary directory.
+- **Inputs.** Before each run, the driver trims each RINEX file to the overlap window and decimates it to the processing interval. RTKLIB reads all epochs into memory, and trimming keeps a run well within WebAssembly's memory limit (4 GB at most per instance, and less on some devices).
 - **Config.** The driver generates one config file per baseline. The example below is illustrative; the option names are checked against RTKLIB-EX source, and the real values come from the project settings:
 
 ```ini
@@ -339,13 +382,14 @@ Trivial baselines are excluded from the adjustment by default but kept for loop 
 
 ### 9.4 Ginan (Phase 2)
 
-- Runs Ginan's `pea` executable as a sidecar, with a generated YAML config.
+- Runs Ginan's `pea` executable as a native process in the CLI and server, with a generated YAML config.
+- `pea` is a large C++ code base with heavy dependencies, so a WebAssembly build is investigated in M16 but not assumed. The web app reaches Ginan through a local `gnss serve` or an agency server that the user configures (sections 15 and 17).
 - Used for single-site PPP (an offline equivalent of AUSPOS), long baselines through PPP-derived constraints, and products that need bias handling.
-- Ginan is Apache-2.0, so linking would be allowed. We keep process isolation anyway for the reasons in section 9.2.
+- Ginan is Apache-2.0, so linking would be allowed. We keep process isolation anyway, for crash isolation and version pinning.
 
-### 9.5 Native engine (Phase 3)
+### 9.5 Rust engine (Phase 3)
 
-The native engine is a batch double-difference least squares solver for static sessions. It processes the whole session at once rather than filtering epoch by epoch, which suits static work better than RTKLIB's real-time-oriented Kalman filter. It also extends naturally to multi-baseline sessions with full correlations. Planned modules:
+Our own engine, written in Rust, is a batch double-difference least squares solver for static sessions. It processes the whole session at once rather than filtering epoch by epoch, which suits static work better than RTKLIB's real-time-oriented Kalman filter. It also extends naturally to multi-baseline sessions with full correlations. Planned modules:
 
 - observation modelling (PCO/PCV, troposphere, tides)
 - cycle-slip detection
@@ -353,7 +397,7 @@ The native engine is a batch double-difference least squares solver for static s
 - LAMBDA/MLAMBDA with partial ambiguity resolution and validation
 - covariance realism
 
-It only becomes the default once it matches or beats RTKLIB-EX on every benchmark gate.
+It's built as an engine module like RTKLIB-EX, so it runs the same way in the browser and the CLI. It only becomes the default once it matches or beats RTKLIB-EX on every benchmark gate.
 
 ## 10. Adjustment
 
@@ -493,9 +537,9 @@ Groups can be sessions, engines, receiver types or any other user-defined split.
 
 ### 11.5 Implementation (D-011)
 
-- **Native Rust** for the analytic pieces: ECEF and geodetic conversions, Helmert 7 and 14, plate motion and Transverse Mercator. They're small, fast and easy to test, and need no C dependency.
-- **Grids:** a native NTv2 and GeoTIFF grid reader for the GDA94 to GDA2020 grids and the geoid models. This avoids building PROJ on every platform.
-- **PROJ** serves as a test oracle, and optionally as a backend for jurisdictions whose transformations we haven't implemented natively.
+- **Our own Rust code** for the analytic pieces: ECEF and geodetic conversions, Helmert 7 and 14, plate motion and Transverse Mercator. They're small, fast and easy to test, need no C dependency, and compile to WebAssembly unchanged.
+- **Grids:** a Rust NTv2 and GeoTIFF grid reader for the GDA94 to GDA2020 grids and the geoid models. It reads grids in slices, so a large grid never has to fit in memory. This avoids shipping PROJ, which would have to be built for every platform and for WebAssembly.
+- **PROJ** serves as a test oracle, and optionally as a backend in native builds for jurisdictions whose transformations we haven't implemented ourselves.
 - **Validation** is against GeodePy, PROJ and the GDA2020 Technical Manual examples (see [VALIDATION.md](VALIDATION.md)).
 
 ### 11.6 Jurisdiction packs
@@ -525,6 +569,7 @@ kind = "geoid"
 file = "AUSGeoid2020.gsb"
 url = "<official download URL>"
 sha256 = "<hash>"
+browser = "relay"        # host sends no cross-origin headers (checked 2026-10-15)
 
 [standards]
 id = "icsm-sp1-v2.2"
@@ -534,9 +579,12 @@ id = "ga-gnss-archive"
 kind = "rinex"
 api = "https://data.gnss.ga.gov.au/api/rinexFiles"
 licence = "CC BY (confirm version with GA)"
+browser = "direct"       # API and archive downloads send cross-origin headers (checked 2026-10-15)
 ```
 
-Grid files are fetched and hash-verified rather than committed, unless their licence allows redistribution.
+`browser` says whether the web app can download from a source directly, because the host sends cross-origin headers, or needs the relay or a data pack (section 13).
+
+Grid files are fetched and hash-verified rather than committed or bundled, unless their licence allows redistribution.
 
 ## 12. Blunder checks
 
@@ -584,20 +632,88 @@ The initial catalogue (M9):
 
 - **Planner.** Given the occupations, it works out what's needed: CORS RINEX for each window, navigation data, orbits and clocks of the right latency, ANTEX and site logs.
 - **Sources** come from the jurisdiction pack. For Australia the GA GNSS Data Repository is available through its Web API, the S3 bucket `s3://ga-gnss-data-rinex-v1` and SFTP. Global products come from IGS mirrors that don't need a login.
-- **Downloader.** Resumable, with checksums, retries with backoff, and proxy support through standard environment variables.
-- **Cache.** A per-user cache shared across projects, keyed by content hash. Projects record exactly which files they used.
-- **Offline data packs.** A zip containing the files plus a manifest of sources, hashes and licences. A pack is exported on a connected machine and imported on an air-gapped one.
+- **Browser access.** A browser can only download from a host that sends cross-origin (HTTP CORS) headers, so each source in a pack declares whether the web app can reach it directly. The CLI isn't affected, since it downloads from any source directly. SFTP isn't available from a browser at all. Checked on 2026-10-15:
+
+  | Source | From the web app |
+  |---|---|
+  | GA Web API, its archive downloads (observation and navigation files) and the `ga-gnss-data-rinex-v1` bucket | Direct |
+  | `files.igs.org` (ANTEX, IGS station files) | Relay or data pack |
+  | The AUSGeoid2020 grid on its S3 host | Relay or data pack |
+  | The BKG and IGN IGS mirrors | Unknown: no response to the test |
+
+- **Relay.** Sources the browser can't reach go through an optional relay (`apps/relay`): a small, stateless proxy that forwards GET requests only to hosts declared in the packs, and keeps no logs or copies.
+  - It's off by default. The relay sees which files are requested (station, date and product), which hints at where and when a survey happened, so the app says so before it's first used.
+  - Agencies can host their own, the project may run a public instance, and `gnss serve` includes a private one on the user's own machine.
+- **The Australian v1 workflow should need no relay.**
+  - RINEX and broadcast navigation files come directly from GA. For baselines up to about 20 km, broadcast orbits should be adequate: their errors contribute roughly 0.1 ppm, a couple of millimetres at 20 km. The benchmark checks this.
+  - ANTEX and the AUSGeoid2020 grid are served with the app, and cached on first use, if their licences allow redistribution (to confirm in M7). Otherwise they come through the relay or a data pack.
+  - Precise orbits, clocks and biases, needed for Ginan and long baselines in Phase 2, come through the relay or a data pack.
+- **Downloader.** Resumable, with checksums and retries with backoff. The CLI supports proxies through standard environment variables; the browser uses the system's proxy settings.
+- **Cache.** A per-user cache shared across projects, keyed by content hash: in the user's cache directory natively, and in browser storage (OPFS) in the web app. Projects record exactly which files they used.
+- **Offline data packs.** A zip containing the files plus a manifest of sources, hashes and licences. A pack is exported on a connected machine, from the web app or the CLI, and imported on an air-gapped one. Packs are also how to bring in sources the browser can't reach without using a relay.
 - **Attribution.** Licence and attribution metadata follow the data into reports.
 
-## 14. Desktop UI
+## 14. Web app
+
+### 14.1 Runtime
+
+```mermaid
+flowchart LR
+  subgraph B[Browser]
+    UI["Main thread<br/>Svelte UI, MapLibre, uPlot"]
+    CORE["Core worker<br/>Rust core in WebAssembly"]
+    ENG["Engine workers<br/>a fresh module instance per run"]
+    SW["Service worker<br/>offline app cache"]
+  end
+  DISK[("Project folder on disk<br/>File System Access API")]
+  OPFS[("Browser storage (OPFS)<br/>cache, downloads, projects")]
+  NET["Data sources<br/>direct, or via the relay"]
+  SW -.->|serves the app offline| UI
+  UI <-->|typed commands and events| CORE
+  CORE <-->|module runs and outputs| ENG
+  CORE <--> DISK
+  CORE <--> OPFS
+  CORE --> NET
+```
+
+- **The main thread only renders.** The core runs in a dedicated worker, so long jobs never freeze the UI.
+- **Engine workers** form a pool sized to the machine's cores. Each module is compiled once, and each run gets a fresh instance (section 9.2). Workers exchange inputs and outputs by message passing, transferring buffers rather than copying them.
+- **No shared memory.** Shared-memory threads inside WebAssembly currently need a nightly Rust toolchain and cross-origin isolation headers, which restrict what a page can load and embed. v1 doesn't use them: baselines run in parallel across workers, and the core's maths runs single-threaded. Very large adjustments can use the CLI. We'll revisit this if the web performance targets need it.
+- **Loading on demand.** The core, the engine modules and the PDF generator load when first needed, and come from the cache after that.
+
+### 14.2 Storage and project folders
+
+| Browser | Where projects live |
+|---|---|
+| Chrome, Edge | A folder on disk, opened with the File System Access API and edited in place. It works alongside Git and other tools. The browser may ask for permission again in a new session. |
+| Firefox, Safari | Browser storage (OPFS). Projects are imported from a folder or zip and exported as a zip, because these browsers currently don't let a page write to a folder on disk. |
+
+- The cache and downloaded data live in browser storage (OPFS) in every browser.
+- Browsers can evict their storage, so the app requests persistent storage, shows how much it's using, and treats the folder on disk or an exported zip as the durable copy. Browser storage is working space, not a backup.
+- Raw files are hash-verified on load as before (section 6). In a folder on disk other programs can change them, and the hashes catch that.
+- Large files are read in slices, never loaded whole.
+
+### 14.3 Offline use and installation
+
+- A service worker caches each version of the app, so after the first visit it works without a network.
+- Where the browser supports it (Chrome and Edge, and Safari through Add to Dock or Add to Home Screen), the app can be installed and opened like a desktop app.
+- Air-gapped machines use a release bundle: the static site as a zip, with checksums and a signature (section 18). `gnss serve` serves it on localhost, which browsers treat as a secure context, so every feature works. Any intranet web server with HTTPS works too.
+
+### 14.4 Browser support
+
+- **Full support:** the current and previous major versions of Chrome and Edge on Windows, macOS and Linux. Windows is the primary platform, since most surveyors work there.
+- **Supported, with browser storage instead of folders on disk:** current Firefox and Safari.
+- **Field mode (M14):** Safari on iOS and Chrome on Android. The office workflow isn't designed for phones.
+- **Required features:** WebAssembly with SIMD, web workers, OPFS, service workers, and WebGL for the map. The app checks for them on start and explains anything that's missing.
+
+### 14.5 Interface
 
 - **Stack:**
-  - Tauri 2.
   - Svelte 5, TypeScript and Vite.
   - MapLibre GL JS for maps and uPlot for time series.
   - Custom canvas sky plots.
   - TanStack Table, virtualised, for large tables.
-  - Typed IPC via tauri-specta.
+  - Typed messages to the core worker, with TypeScript types generated from the command API by specta.
 - **Layout.** Map-centric, with docked panels: Project, Issues, Inspector, Adjustment and Jobs.
 - **Views:**
 
@@ -614,9 +730,14 @@ The initial catalogue (M9):
 - **Basemaps.** Providers are user-configurable, including ArcGIS basemap services with the user's own key. The app ships a small low-zoom world basemap as PMTiles, and supports offline PMTiles files. In offline mode, no tiles are fetched. Defaults respect provider usage policies (no bulk use of openstreetmap.org tiles).
 - **State.** The UI holds view state only. Domain state lives in the core, is read through the API and is updated by events.
 - **Accessibility.** Keyboard-first operation, screen reader labels, and light, dark and high-contrast outdoor themes.
-- **Security.** Minimal Tauri capabilities: only the commands the UI needs, file system access scoped to the project and cache, and a strict CSP.
+- **Security.**
+  - A strict Content Security Policy: scripts only from the app's own origin, plus `wasm-unsafe-eval` so WebAssembly can run. No inline scripts, third-party scripts or CDNs.
+  - Network requests go only to hosts declared in packs or added by the user, enforced in the fetch layer.
+  - Untrusted files are parsed in WebAssembly inside workers, so a parser bug is contained by both WebAssembly and the browser's sandbox.
 
 ## 15. CLI
+
+The CLI is the same core compiled natively. It's used for scripting and CI, the benchmark, batch work and very large networks, preparing data packs, and serving the web app locally. It runs the same engine modules as the web app through wasmtime, so its engine results match the web app's for the same inputs.
 
 ```
 gnss init <dir> --pack au
@@ -632,10 +753,12 @@ gnss report --format html|pdf
 gnss export --format dynaml|starnet|landxml|gpkg|csv
 gnss verify                     # re-run from scratch and compare output hashes
 gnss bench run --manifest benchmarks/<manifest>.toml
+gnss serve [--bundle <zip>]     # serve the web app on localhost, with a private relay
 ```
 
 - The binary name follows the project name (D-014).
 - Every command supports `--json`.
+- **`serve`** serves the web app that ships with the CLI, or a given release bundle. A web app served this way can also hand native-only jobs, such as Ginan, to the CLI. It listens on localhost only, checks the `Origin` and `Host` headers, and requires a per-session token, so other websites can't use it.
 - Exit codes:
 
   | Code | Meaning |
@@ -657,7 +780,8 @@ gnss bench run --manifest benchmarks/<manifest>.toml
 
 ## 17. Server and MCP (Phase 2)
 
-- **An axum server** exposes the command API over HTTP/JSON, with authentication and multiple projects, and can serve the same UI for agency deployments.
+- **Agency deployments.** The web app is static files, so any web server can host it internally.
+- **An axum server** exposes the command API over HTTP/JSON, with authentication and multiple projects. It's for headless and batch processing, and for native-only engines such as Ginan. The web app sends jobs to it only when the user configures it.
 - **An MCP server** exposes read and analysis tools, for example:
   - list issues
   - explain an observation's test statistics
@@ -666,16 +790,21 @@ gnss bench run --manifest benchmarks/<manifest>.toml
 
   Any write action requires explicit user approval and is recorded in provenance like any other change.
 
-## 18. Packaging, distribution and updates
+## 18. Distribution, versions and updates
 
-- **CLI:** cargo-dist, or a plain GitHub Actions matrix, builds archives and installers for each platform, with checksums.
-- **Desktop:** the Tauri bundler produces MSI for Windows, a DMG for macOS (Developer ID signed and notarised), and AppImage and .deb for Linux, with Flatpak later.
-- **Code signing:** Windows through SignPath (free for open-source projects) or a sponsored certificate; macOS through notarisation.
-- **Updates:** opt-in, with signed update manifests. Air-gapped builds compile the updater out.
+- **Web app.** Vite builds the UI, and the core and engine modules are compiled to WebAssembly. The result is static files. The host must let us set response headers, for the Content Security Policy now, and for cross-origin isolation if shared-memory threads are adopted later. Cloudflare Pages and Netlify allow this; GitHub Pages doesn't.
+- **Versions.**
+  - Each release is deployed at its own permanent URL (`/v/<version>/`) and never changed or removed. The site root serves the latest release.
+  - Every release is also published as a bundle: the static site as a zip, with checksums, an SBOM and a signature (Sigstore, from CI).
+  - Provenance records the app version and module hashes. When a project was last processed by a different version, the app says so and offers to open it in that version.
+  - All versions share the site's browser storage, so schema versions are checked on every open (section 6), and an older version refuses a newer project rather than misreading it.
+- **Updates.** A new version is announced in the app and takes effect on reload, never in the middle of a job. Air-gapped installations change only when someone installs a new bundle.
+- **CLI:** cargo-dist, or a plain GitHub Actions matrix, builds archives and installers for each platform, with checksums. Signing the CLI binaries (SignPath for Windows, notarisation for macOS) is a v1.0 goal but not a blocker, since the web app is the main way in.
 - **Supply chain:**
-  - an SBOM (cargo-cyclonedx) per release
-  - cargo-deny and cargo-audit in CI
-  - sidecars built from pinned source in CI
+  - an SBOM per release, covering the Rust crates (cargo-cyclonedx) and the JavaScript packages
+  - cargo-deny and cargo-audit in CI, plus licence and advisory checks for JavaScript packages
+  - engine modules built from pinned source in CI
+  - every asset served from the app's own origin, with no CDNs
   - reproducible builds as a goal
 
 ## 19. Security and privacy
@@ -683,31 +812,37 @@ gnss bench run --manifest benchmarks/<manifest>.toml
 - **Threats:**
   - untrusted input files (RINEX, vectors, field logs, products)
   - downloaded content
-  - sidecar binaries
+  - engine modules, and native binaries such as Ginan's `pea`
+  - tampering with the web app, through its host or its dependencies
   - sensitive coordinates
 - **Mitigations:**
   - memory-safe parsers with size limits, fuzzed in CI (cargo-fuzz)
-  - sidecar hashes verified at runtime
+  - parsers and engines run in WebAssembly inside workers, within the browser's sandbox
+  - engine module hashes verified before use
   - network access only to hosts declared in packs or by the user
+  - a strict Content Security Policy, and no third-party scripts
+  - immutable versioned deployments, and signed bundles for users who need to verify exactly what they run
+  - `gnss serve` listens on localhost only and rejects requests from other origins
   - a true offline mode
 - **Privacy:**
-  - no telemetry
-  - projects stay local
+  - no telemetry and no analytics scripts
+  - projects stay on the user's machine; the static host sees page requests like any website, never project data
+  - the relay is off by default, and the app explains what it can see before it's first used
   - nothing is uploaded anywhere unless the user explicitly configures a destination
 - **Process:** SECURITY.md with private vulnerability reporting, and a threat model doc maintained from M13.
 
 ## 20. Performance targets
 
-These are for an 8-core laptop.
+These are for an 8-core laptop. Web targets are for current Chrome or Edge, with the core's maths single-threaded (section 14.1). They're provisional until the M0 spike measures the real cost of WebAssembly.
 
-| Operation | Target |
-|---|---|
-| Adjust 1,000 marks and 3,000 vectors, including statistics | under 2 s |
-| Adjust 10,000 marks with selected inverse | under 60 s |
-| Process 50 baselines (2 h at 30 s) with RTKLIB-EX | under 1 min |
-| Ingest and QC a 24 h, 1 Hz RINEX 3 file | under 10 s |
-| Map with 10,000 marks and 30,000 vectors | smooth pan and zoom |
-| App cold start | under 2 s |
+| Operation | Native CLI | Web app |
+|---|---|---|
+| Adjust 1,000 marks and 3,000 vectors, including statistics | under 2 s | under 6 s |
+| Adjust 10,000 marks with selected inverse | under 60 s | under 5 min |
+| Process 50 baselines (2 h at 30 s) with RTKLIB-EX | under 1 min | under 2 min |
+| Ingest and QC a 24 h, 1 Hz RINEX 3 file | under 10 s | under 30 s |
+| Map with 10,000 marks and 30,000 vectors | n/a | smooth pan and zoom |
+| Start-up | n/a | under 2 s from cache; under 10 s on a first visit over a 25 Mbit/s connection |
 
 ## 21. Testing strategy
 
@@ -716,7 +851,8 @@ These are for an 8-core laptop.
 | Unit | Per crate, close to the code |
 | Property | proptest: transformation round trips, covariance propagation, invariance of test statistics to minimal constraints |
 | Golden files | Parsers, writers and reports compared against reviewed outputs |
-| Oracles | DynAdjust (adjustment), GeodePy and PROJ (datums), RTKLIB-EX (native engine, Phase 3) |
+| Oracles | DynAdjust (adjustment), GeodePy and PROJ (datums), RTKLIB-EX (Rust engine, Phase 3) |
+| Build parity | The same tests run on the native build and on the WebAssembly build in a headless browser (wasm-bindgen-test). Results agree within the tolerances in section 4, and engine modules give identical output hashes in wasmtime and in browsers. |
 | Benchmark | Engine accuracy and reliability against known truth ([VALIDATION.md](VALIDATION.md)) |
 | Fuzzing | Every parser, in CI |
-| UI | Component tests in the browser with a mocked API, and WebDriver end-to-end tests via tauri-driver on Windows and Linux |
+| UI | Component tests with a mocked core, and end-to-end tests with Playwright in Chromium, Firefox and WebKit |

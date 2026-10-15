@@ -22,10 +22,10 @@ This is the work plan: four phases broken into milestones, each with tasks, exit
 
 1. [ ] Pick the project name and check crates.io, PyPI, domains and trademarks (D-014, M0).
 2. [ ] Add LICENSE (Apache-2.0) and CONTRIBUTING with DCO sign-off (D-008, M0).
-3. [ ] Create the Cargo workspace and the CI matrix with cargo-deny (M0).
-4. [ ] Write the conventions doc covering units, frames, time, errors and numerics (M0).
-5. [ ] Implement the `datum` core types so every position carries a frame and an epoch (M1).
-6. [ ] Implement ECEF, geodetic and ENU conversions plus Helmert transformations, with property tests (M1).
+3. [ ] Create the Cargo workspace and the CI matrix, with native and WebAssembly builds and cargo-deny (M0).
+4. [ ] Run the engine spike: build RTKLIB-EX as a WebAssembly module and compare it with the native build. This confirms or revisits D-023 (M0).
+5. [ ] Write the conventions doc covering units, frames, time, errors, numerics and host access (M0).
+6. [ ] Implement the `datum` core types so every position carries a frame and an epoch, then ECEF, geodetic and ENU conversions plus Helmert transformations, with property tests (M1).
 7. [ ] Build the synthetic network generator, which the M2 tests depend on (M2).
 8. [ ] Implement a vector-only adjustment with minimal constraints and the global test (M2).
 9. [ ] Install DynAdjust locally and produce the first oracle outputs (M2, M4).
@@ -50,7 +50,7 @@ flowchart LR
     M7 --> M8
     M6 --> M9[M9 Blunder checks]
     M8 --> M10[M10 Benchmark v1]
-    M5 --> M11[M11 Desktop app]
+    M5 --> M11[M11 Web app]
     M8 --> M11
     M9 --> M11
     M3 --> M12[M12 Reporting]
@@ -68,7 +68,7 @@ flowchart LR
     M1 --> M19[M19 Jurisdictions]
   end
   subgraph P3["Phase 3 - v2.0"]
-    M10 --> M20[M20 Native engine]
+    M10 --> M20[M20 Rust engine]
     M20 --> M21[M21 Multi-baseline]
     M20 --> M22[M22 Dual-engine checks]
     M2 --> M23[M23 Terrestrial obs]
@@ -82,23 +82,34 @@ The critical path to v1.0 is M0 → M1 → M2 → M3 → M4 → M5 → M6 → M8
 
 ## Phase 0: Foundations and the second-opinion adjustment (v0.1)
 
-The goal is a CLI that rigorously adjusts imported GNSS vectors and reports the results. It's useful from day one to anyone who already has vectors, and it doesn't require anyone to trust our baseline processing.
+The goal is a tool that rigorously adjusts imported GNSS vectors and reports the results, in the browser and the CLI. It's useful from day one to anyone who already has vectors, and it doesn't require anyone to trust our baseline processing.
 
-### M0 Bootstrap [S]
+### M0 Bootstrap [M]
 
-**Goal:** a repo people can build, test and contribute to.
+**Goal:** a repo people can build, test and contribute to, and evidence that the browser-first architecture works (D-023). The engine spike makes this milestone M rather than S.
 
 - [ ] Choose the project name and check for conflicts (D-014).
 - [ ] Add LICENSE and NOTICE (Apache-2.0, D-008).
-- [ ] Create the Cargo workspace with empty crates per [ARCHITECTURE.md](ARCHITECTURE.md#2-repository-layout). Pin the stable toolchain in `rust-toolchain.toml` and use edition 2024.
-- [ ] Set up CI in GitHub Actions on Windows, macOS and Linux: `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`.
-- [ ] Add cargo-deny for licences, advisories, bans and sources. Deny GPL, AGPL and LGPL. Allow-list MPL-2.0 (D-005).
+- [ ] Create the Cargo workspace with empty crates per [ARCHITECTURE.md](ARCHITECTURE.md#2-repository-layout). Pin the stable toolchain in `rust-toolchain.toml`, with the `wasm32-unknown-unknown` target, and use edition 2024.
+- [ ] Set up CI in GitHub Actions on Windows, macOS and Linux: `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, plus a WebAssembly build of the core with its tests run in a headless browser.
+- [ ] Engine spike (D-023):
+  - [ ] Build RTKLIB-EX's `rnx2rtkp` as a WASI module with wasi-sdk, trying Emscripten if wasi-sdk proves impractical.
+  - [ ] Run it in a browser worker and in wasmtime, and confirm the output hashes are identical.
+  - [ ] Compare it with the native build on about 20 CORS-pair baselines from GA: solutions, covariances, fix decisions and ratios.
+  - [ ] Measure its speed and peak memory against the native build.
+  - [ ] Record the results in D-023, and set the web performance targets ([ARCHITECTURE.md](ARCHITECTURE.md#20-performance-targets)).
+- [ ] Web skeleton: a Vite and Svelte page that loads the core in a worker, opens a project folder (or uses OPFS where folders aren't available), and works offline through a service worker. Deploy it at a versioned URL on a static host that can set response headers.
+- [ ] Add cargo-deny for licences, advisories, bans and sources. Deny GPL, AGPL and LGPL. Allow-list MPL-2.0 (D-005). Apply the same licence policy to the web app's JavaScript packages.
 - [ ] Write CONTRIBUTING.md (DCO sign-off), CODE_OF_CONDUCT.md (Contributor Covenant), SECURITY.md, and issue and PR templates.
-- [ ] Write `docs/CONVENTIONS.md`: units, frames, epochs, time scales, covariance storage, error handling, logging, numerics and determinism.
+- [ ] Write `docs/CONVENTIONS.md`: units, frames, epochs, time scales, covariance storage, error handling, logging, numerics, host access and determinism.
 - [ ] Add an ADR template for decisions too big for the log.
 - [ ] Set up a GitHub project board with milestones M0 to M13 and labels (`area/*`, `type/*`, `good first issue`).
 
-**Exit criteria:** CI is green on all three operating systems with the empty crates. The licence, contribution docs and board are in place.
+**Exit criteria:**
+- CI is green on all three operating systems and for the WebAssembly build, with the empty crates.
+- The engine spike's results are recorded, and D-023 is confirmed or revisited.
+- The web skeleton is deployed.
+- The licence, contribution docs and board are in place.
 
 ### M1 Datum and geodesy core [M]
 
@@ -119,9 +130,9 @@ The goal is a CLI that rigorously adjusts imported GNSS vectors and reports the 
 - [ ] Grids:
   - [ ] NTv2 and geoid grid interpolation.
   - [ ] AUSGeoid2020 to convert ellipsoidal heights to AHD, including the model's uncertainty values.
-  - [ ] Decide between a native reader and PROJ (D-011).
+  - [ ] Decide between our own grid reader and PROJ (D-011). PROJ would also have to be built for WebAssembly.
 - [ ] Projections: MGA2020 and MGA94 (Transverse Mercator via the Krüger series), point scale factor, grid convergence and combined scale factor.
-- [ ] Australian jurisdiction pack v0 (`packs/au`): frames, transformations, and grid references with URLs and SHA-256 hashes.
+- [ ] Australian jurisdiction pack v0 (`packs/au`): frames, transformations, and grid references with URLs, SHA-256 hashes and whether browsers can download them directly.
 - [ ] Tests:
   - [ ] Property tests for round trips and covariance propagation.
   - [ ] Comparisons against GeodePy and PROJ on a published point set.
@@ -179,13 +190,13 @@ The goal is a CLI that rigorously adjusts imported GNSS vectors and reports the 
 **Exit criteria:**
 - The adjustment matches DynAdjust on the oracle networks within 0.1 mm for coordinates and 0.1% for the variance factor, and flags the same outliers.
 - Detection power on synthetic blunders is consistent with theory.
-- A network of 1,000 marks and 3,000 vectors adjusts in under 2 s on a laptop.
+- A network of 1,000 marks and 3,000 vectors adjusts in under 2 s natively on a laptop, and within the web target in the browser ([ARCHITECTURE.md](ARCHITECTURE.md#20-performance-targets)).
 
 **Depends on:** M0, M1.
 
 ### M3 Formats and CLI [M]
 
-**Goal:** get vectors in and results out, without a GUI.
+**Goal:** get vectors in and results out, in the browser and the CLI, before the full app exists.
 
 - [ ] Import vectors:
   - [ ] DynaML: GNSS baselines (type G) and baseline clusters (type X).
@@ -206,13 +217,15 @@ The goal is a CLI that rigorously adjusts imported GNSS vectors and reports the 
 - [ ] CLI commands: `init`, `import`, `adjust`, `report`, `export`.
   - [ ] A `--json` output mode.
   - [ ] A non-zero exit code when statistical tests fail, so the CLI can be used in scripts and CI.
+- [ ] A minimal web page: load vectors and control, run the adjustment and view the report, all in the browser. It builds on the M0 web skeleton; the full app comes in M11.
+- [ ] Check that GeoPackage export works in the browser (SQLite built for WebAssembly).
 - [ ] HTML report v0:
   - [ ] Network summary, statistics and outlier table.
   - [ ] Coordinates with PU, the RU table and loop closures.
   - [ ] Provenance.
 - [ ] Round-trip tests for every format, and fuzz targets for every parser.
 
-**Exit criteria:** someone with vectors from a commercial package (exported in a supported format or CSV) can run a second-opinion adjustment and get a report.
+**Exit criteria:** someone with vectors from a commercial package (exported in a supported format or CSV) can run a second-opinion adjustment and get a report, in the browser or with the CLI.
 
 **Depends on:** M2.
 
@@ -221,8 +234,9 @@ The goal is a CLI that rigorously adjusts imported GNSS vectors and reports the 
 **Goal:** the second-opinion tool in real users' hands.
 
 - [ ] Oracle suite in CI: DynAdjust outputs stored as golden files, plus a manual job to regenerate them.
-- [ ] Documentation: a user guide for the CLI second-opinion workflow, and a worked example on public data.
-- [ ] Release binaries for Windows, macOS and Linux, with checksums and an SBOM. Build with cargo-dist or a plain Actions matrix, and generate the SBOM with cargo-cyclonedx.
+- [ ] Documentation: a user guide for the second-opinion workflow in the browser and the CLI, and a worked example on public data.
+- [ ] Deploy the web page at a versioned URL, and publish its static bundle with checksums.
+- [ ] Release CLI binaries for Windows, macOS and Linux, with checksums and an SBOM. Build with cargo-dist or a plain Actions matrix, and generate the SBOM with cargo-cyclonedx.
 - [ ] Announce to pilot users and partners, and collect feedback as issues.
 
 **Exit criteria:** v0.1 is tagged, and at least three external users have run it on real data.
@@ -233,7 +247,7 @@ The goal is a CLI that rigorously adjusts imported GNSS vectors and reports the 
 
 ## Phase 1: Full static workflow (v0.3, v0.5 beta, v1.0)
 
-The goal is to go from RINEX and field logs to an adjusted, reported control survey in a desktop app, with blunder checks and a published benchmark.
+The goal is to go from RINEX and field logs to an adjusted, reported control survey in a web app, with blunder checks and a published benchmark.
 
 ### M5 Project model and pipeline [L]
 
@@ -253,7 +267,8 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 - [ ] Pipeline:
   - [ ] A DAG of steps: ingest → QC → baseline → vector set → adjustment → evaluation → report.
   - [ ] Node keys = hash(inputs, settings, tool versions), with a content-addressed cache.
-  - [ ] Parallel execution, cancellation and progress events.
+  - [ ] Parallel execution, cancellation and progress events, with an executor for each host: tokio and rayon natively, and workers in the browser.
+- [ ] Storage interface (`store`): the file system natively; the File System Access API and OPFS in the browser, with zip import and export.
 - [ ] Provenance:
   - [ ] An append-only JSONL record of every run: inputs, settings, versions, outputs and timing.
   - [ ] A `verify` command that re-runs everything and compares hashes.
@@ -261,7 +276,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 
 **Exit criteria:**
 - Changing one antenna height re-runs only the dependent nodes.
-- `verify` reproduces a project bit for bit on the same platform.
+- `verify` reproduces a project bit for bit with the same build: the web build on any operating system, and the native CLI on the same platform.
 
 **Depends on:** M4.
 
@@ -279,7 +294,8 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [ ] Multipath (code minus carrier).
   - [ ] SNR statistics, elevation coverage and data gaps.
   - [ ] Check all of these against Anubis and teqc-style reference outputs.
-- [ ] Open receiver formats (UBX, SBF, Unicore, NovAtel, RTCM3): decide between calling `convbin` from RTKLIB-EX and native Rust decoders (D-020).
+- [ ] Read large files in slices rather than whole, so a 24 h, 1 Hz file ingests in the browser within its target.
+- [ ] Open receiver formats (UBX, SBF, Unicore, NovAtel, RTCM3): decide between running `convbin` from RTKLIB-EX, as another WebAssembly module, and our own Rust decoders (D-020).
 
 **Exit criteria:**
 - The benchmark corpus ingests with QC metrics within tolerance of the reference tools.
@@ -299,15 +315,20 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 - [ ] Nearest-CORS suggestions ranked by distance and by data availability in the occupation window.
 - [ ] Products: broadcast navigation, plus precise orbits and clocks (final, rapid or ultra-rapid, chosen by latency). Record product versions in provenance.
 - [ ] Downloads:
-  - [ ] A cache with checksums.
+  - [ ] A cache with checksums: in the user's cache directory natively, and in OPFS in the web app.
   - [ ] Resumable downloads and proxy support.
   - [ ] Offline data packs: export and import a bundle for air-gapped machines.
+- [ ] Browser access ([details](ARCHITECTURE.md#13-data-fetch)):
+  - [ ] Record for each source whether the web app can download from it directly. GA's Web API and archive downloads can; `files.igs.org` and the AUSGeoid2020 grid host can't (checked 2026-10-15).
+  - [ ] Relay (`apps/relay`): optional and off by default, stateless, limited to pack-declared hosts, and with no logs. Self-hostable, and built into `gnss serve`. The app explains what the relay can see before it's first used.
+  - [ ] Confirm whether ANTEX and the AUSGeoid2020 grid may be redistributed with the app, so the Australian v1 workflow needs no relay.
 - [ ] Use site logs to check CORS antenna and receiver history against RINEX headers.
 - [ ] Respect data licences, and carry attribution (for example CC BY for GA data) into reports.
 
 **Exit criteria:**
-- Given a set of occupations, one command fetches everything needed.
+- Given a set of occupations, one command or one click fetches everything needed.
 - It works behind a proxy, and fully offline with a data pack.
+- The Australian v1 workflow works in the browser without the relay.
 
 **Depends on:** M5.
 
@@ -315,11 +336,11 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 
 **Goal:** reliable static baselines with honest quality information.
 
-- [ ] Sidecar build:
+- [ ] Module build:
   - [ ] Pin an RTKLIB-EX release.
-  - [ ] Build `rnx2rtkp` from source in CI for Windows x64, macOS arm64 and x64, and Linux x64 and arm64.
-  - [ ] Publish checksums, and record the version and hash in provenance.
-- [ ] Config generation from project settings ([details](ARCHITECTURE.md#93-rtklib-ex-sidecar)):
+  - [ ] Build `rnx2rtkp` from source in CI as a single WASI module, using the build from the M0 spike.
+  - [ ] Publish its checksum, and record the version and hash in provenance.
+- [ ] Config generation from project settings ([details](ARCHITECTURE.md#93-rtklib-ex-module)):
   - [ ] Static mode with a combined solution.
   - [ ] Frequencies and constellations.
   - [ ] Elevation and SNR masks.
@@ -327,7 +348,8 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [ ] Ambiguity resolution mode and thresholds.
   - [ ] Antenna types, deltas and ANTEX.
   - [ ] The base position from known coordinates.
-- [ ] Job runner: one process per baseline, a parallel pool, timeouts, stderr capture and crash handling.
+- [ ] Module hosts: a pool of engine workers in the browser and of wasmtime instances natively, with a fresh instance per run, timeouts, stderr capture and trap handling.
+- [ ] Before each run, trim each RINEX file to the overlap window and decimate it to the processing interval, to stay within WebAssembly's memory limit.
 - [ ] Output parsing:
   - [ ] The final solution and its covariance, including the signed off-diagonal terms.
   - [ ] Q flag, ratio and satellite count.
@@ -348,6 +370,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 - The CORS-pair benchmark subset processes at the expected fix rates.
 - Results feed the adjustment with covariances.
 - A failed baseline is explained, not just flagged.
+- The web app and the CLI give identical engine outputs for the same inputs.
 
 **Depends on:** M6, M7.
 
@@ -394,7 +417,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 
 - [ ] Dataset manifests for CORS-pair baselines across a grid of length × session window × conditions ([VALIDATION.md](VALIDATION.md#3-datasets)).
 - [ ] Truth propagation: published coordinates and velocities brought to the observation epoch, excluding equipment changes and discontinuities.
-- [ ] Runner: process, compare with truth, and compute fix rate, wrong-fix rate, error distributions and covariance realism.
+- [ ] Runner: process, compare with truth, and compute fix rate, wrong-fix rate, error distributions and covariance realism. It runs in the CLI, which uses the same engine modules as the web app, so the results apply to both.
 - [ ] Nightly CI job with a data cache. Publish a results dashboard on GitHub Pages, with regression diffs between runs.
 - [ ] Call for low-cost receiver datasets, with a contribution guide, a CC BY 4.0 licence and a metadata template.
 - [ ] Derive the minimum occupation needed for a 95% fix rate in each length bin. This feeds the guidance in M9 and M15.
@@ -405,12 +428,14 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 
 **Depends on:** M8.
 
-### M11 Desktop app [XL]
+### M11 Web app [XL]
 
-**Goal:** the full workflow in an app surveyors want to use.
+**Goal:** the full workflow in an app surveyors want to use, with nothing to install.
 
-- [ ] Tauri 2 shell with a Svelte and TypeScript UI, and typed bindings generated from the command API (tauri-specta).
-- [ ] Project explorer and import: drag and drop RINEX, field logs and vectors.
+- [ ] Web app shell: the Svelte and TypeScript UI on the main thread, the core in a worker, and typed messages generated from the command API (specta).
+- [ ] Project explorer and import:
+  - [ ] Open a project folder (Chrome, Edge), or import and export a zip (Firefox, Safari).
+  - [ ] Drag and drop RINEX, field logs and vectors.
 - [ ] Map (MapLibre GL):
   - [ ] Marks, occupations and baselines coloured by quality.
   - [ ] Error ellipses, loop closures and CORS.
@@ -428,10 +453,12 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [ ] PU and RU against the project spec.
 - [ ] Datum panel: show the working for every transformation.
 - [ ] Jobs: progress, cancel and logs.
+- [ ] Offline and installable: a service worker per version, an install prompt, persistent storage and a storage usage display.
 - [ ] Accessibility (keyboard navigation, contrast, screen reader labels), with light, dark and high-contrast outdoor themes.
+- [ ] End-to-end tests with Playwright in Chromium, Firefox and WebKit.
 - [ ] Usability sessions with at least five surveyors, then iterate. The v0.5 beta ships partway through this milestone.
 
-**Exit criteria:** pilot users complete the reference project end to end in the app without help.
+**Exit criteria:** pilot users complete the reference project end to end in the browser without help.
 
 **Depends on:** M5, M8, M9.
 
@@ -459,15 +486,16 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 
 **Goal:** production quality.
 
-- [ ] Installers: MSI for Windows, a notarised DMG for macOS, and AppImage and .deb for Linux.
-- [ ] Code signing, via SignPath for open-source projects or a sponsored certificate.
-- [ ] An opt-in updater with signed manifests. Compile it out of air-gapped builds.
+- [ ] Web release: an immutable deployment at a versioned URL, and a release bundle with checksums, an SBOM and a Sigstore signature.
+- [ ] `gnss serve`, for offline and air-gapped use of the bundle.
+- [ ] Version handling: announce new versions in the app, switch only on reload and never mid-job, and offer to open a project in the version that last processed it.
+- [ ] Sign the CLI binaries where practical: SignPath for Windows, notarisation for macOS.
 - [ ] Security:
   - [ ] Fuzzing in CI.
-  - [ ] SBOM, cargo-deny and cargo-audit.
-  - [ ] A threat model doc and minimal Tauri capabilities.
-  - [ ] Confirm there's no telemetry.
-- [ ] Performance targets met ([ARCHITECTURE.md](ARCHITECTURE.md#20-performance-targets)).
+  - [ ] SBOM, cargo-deny and cargo-audit, plus licence and advisory checks for JavaScript packages.
+  - [ ] A threat model doc and a strict Content Security Policy.
+  - [ ] Confirm there's no telemetry and no analytics scripts.
+- [ ] Performance targets met, native and web ([ARCHITECTURE.md](ARCHITECTURE.md#20-performance-targets)).
 - [ ] Documentation:
   - [ ] User guide.
   - [ ] Concepts (datums, statistics, reliability).
@@ -488,7 +516,7 @@ The goal is to remove field-to-office friction, cover long baselines, and meet u
 
 ### M14 Field capture [L]
 
-- [ ] Decide between a Tauri mobile app and a PWA (D-013).
+- [ ] Field mode in the web app (D-023), installable on phones and tablets.
 - [ ] Occupation log form:
   - [ ] Mark search, with nearby suggestions.
   - [ ] Receiver.
@@ -496,14 +524,14 @@ The goal is to remove field-to-office friction, cover long baselines, and meet u
   - [ ] Height method and value, with a photo of the tape.
   - [ ] Notes and operator.
 - [ ] Rough position from the phone's GNSS, for the mark-identity checks.
-- [ ] Offline-first storage, with bundle export and import.
-- [ ] Sync into the desktop project, with conflict handling.
+- [ ] Offline-first storage, with bundle export and import. Safari can evict storage for sites that aren't installed, so field mode asks users to install it and exports a bundle after each occupation.
+- [ ] Sync into the office project, with conflict handling.
 
 **Exit criteria:** field logs flow into projects without retyping, and the height, antenna and mark checks run on import.
 
 ### M15 In-field occupation check [M]
 
-- [ ] On a field laptop, process the current occupation against the nearest CORS when online, or with PPP otherwise. Report whether there's enough data, with fix status and estimated precision.
+- [ ] On a field laptop, process the current occupation against the nearest CORS when online, or with PPP otherwise (Ginan through the CLI, M16). Report whether there's enough data, with fix status and estimated precision.
 - [ ] Recommend minimum occupations by baseline length and conditions, based on the benchmark (M10).
 
 **Exit criteria:** field crews can decide to pack up based on evidence, which saves return trips to remote marks.
@@ -511,11 +539,12 @@ The goal is to remove field-to-office friction, cover long baselines, and meet u
 ### M16 Ginan integration [L]
 
 - [ ] Engine driver for Ginan's `pea`: configuration, products (orbits, clocks, biases) and outputs.
+- [ ] Run `pea` natively in the CLI and server, and let the web app hand jobs to them. Assess whether a WebAssembly build is practical.
 - [ ] Single-site PPP workflow, an offline equivalent of AUSPOS.
 - [ ] Long-baseline support through PPP-derived constraints.
 - [ ] Benchmark long baselines and single-site PPP against truth.
 
-**Exit criteria:** long-baseline and single-site results are validated and available in the app.
+**Exit criteria:** long-baseline and single-site results are validated, and available through the CLI and server, and from the web app when it's connected to either.
 
 ### M17 Python and ArcGIS Pro [M]
 
@@ -532,7 +561,7 @@ The goal is to remove field-to-office friction, cover long baselines, and meet u
 ### M18 Server and MCP [M]
 
 - [ ] An axum HTTP server exposing the command API, with authentication and multiple projects.
-- [ ] The same UI served over HTTP for agency deployments.
+- [ ] Agency deployments: the static web app hosted internally, with the server for headless, batch and native-only jobs.
 - [ ] An MCP server with read and analysis tools (explain outliers, summarise QA, propose fixes). Write actions require explicit approval.
 
 **Exit criteria:** headless deployment and agent access both work against the same core.
@@ -552,8 +581,9 @@ The goal is to remove field-to-office friction, cover long baselines, and meet u
 
 The goal is to go beyond RTKLIB rather than re-implement it, and to broaden what can be adjusted.
 
-### M20 Native batch double-difference engine [XL]
+### M20 Rust batch double-difference engine [XL]
 
+- [ ] Build it as an engine module, like RTKLIB-EX, so it runs the same way in the browser and the CLI.
 - [ ] Observation modelling:
   - [ ] Code and phase for GPS, Galileo and BeiDou (GLONASS later), multi-frequency.
   - [ ] PCO and PCV from ANTEX.
@@ -579,7 +609,7 @@ The goal is to go beyond RTKLIB rather than re-implement it, and to broaden what
 
 ### M22 Dual-engine cross-validation [S]
 
-- [ ] Process baselines with both RTKLIB-EX and the native engine, and flag disagreements larger than the combined uncertainty.
+- [ ] Process baselines with both RTKLIB-EX and the Rust engine, and flag disagreements larger than the combined uncertainty.
 
 **Exit criteria:** the disagreement check is on by default.
 
@@ -594,7 +624,7 @@ The goal is to go beyond RTKLIB rather than re-implement it, and to broaden what
 
 ### M24 Monitoring [L]
 
-- [ ] Continuous processing of permanent low-cost stations (hourly and daily solutions).
+- [ ] Continuous processing of permanent low-cost stations (hourly and daily solutions), in the CLI or server.
 - [ ] Time series, change detection and alert thresholds.
 - [ ] Reports for monitoring programs, such as tailings dams and landslides.
 
@@ -605,6 +635,7 @@ The goal is to go beyond RTKLIB rather than re-implement it, and to broaden what
 ## Every release
 
 - [ ] Changelog and upgrade notes, including project schema migrations.
+- [ ] Web app deployed at a new versioned URL, and its bundle published. Earlier versions stay up.
 - [ ] Benchmark report published, with regressions explained.
 - [ ] Security review of new parsers and network calls.
 - [ ] Accessibility check of new UI.

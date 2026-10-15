@@ -20,7 +20,7 @@ These suites are capable but cost thousands of dollars per seat, are closed, and
 
 | Tool | What it does | How we relate to it |
 |---|---|---|
-| RTKLIB-EX (formerly demo5) | Static, kinematic, PPK and PPP processing, tuned for modern receivers | v1 baseline engine, run as a sidecar (BSD-2; D-003) |
+| RTKLIB-EX (formerly demo5) | Static, kinematic, PPK and PPP processing, tuned for modern receivers | v1 baseline engine, run as a WebAssembly module (BSD-2; D-003, D-023) |
 | Ginan (Geoscience Australia) | Geodetic-grade PPP-AR and network processing | Phase 2 engine for PPP and long baselines (Apache-2.0; D-004) |
 | PRIDE PPP-AR | PPP with ambiguity resolution | Comparison reference only. GPL-3, so it's never linked. |
 | gLAB (ESA/UPC) | SPP, PPP and data analysis for teaching and research | Reference for QC metrics |
