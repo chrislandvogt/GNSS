@@ -27,7 +27,7 @@ Add new entries at the end with the next number. Never renumber an entry. Supers
 **Consequences:** a smaller contributor pool than Python. This is mitigated by Python bindings (M17), so scripting users never need Rust.
 
 ### D-002 Desktop UI: Tauri 2 with Svelte, MapLibre GL and uPlot
-**Status:** Accepted
+**Status:** Superseded by D-023. The Svelte, MapLibre GL and uPlot stack carries over; the Tauri shell doesn't.
 
 **Decision:** Tauri 2 shell, Svelte 5 + TypeScript UI, MapLibre GL JS maps, uPlot charts, and typed IPC generated with tauri-specta. All logic stays in Rust; the TypeScript is presentation only.
 
@@ -43,7 +43,7 @@ Add new entries at the end with the next number. Never renumber an entry. Supers
 **Consequences:** two languages in the repo. The rule that front ends contain no domain logic keeps the TypeScript thin.
 
 ### D-003 RTKLIB-EX as the v1 baseline engine, run as a sidecar process
-**Status:** Accepted
+**Status:** Accepted for the choice of engine. The sidecar execution model is superseded by D-023: RTKLIB-EX runs as a WebAssembly module.
 
 **Decision:** use RTKLIB-EX (formerly demo5, BSD-2), built from a pinned tag in CI, and run `rnx2rtkp` once per baseline as a separate process.
 
@@ -57,7 +57,7 @@ Add new entries at the end with the next number. Never renumber an entry. Supers
 - The engine envelope (roughly 20 km or less with sessions of 1 h or more) is published and enforced by checks.
 
 ### D-004 Ginan as the optional PPP and long-baseline engine (Phase 2)
-**Status:** Accepted
+**Status:** Accepted. Per D-023, Ginan runs natively (CLI and server) unless a WebAssembly build proves practical.
 
 **Decision:** integrate Geoscience Australia's Ginan (Apache-2.0) for single-site PPP and long baselines, run as a sidecar.
 
@@ -137,7 +137,7 @@ Add new entries at the end with the next number. Never renumber an entry. Supers
 **Decide by:** M12.
 
 ### D-013 Field capture platform
-**Status:** Open
+**Status:** Superseded by D-023. Field capture is a mode of the web app.
 
 **Options:**
 - **Tauri mobile app.** Native capabilities and the shared codebase, but app store distribution.
@@ -160,7 +160,7 @@ Add new entries at the end with the next number. Never renumber an entry. Supers
 **Why:** many target users work with sensitive locations or in air-gapped environments, and trust is the product.
 
 ### D-016 Supported platforms
-**Status:** Proposed
+**Status:** Superseded by D-023. The web app supports current browsers; this list now applies to the native CLI.
 
 **Decision:**
 - **Windows 10 and 11 x64** is the primary platform; most surveyors work there.
@@ -221,3 +221,40 @@ The tool shows the difference from adjusting directly in GDA2020, so the shortcu
 - It doesn't require users to trust our engine.
 - The adjustment's correctness can be validated against an oracle.
 - It builds the foundation the rest depends on.
+
+### D-023 Browser-first, local-first web app, with a native CLI
+**Status:** Accepted (confirm with the M0 engine spike; see Revisit)
+
+**Decision:**
+- The main front end is a web app that runs entirely in the user's browser. The Rust core is compiled to WebAssembly and runs in a web worker. The site is static files: there's no application server, and project data never leaves the user's machine unless they export it or configure a destination.
+- Projects stay folders on the user's disk (D-009), opened through the File System Access API in Chrome and Edge. Firefox and Safari keep projects in browser storage, with zip import and export.
+- RTKLIB-EX is compiled to a WebAssembly (WASI) module. The web app runs it in a pool of web workers, with a fresh instance for every run. The native CLI runs the same module with wasmtime.
+- The native CLI stays. It's the same core compiled for Windows, macOS and Linux. It runs the benchmark, CI, scripting and batch work, prepares data packs, and serves the web app for offline and air-gapped use. The Python bindings and the server build on the native crates as before.
+- The web app works offline once loaded, and can be installed as an app where the browser supports it.
+- Each release is deployed at its own permanent, versioned URL, and published as a downloadable bundle.
+- Data sources that browsers can't reach directly, because they don't send cross-origin headers, are fetched through an optional relay or brought in with an offline data pack.
+
+**Why:**
+- Nothing to install. Trying the tool takes a link, and it runs on locked-down agency machines where users can't install software.
+- It removes the installers, app code signing, the updater and the per-platform sidecar builds, which were a large share of the work for a single maintainer.
+- It stays local-first. Untrusted files are parsed inside WebAssembly, inside the browser's sandbox, which isolates them better than a native process does.
+- WebAssembly arithmetic is fully specified, so the same build gives bit-identical results on every operating system and browser.
+- There's one engine artifact everywhere, so CI benchmarks the exact RTKLIB-EX module that users run.
+- One code base covers the office, the field (phones and tablets) and agency self-hosting.
+- The UI stack from D-002 (Svelte, MapLibre GL and uPlot) carries over unchanged.
+
+**Alternatives:**
+- **Keep the Tauri desktop app (D-002).** Native speed and full file access, but the installers, signing and per-platform builds remain.
+- **Hosted processing (software as a service).** The simplest client, but survey data would leave the user's machine, offline use would be lost, and the project would have to run paid servers with accounts. It survives only as an optional, self-hosted agency server (M18).
+- **Wrap the web app in Tauri later.** Still possible, since the UI would be the same, if browser limits turn out to matter. Not planned.
+
+**Consequences:**
+- Supersedes D-002, D-013 and D-016, and the sidecar execution model in D-003. Ginan (D-004) runs natively, in the CLI and server, unless a WebAssembly build proves practical; the web app reaches it through a local CLI or an agency server. If `convbin` is chosen (D-020), it also runs as a WebAssembly module.
+- D-005's "separate process" boundary carries over to engine modules: they're built separately and talk to our code only through files and arguments. Confirm this reading before shipping any copyleft module.
+- Editing a project folder in place needs Chrome or Edge. Other browsers keep projects in browser storage, which the browser can evict, so the app requests persistent storage and treats the folder or an exported zip as the durable copy.
+- WebAssembly is slower than native code, and an instance's memory is limited to 4 GB at most. So the core trims and decimates RINEX before the engine sees it, and very large jobs can go to the CLI. The core's maths runs single-threaded in the browser, because shared-memory threads currently need a nightly Rust toolchain and cross-origin isolation headers. The web performance targets are set from the spike's measurements.
+- Some sources need the relay. GA's Web API and archive downloads send cross-origin headers; `files.igs.org` and the S3 host of the AUSGeoid2020 grid don't (all checked 2026-10-15). The relay sees which files are requested, which hints at where and when a survey happened, so it's off by default, self-hostable, and built into `gnss serve`.
+- The static host sees page requests, like any website, but never project data. There are no analytics scripts (D-015).
+- Users get a new version when they reload. Old versions stay at their URLs and as bundles, so a project can be re-run on the exact build that produced it.
+
+**Revisit:** if the M0 engine spike shows that RTKLIB-EX can't be built as a WebAssembly module, or that its results or speed are unacceptable compared with the native build. The fallback is to run it natively through the CLI, with the web app calling a local `gnss serve`, and to reconsider a desktop wrapper.

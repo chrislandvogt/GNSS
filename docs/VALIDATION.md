@@ -110,7 +110,7 @@ Baselines formed between continuously operating reference stations whose coordin
 | Detection power | Share of injected blunders at or above MDB that are flagged, compared with the theoretical β₀ |
 | Geodesy agreement | Max absolute difference against the references, per transformation type |
 | Check performance | Detection rate (recall) on D6 and false-alarm rate on clean projects, per check |
-| Reproducibility | Bitwise hash equality on the same platform, and max coordinate difference across platforms |
+| Reproducibility | Bitwise hash equality for the same build (the web build in any browser on any operating system, the native build on the same platform), and max coordinate difference between builds and platforms |
 | Speed | Processing and adjustment time against the targets in [ARCHITECTURE.md](ARCHITECTURE.md#20-performance-targets) |
 
 ## 6. Release gates
@@ -126,7 +126,7 @@ The values below are proposals. They'll be revisited after the first full benchm
 | G-ENG-2 | D2: low-cost receivers, up to 10 km, sessions of 1 h or more | Published from the first run; threshold set from those results |
 | G-COV | D1 and D2 fixed baselines | Empirical scale factor published; defaults updated when it shifts |
 | G-BLD | D6 | 100% detection by metadata checks where a field log exists; geometry-based checks at or above the theoretical power; false-alarm rate published |
-| G-REP | D7 | Bit-identical on the same platform; within 1e-6 m across platforms |
+| G-REP | D7 | Web build bit-identical across browsers and operating systems; native build bit-identical on the same platform; native and web builds, and native builds across platforms, within 1e-6 m |
 | G-REG | All | No metric regresses beyond its tolerance against the previous release without a documented, accepted reason |
 
 ## 7. Running it
@@ -135,8 +135,9 @@ The values below are proposals. They'll be revisited after the first full benchm
 |---|---|---|
 | Fast | Every PR | Unit, property and golden tests; D5; D4 oracle subset; an engine smoke set of about 20 cached baselines |
 | Nightly | Scheduled | Full D1 and D2 engine benchmark from cache, D6 blunder corpus, D7 reference projects |
-| Release | Tagged builds | Everything, plus cross-platform reproducibility and publication |
+| Release | Tagged builds | Everything, plus reproducibility across browsers, platforms and builds, and publication |
 
+- **One engine for both front ends.** The benchmark runs through the CLI, which runs the same engine modules as the web app (D-023), so the engine results apply to both.
 - **Data cache.** The GA archive is also available from a public S3 bucket in Sydney, which makes CI fetches cheap. Nightly runs use a persistent cache, on either a self-hosted runner or object storage.
 - **One-command reproduction:**
 
@@ -168,7 +169,7 @@ The values below are proposals. They'll be revisited after the first full benchm
   - covariance realism plots
   - check performance
   - trends over time
-- **Machine-readable results** (JSON) alongside, with the manifest hash and the versions of the software, sidecars and products.
+- **Machine-readable results** (JSON) alongside, with the manifest hash and the versions of the software, engine modules and products.
 - **Each release report** lists its gate results and explains any accepted regressions.
 
 ## 9. Data licensing and ethics

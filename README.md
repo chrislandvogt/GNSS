@@ -19,14 +19,14 @@ The baseline maths is largely solved. What actually costs surveyors time and mon
 
 ## What this project will be
 
-A cross-platform desktop app, CLI and library that makes a static GNSS survey **correct by construction and defensible**:
+A web app that runs entirely in your browser, plus a CLI and library, that makes a static GNSS survey **correct by construction and defensible**:
 
 - **Blunder detection** that reconciles field logs against RINEX headers and catches height, antenna and mark-ID errors before they reach the adjustment.
 - **A rigorous least squares adjustment that explains itself**: minimally constrained and constrained solutions, variance component estimation, global test, w-tests, reliability, loop closures, and uncertainty reporting per ICSM SP1.
 - **Datums by construction**: every coordinate carries its frame and epoch, and every transformation is explicit and shown.
 - **No data chasing**: CORS RINEX, orbits, clocks and ANTEX are fetched and cached automatically, or loaded from an offline data pack.
 - **Reproducible, offline projects**: a project is a folder that works in Git, processing is a cached build graph, and every result records exactly how it was produced.
-- **Swappable engines**: RTKLIB-EX first, Ginan for long baselines and PPP, a native Rust engine later.
+- **Swappable engines**: RTKLIB-EX first, Ginan for long baselines and PPP, our own Rust engine later.
 - **Validated in public**: a benchmark of baselines with known answers runs in CI and is published with every release.
 
 ## Who it's for
@@ -39,7 +39,7 @@ A cross-platform desktop app, CLI and library that makes a static GNSS survey **
 
 ## Tech
 
-The core is in Rust, which gives one installer, memory-safe parsing and plenty of speed. The desktop app is Tauri 2 with a Svelte and MapLibre UI. RTKLIB-EX runs as a separate sidecar process, and Python bindings support scripting and ArcGIS Pro. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The core is in Rust, which gives memory-safe parsing and plenty of speed, and compiles both to WebAssembly and to native code. The main app is a web app with a Svelte and MapLibre UI. It runs entirely in your browser: there's nothing to install, your survey data never leaves your machine, and it works offline once loaded. RTKLIB-EX runs inside it as a WebAssembly module. A native CLI runs the same core for scripting, batch work and the benchmark, and Python bindings support ArcGIS Pro. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and decision [D-023](docs/DECISIONS.md).
 
 ## Documents
 
