@@ -1,17 +1,20 @@
-// End-to-end smoke test of the web app in Chromium, under the production
-// Content Security Policy:
+// End-to-end smoke test of the web app in a browser engine, under the
+// production Content Security Policy:
 //   1. the core loads in its worker and reports a web build,
 //   2. the engine workers download, verify and compile the RTKLIB-EX module,
 //   3. the engine reproduces the golden output for RTKLIB's own test case
 //      (engine-modules/rtklib-ex/golden.sha256) byte for byte,
 //   4. the page logs no errors.
 //
-// Usage: node tests/engine-smoke.mjs <directory with RTKLIB's test/data/rinex files>
+// Usage: [BROWSER=chromium|firefox|webkit] node tests/engine-smoke.mjs <RTKLIB test/data/rinex directory>
+//
+// Run it in all three engines to check that WebAssembly gives byte-identical
+// engine output in every browser (D-023).
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { chromium } from 'playwright'
+import { chromium, firefox, webkit } from 'playwright'
 import { serve } from './static-server.mjs'
 
 const ui = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
@@ -25,8 +28,21 @@ const golden = readFileSync(path.resolve(ui, '../../../engine-modules/rtklib-ex/
   .find((line) => line.endsWith(' test4.pos'))
   .split(/\s+/)[0]
 
+const engines = { chromium, firefox, webkit }
+const engineName = process.env.BROWSER ?? 'chromium'
+if (!engines[engineName]) {
+  console.error(`unknown BROWSER '${engineName}': use chromium, firefox or webkit`)
+  process.exit(2)
+}
+
+let browser
+try {
+  browser = await engines[engineName].launch()
+} catch (err) {
+  console.error(`couldn't launch ${engineName} (install it with: npx playwright install ${engineName})\n${err.message}`)
+  process.exit(2)
+}
 const server = await serve(path.join(ui, 'dist'), { 'test-data': testData })
-const browser = await chromium.launch()
 let failed = false
 try {
   const page = await browser.newPage()
@@ -37,7 +53,7 @@ try {
   await page.goto(`${server.origin}/?harness=1`)
   await page.waitForFunction(() => window.__gnssHarness)
   const info = await page.evaluate(() => window.__gnssHarness.coreInfo())
-  console.log(`core ${info.version} (${info.build}) in Chromium ${browser.version()}`)
+  console.log(`core ${info.version} (${info.build}) in ${engineName} ${browser.version()}`)
   if (info.build !== 'web') throw new Error(`expected the web build, got ${info.build}`)
 
   await page.evaluate(() => window.__gnssHarness.engineReady())

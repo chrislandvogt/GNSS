@@ -131,10 +131,15 @@ jobs:
       - run: npm run build
       - name: Type-check
         run: npm run check
-      - name: Install Chromium for Playwright
-        run: npx playwright install --with-deps chromium
+      - name: Install browsers for Playwright
+        run: npx playwright install --with-deps chromium firefox webkit
+      # The engine must give byte-identical output in every browser engine (D-023).
       - name: End-to-end engine test in Chromium
         run: npm run test:e2e -- ../../../engine-modules/rtklib-ex/dist/testdata
+      - name: End-to-end engine test in Firefox
+        run: BROWSER=firefox npm run test:e2e -- ../../../engine-modules/rtklib-ex/dist/testdata
+      - name: End-to-end engine test in WebKit
+        run: BROWSER=webkit npm run test:e2e -- ../../../engine-modules/rtklib-ex/dist/testdata
       - name: End-to-end app test in Chromium (storage, hashing, offline)
         run: npm run test:app
       - name: Upload the deployable site
