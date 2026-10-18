@@ -1,0 +1,41 @@
+name: Bug report
+description: Something gives a wrong answer, fails or crashes.
+labels: ["type/bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Don't attach data, coordinates or project files from security-sensitive locations.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include the exact error, or the result you got.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: For a wrong answer, how you know the right one (another package, known coordinates, a hand calculation).
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest input and the commands or clicks that show the problem.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version and build
+      description: The app version, and whether it's the web app or the CLI (`gnss --version`).
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Browser and operating system
+      placeholder: Chrome 141 on Windows 11

@@ -1,0 +1,28 @@
+name: Feature request
+description: Something the tool should do, or do differently.
+labels: ["type/feature"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you're trying to do, and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help
+      description: How you'd like it to work. If you rely on a standard or guideline (for example SP1), name it.
+  - type: dropdown
+    id: role
+    attributes:
+      label: Your role
+      options:
+        - Surveyor
+        - Geodesist or researcher
+        - Educator or student
+        - Low-cost receiver user
+        - Agency or government
+        - Developer
+        - Other
