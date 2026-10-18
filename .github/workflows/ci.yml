@@ -135,6 +135,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: End-to-end engine test in Chromium
         run: npm run test:e2e -- ../../../engine-modules/rtklib-ex/dist/testdata
+      - name: End-to-end app test in Chromium (storage, hashing, offline)
+        run: npm run test:app
       - name: Upload the deployable site
         uses: actions/upload-artifact@v4
         with:

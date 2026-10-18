@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "licences": "node scripts/check-licences.mjs",
-    "test:e2e": "node tests/engine-smoke.mjs"
+    "test:e2e": "node tests/engine-smoke.mjs",
+    "test:app": "node tests/app.mjs"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.0",

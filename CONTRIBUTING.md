@@ -31,7 +31,16 @@ CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
   --workspace --exclude gnss-engine-host --exclude gnss-cli --exclude gnss-relay
 ```
 
-CI runs the same checks on Windows, macOS and Linux, plus cargo-deny.
+For the web app, in `apps/web/ui` (needs the engine module built, see [engine-modules/rtklib-ex](engine-modules/rtklib-ex/README.md)):
+
+```bash
+npm ci
+npm run licences && npm run build && npm run check
+npm run test:e2e -- <RTKLIB-EX checkout>/test/data/rinex   # engine in Chromium vs golden output
+npm run test:app                                           # storage, hashing and offline use
+```
+
+CI runs the same checks, with the Rust ones on Windows, macOS and Linux, plus cargo-deny.
 
 ## Conventions
 
