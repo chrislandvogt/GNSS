@@ -1,0 +1,178 @@
+{
+  "spike": "M0 engine spike (D-023)",
+  "date": "2025-06-15",
+  "source": "GA GNSS Data Repository, daily 30 s RINEX 3",
+  "baselines": [
+    {
+      "base": "KAT1",
+      "rover": "KAT2",
+      "length_km": 0.132,
+      "bin_km": [
+        0.05,
+        1.0
+      ]
+    },
+    {
+      "base": "STR1",
+      "rover": "STR2",
+      "length_km": 0.07,
+      "bin_km": [
+        0.05,
+        1.0
+      ]
+    },
+    {
+      "base": "HOB2",
+      "rover": "HOB5",
+      "length_km": 0.21,
+      "bin_km": [
+        0.05,
+        1.0
+      ]
+    },
+    {
+      "base": "GLB2",
+      "rover": "GLBN",
+      "length_km": 1.192,
+      "bin_km": [
+        1.0,
+        5.0
+      ]
+    },
+    {
+      "base": "EML2",
+      "rover": "PKVL",
+      "length_km": 1.489,
+      "bin_km": [
+        1.0,
+        5.0
+      ]
+    },
+    {
+      "base": "SFLD",
+      "rover": "SWTC",
+      "length_km": 3.258,
+      "bin_km": [
+        1.0,
+        5.0
+      ]
+    },
+    {
+      "base": "NEWE",
+      "rover": "NWCS",
+      "length_km": 2.286,
+      "bin_km": [
+        1.0,
+        5.0
+      ]
+    },
+    {
+      "base": "BNDR",
+      "rover": "HBRG",
+      "length_km": 7.939,
+      "bin_km": [
+        5.0,
+        10.0
+      ]
+    },
+    {
+      "base": "MTHR",
+      "rover": "SNGO",
+      "length_km": 9.593,
+      "bin_km": [
+        5.0,
+        10.0
+      ]
+    },
+    {
+      "base": "CNCD",
+      "rover": "SYDN",
+      "length_km": 9.696,
+      "bin_km": [
+        5.0,
+        10.0
+      ]
+    },
+    {
+      "base": "CHSM",
+      "rover": "SYM1",
+      "length_km": 9.166,
+      "bin_km": [
+        5.0,
+        10.0
+      ]
+    },
+    {
+      "base": "KEPK",
+      "rover": "SUNB",
+      "length_km": 17.975,
+      "bin_km": [
+        10.0,
+        20.0
+      ]
+    },
+    {
+      "base": "MENA",
+      "rover": "PCTN",
+      "length_km": 13.254,
+      "bin_km": [
+        10.0,
+        20.0
+      ]
+    },
+    {
+      "base": "MTLD",
+      "rover": "RAYM",
+      "length_km": 17.586,
+      "bin_km": [
+        10.0,
+        20.0
+      ]
+    },
+    {
+      "base": "KIRR",
+      "rover": "WFAL",
+      "length_km": 12.391,
+      "bin_km": [
+        10.0,
+        20.0
+      ]
+    },
+    {
+      "base": "MANY",
+      "rover": "MURR",
+      "length_km": 26.103,
+      "bin_km": [
+        20.0,
+        50.0
+      ]
+    },
+    {
+      "base": "5MGB",
+      "rover": "STRH",
+      "length_km": 33.819,
+      "bin_km": [
+        20.0,
+        50.0
+      ]
+    },
+    {
+      "base": "LCL2",
+      "rover": "MAFF",
+      "length_km": 49.797,
+      "bin_km": [
+        20.0,
+        50.0
+      ]
+    },
+    {
+      "base": "RUTH",
+      "rover": "WDNG",
+      "length_km": 31.598,
+      "bin_km": [
+        20.0,
+        50.0
+      ]
+    }
+  ]
+}
