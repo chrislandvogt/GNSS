@@ -1,0 +1,17 @@
+# Spike tooling, not part of the workspace: the C maths functions that
+# rnx2rtkp imports, implemented by the libm crate, for loading into a native
+# glibc build with LD_PRELOAD. See libm_check.py.
+[package]
+name = "libm-shim"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+libm = "=0.2.16"
+
+[workspace]

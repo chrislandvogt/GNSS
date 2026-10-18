@@ -9,8 +9,10 @@ node_modules/
 /engine-modules/*/.src/
 /engine-modules/*/dist/
 
-# Benchmark and spike working data (downloads, runs, results)
+# Benchmark and spike working data (downloads, runs, results) and tool builds
 /benchmarks/*/work/
+/benchmarks/*/*/target/
+__pycache__/
 
 # Editors and operating systems
 .DS_Store

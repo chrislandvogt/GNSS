@@ -11,7 +11,8 @@ These scripts are spike tooling: plain Python and Node, kept so the results can 
 3. **`run.py`** runs every baseline through each build given to it, natively and under wasmtime. It records the SHA-256 of each solution file, the wall time and the peak memory in `work/results/runs.jsonl`.
 4. **`browser/run_browser.mjs`** runs the same cases through the web app's engine workers in headless Chromium, under the production Content Security Policy.
 5. **`trim_rinex.py`** trims observations to the 2-hour session window, as the engine driver will (ARCHITECTURE.md 9.3), for the timing pass.
-6. **`compare.py`** summarises parity, solution quality and timings.
+6. **`compare.py`** summarises parity, solution quality and timings, per baseline.
+7. **`libm_check.py`** runs RTKLIB's own test data through several builds in five modes, writes every epoch, and compares them with the first build. **`libm-shim/`** is a small library that replaces a glibc build's maths functions with the `libm` crate's, to show whether differences come from the maths library.
 
 Each baseline is run as four cases: a 2-hour session (02:00 to 04:00 GPST) as combined, forward-only and backward-only solutions, plus the whole day as a combined solution. The configuration is `spike.conf`.
 
@@ -35,7 +36,31 @@ python run.py --antex <rtklib>/data/ant/igs14.atx \
 node browser/run_browser.mjs
 
 python compare.py
+
+# The timing pass, on an otherwise idle machine: five baselines, the 2-hour case
+# three times with whole-day and with trimmed inputs, and the whole day once.
+# Results are appended, so remove work/results/timing.jsonl first.
+python trim_rinex.py
+PAIRS=STR1-STR2,SFLD-SWTC,CNCD-SYDN,KEPK-SUNB,RUTH-WDNG
+BUILDS=(--build native=... --build wasmtime=...)   # as above
+python run.py --log timing.jsonl --only $PAIRS --cases 2h-combined --repeat 3 --antex <atx> "${BUILDS[@]}"
+python run.py --log timing.jsonl --only $PAIRS --cases 2h-combined --repeat 3 --trimmed --antex <atx> "${BUILDS[@]}"
+python run.py --log timing.jsonl --only $PAIRS --cases 24h-combined --antex <atx> "${BUILDS[@]}"
+node browser/run_browser.mjs --log timing.jsonl --only $PAIRS --cases 2h-combined --repeat 3
+node browser/run_browser.mjs --log timing.jsonl --only $PAIRS --cases 2h-combined --repeat 3 --trimmed
+node browser/run_browser.mjs --log timing.jsonl --only $PAIRS --cases 24h-combined
+python compare.py
+
+# The maths library check, on RTKLIB's own test data.
+cargo build --release --manifest-path libm-shim/Cargo.toml
+NATIVE=$PWD/../../engine-modules/rtklib-ex/dist/rnx2rtkp-native
+python libm_check.py --data <rtklib>/test/data/rinex \
+  --build wasmtime="wasmtime run --dir . $PWD/../../engine-modules/rtklib-ex/dist/rnx2rtkp.wasm" \
+  --build glibc=$NATIVE \
+  --build glibc+libm-crate="env LD_PRELOAD=$PWD/libm-shim/target/release/liblibm_shim.so $NATIVE"
 ```
+
+The native build from `build.sh --native` uses the system's C compiler, so on most Linux systems it links glibc. A musl build for comparison can be made with `zig cc -target x86_64-linux-musl` and the same flags.
 
 Downloaded data and results go in `work/`, which isn't committed. The data is about 1.3 GB.
 
