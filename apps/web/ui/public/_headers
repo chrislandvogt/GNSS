@@ -1,0 +1,11 @@
+# Response headers for static hosts that support this file (Cloudflare Pages,
+# Netlify). See ARCHITECTURE.md sections 14.5 and 18. Hosts listed in packs
+# are added to connect-src as data fetching arrives (M7).
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Cross-Origin-Opener-Policy: same-origin
+
+/sw.js
+  Cache-Control: no-cache
