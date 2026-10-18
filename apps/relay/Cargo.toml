@@ -1,0 +1,12 @@
+[package]
+name = "gnss-relay"
+description = "Optional relay for data sources that browsers can't reach directly."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
