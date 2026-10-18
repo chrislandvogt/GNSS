@@ -21,10 +21,10 @@ This is the work plan: four phases broken into milestones, each with tasks, exit
 ## Start here: the first ten tasks
 
 1. [ ] Pick the project name and check crates.io, PyPI, domains and trademarks (D-014, M0).
-2. [ ] Add LICENSE (Apache-2.0) and CONTRIBUTING with DCO sign-off (D-008, M0).
-3. [ ] Create the Cargo workspace and the CI matrix, with native and WebAssembly builds and cargo-deny (M0).
-4. [ ] Run the engine spike: build RTKLIB-EX as a WebAssembly module and compare it with the native build. This confirms or revisits D-023 (M0).
-5. [ ] Write the conventions doc covering units, frames, time, errors, numerics and host access (M0).
+2. [x] Add LICENSE (Apache-2.0) and CONTRIBUTING with DCO sign-off (D-008, M0).
+3. [x] Create the Cargo workspace and the CI matrix, with native and WebAssembly builds and cargo-deny (M0).
+4. [x] Run the engine spike: build RTKLIB-EX as a WebAssembly module and compare it with the native build. This confirms or revisits D-023 (M0).
+5. [x] Write the conventions doc covering units, frames, time, errors, numerics and host access (M0).
 6. [ ] Implement the `datum` core types so every position carries a frame and an epoch, then ECEF, geodetic and ENU conversions plus Helmert transformations, with property tests (M1).
 7. [ ] Build the synthetic network generator, which the M2 tests depend on (M2).
 8. [ ] Implement a vector-only adjustment with minimal constraints and the global test (M2).
@@ -89,21 +89,22 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 **Goal:** a repo people can build, test and contribute to, and evidence that the browser-first architecture works (D-023). The engine spike makes this milestone M rather than S.
 
 - [ ] Choose the project name and check for conflicts (D-014).
-- [ ] Add LICENSE and NOTICE (Apache-2.0, D-008).
-- [ ] Create the Cargo workspace with empty crates per [ARCHITECTURE.md](ARCHITECTURE.md#2-repository-layout). Pin the stable toolchain in `rust-toolchain.toml`, with the `wasm32-unknown-unknown` target, and use edition 2024.
-- [ ] Set up CI in GitHub Actions on Windows, macOS and Linux: `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, plus a WebAssembly build of the core with its tests run in a headless browser.
-- [ ] Engine spike (D-023):
-  - [ ] Build RTKLIB-EX's `rnx2rtkp` as a WASI module with wasi-sdk, trying Emscripten if wasi-sdk proves impractical.
-  - [ ] Run it in a browser worker and in wasmtime, and confirm the output hashes are identical.
-  - [ ] Compare it with the native build on about 20 CORS-pair baselines from GA: solutions, covariances, fix decisions and ratios.
-  - [ ] Measure its speed and peak memory against the native build.
-  - [ ] Record the results in D-023, and set the web performance targets ([ARCHITECTURE.md](ARCHITECTURE.md#20-performance-targets)).
-- [ ] Web skeleton: a Vite and Svelte page that loads the core in a worker, opens a project folder (or uses OPFS where folders aren't available), and works offline through a service worker. Deploy it at a versioned URL on a static host that can set response headers.
-- [ ] Add cargo-deny for licences, advisories, bans and sources. Deny GPL, AGPL and LGPL. Allow-list MPL-2.0 (D-005). Apply the same licence policy to the web app's JavaScript packages.
-- [ ] Write CONTRIBUTING.md (DCO sign-off), CODE_OF_CONDUCT.md (Contributor Covenant), SECURITY.md, and issue and PR templates.
-- [ ] Write `docs/CONVENTIONS.md`: units, frames, epochs, time scales, covariance storage, error handling, logging, numerics, host access and determinism.
-- [ ] Add an ADR template for decisions too big for the log.
-- [ ] Set up a GitHub project board with milestones M0 to M13 and labels (`area/*`, `type/*`, `good first issue`).
+- [x] Add LICENSE and NOTICE (Apache-2.0, D-008). The maintainer confirms the licence and copyright line before merging.
+- [x] Create the Cargo workspace with empty crates per [ARCHITECTURE.md](ARCHITECTURE.md#2-repository-layout). Pin the stable toolchain in `rust-toolchain.toml`, with the `wasm32-unknown-unknown` target, and use edition 2024.
+- [x] Set up CI in GitHub Actions on Windows, macOS and Linux: `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, plus a WebAssembly build of the core with its tests run in a headless browser.
+- [x] Engine spike (D-023). Results: [docs/spikes/m0-engine.md](spikes/m0-engine.md).
+  - [x] Build RTKLIB-EX's `rnx2rtkp` as a WASI module with wasi-sdk, trying Emscripten if wasi-sdk proves impractical.
+  - [x] Run it in a browser worker and in wasmtime, and confirm the output hashes are identical.
+  - [x] Compare it with the native build on about 20 CORS-pair baselines from GA: solutions, covariances, fix decisions and ratios.
+  - [x] Measure its speed and peak memory against the native build.
+  - [x] Record the results in D-023, and set the web performance targets ([ARCHITECTURE.md](ARCHITECTURE.md#20-performance-targets)).
+- [x] Web skeleton: a Vite and Svelte page that loads the core in a worker, opens a project folder (or uses OPFS where folders aren't available), and works offline through a service worker.
+- [ ] Deploy the web skeleton at a versioned URL on a static host that can set response headers. Needs the maintainer to choose a host and create the account (Cloudflare Pages or Netlify; CI already builds the deployable site).
+- [x] Add cargo-deny for licences, advisories, bans and sources. Deny GPL, AGPL and LGPL. Allow-list MPL-2.0 (D-005). Apply the same licence policy to the web app's JavaScript packages.
+- [x] Write CONTRIBUTING.md (DCO sign-off), CODE_OF_CONDUCT.md (Contributor Covenant), SECURITY.md, and issue and PR templates. The maintainer adds the Code of Conduct contact and enables private vulnerability reporting.
+- [x] Write `docs/CONVENTIONS.md`: units, frames, epochs, time scales, covariance storage, error handling, logging, numerics, host access and determinism.
+- [x] Add an ADR template for decisions too big for the log.
+- [ ] Set up a GitHub project board with milestones M0 to M13 and labels (`area/*`, `type/*`, `good first issue`). `scripts/setup-github.ps1` creates the milestones and labels; the board itself is created on GitHub.
 
 **Exit criteria:**
 - CI is green on all three operating systems and for the WebAssembly build, with the empty crates.
@@ -337,8 +338,8 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 **Goal:** reliable static baselines with honest quality information.
 
 - [ ] Module build:
-  - [ ] Pin an RTKLIB-EX release.
-  - [ ] Build `rnx2rtkp` from source in CI as a single WASI module, using the build from the M0 spike.
+  - [x] Pin an RTKLIB-EX release (done in M0: v2.5.1).
+  - [x] Build `rnx2rtkp` from source in CI as a single WASI module, using the build from the M0 spike (done in M0: `engine-modules/rtklib-ex`).
   - [ ] Publish its checksum, and record the version and hash in provenance.
 - [ ] Config generation from project settings ([details](ARCHITECTURE.md#93-rtklib-ex-module)):
   - [ ] Static mode with a combined solution.
@@ -348,12 +349,14 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [ ] Ambiguity resolution mode and thresholds.
   - [ ] Antenna types, deltas and ANTEX.
   - [ ] The base position from known coordinates.
-- [ ] Module hosts: a pool of engine workers in the browser and of wasmtime instances natively, with a fresh instance per run, timeouts, stderr capture and trap handling.
-- [ ] Before each run, trim each RINEX file to the overlap window and decimate it to the processing interval, to stay within WebAssembly's memory limit.
+- [ ] Module hosts: a pool of engine workers in the browser and of wasmtime instances natively, with a fresh instance per run, timeouts, stderr capture and trap handling. Size the browser pool by memory as well as cores (about 90 MB per 2-hour run, 228 MB for a whole day at 30 s).
+- [ ] Before each run, trim each RINEX file to the overlap window and decimate it to the processing interval. This keeps runs within WebAssembly's memory limit and roughly halves their time in the browser (M0 spike).
+- [ ] Check that the navigation data covers every constellation being processed, and refuse to run otherwise. In the M0 spike, per-constellation navigation files silently degraded solutions.
 - [ ] Output parsing:
   - [ ] The final solution and its covariance, including the signed off-diagonal terms.
   - [ ] Q flag, ratio and satellite count.
   - [ ] Residuals from `.stat` for the inspector.
+  - [ ] Decide whether to patch RTKLIB's output precision. It writes standard deviations and covariances to 0.1 mm, which loses information on short baselines.
 - [ ] Forward/backward agreement check. RTKLIB-EX doesn't validate this in static mode, so the driver runs forward-only and backward-only solutions and compares them.
 - [ ] Baseline selection:
   - [ ] Independent baselines per session, using a minimum spanning tree by length or radial from CORS.

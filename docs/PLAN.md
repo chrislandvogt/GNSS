@@ -154,7 +154,7 @@ Check fit before applying to any of these.
 | Datum handling subtly wrong | Medium | High | Cross-validation against GeodePy and PROJ, explicit epochs, and review by GA |
 | RTKLIB-EX weak on long baselines and short sessions | High | Medium | Publish the envelope, use Ginan for long baselines, and build our own Rust engine in Phase 3 |
 | Low-cost antenna calibrations missing from ANTEX | High | Medium | Warnings with the expected bias, calibration import, and guidance on using the same antenna type at both ends |
-| RTKLIB-EX doesn't build or perform well as WebAssembly | Medium | High | A spike in M0, before other work depends on it. The fallback is running it natively through the CLI (D-023) |
+| RTKLIB-EX doesn't build or perform well as WebAssembly | Low | High | Retired by the M0 spike: it builds, its results are identical to native builds', and it runs at 1.1 to 1.5 times native time in Chromium (D-023). The fallback, if a future version regresses, is running it through the CLI |
 | Browser limits: no folder access in Firefox and Safari, storage eviction, memory per WebAssembly instance | Medium | Medium | Folders where supported and zips elsewhere, persistent storage requests, inputs trimmed before processing, and the CLI for very large jobs |
 | Data sources that block browser downloads | High | Medium | Per-source flags in packs, an optional self-hostable relay, data packs, and serving files with the app where licences allow |
 | Tampering with the web app through its host or dependencies | Low | High | No third-party scripts, a strict Content Security Policy, dependency review, immutable versioned deployments, and signed bundles for local serving |
@@ -185,7 +185,7 @@ These are tracked in [DECISIONS.md](DECISIONS.md):
 - Project name (D-014)
 - Confirming Apache-2.0 versus dual MIT/Apache-2.0 (D-008)
 - Which static host serves the web app, and whether the project runs a public relay (D-023)
-- Whether RTKLIB-EX works well as a WebAssembly module (the M0 spike, D-023)
+- Confirming one maths library on every platform (D-024)
 - How to produce PDF reports (D-012)
 - GLONASS ambiguity resolution policy (D-019)
 - Default adjustment frame strategy, to validate with GA (D-017)

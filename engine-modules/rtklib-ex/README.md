@@ -34,7 +34,7 @@ ff6b24e0d6c7c3b536f14ef70584caab5963800252abf017dd102beb29ab9eaa
 - **The same sources and defines as upstream's `rnx2rtkp` makefile.** RTKLIB-EX itself isn't patched.
 - **`wasi_compat.c` supplies `system()`.** WASI has no shell. RTKLIB only calls `system()` to run gzip, tar or crx2rnx on compressed inputs. The stub always fails, so a compressed file is reported as unreadable rather than silently skipped. The engine driver always passes uncompressed RINEX.
 - **The stack is 8 MiB and placed first** (`--stack-first`), so a stack overflow traps instead of corrupting memory.
-- **The maths library is wasi-libc's, which is derived from musl.** A native build linked against musl gives byte-identical output to the module. Builds linked against glibc can differ in the last bits of some results. See the M0 spike report in `benchmarks/spike-m0/`.
+- **The maths library is wasi-libc's, which is derived from musl.** A native build linked against musl gives byte-identical output to the module. Builds linked against glibc don't: their maths functions round some results differently in the last bit, and on kinematic data that changes RTKLIB's fix decisions. So a native build isn't a reference for the module. See the [M0 spike report](../../docs/spikes/m0-engine.md).
 
 ## Running
 

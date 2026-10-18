@@ -52,15 +52,16 @@ These rules keep the code correct by construction and the same in every build. T
 ## 8. Numerics and determinism
 
 - **f64 throughout.** No f32 in computations.
+- **One maths library everywhere (D-024).** Use the `libm` crate for transcendental functions: `libm::sin(x)`, not `x.sin()`. The `f64` methods call each platform's own maths library, and those round differently. Clippy rejects them (`clippy.toml`). Arithmetic, `sqrt`, `mul_add`, `abs` and rounding are exact everywhere and are fine.
 - **Deterministic iteration order** in anything that feeds a numeric result: `BTreeMap`, `BTreeSet`, `IndexMap` or sorted vectors, never `HashMap` or `HashSet` iteration.
+- **Deterministic parallelism.** Parallel code mustn't change the order of floating-point operations. Split work into chunks that don't depend on the number of threads, and combine the results in a fixed order.
 - **Tolerances are named constants**, defined centrally per crate with a comment saying where the value comes from.
-- **No relaxed SIMD and no fast-math.** WebAssembly builds must give bit-identical results in every browser.
+- **No relaxed SIMD and no fast-math.** Both make results depend on the hardware.
 - **What "identical" means:**
-  - The same web build gives bit-identical outputs in every browser on every operating system.
-  - The same native build gives bit-identical outputs on the same platform.
-  - Across platforms, and between native and web builds, results agree within 1e-6 m.
+  - The CLI on every platform and the web app in every browser give bit-identical outputs for the same inputs.
   - Engine modules are the same binary everywhere, so they give identical outputs everywhere.
-- **Maths library differences are real.** The M0 spike found that glibc and musl-derived maths libraries can change the last bits of some results (see `benchmarks/spike-m0`). Don't assume `sin` or `exp` are bit-identical across platforms.
+  - Golden numeric tests compare exactly, and CI runs them natively and in the browser.
+- **Why it matters.** The M0 spike found that RTKLIB-EX builds whose maths libraries differ only in last-bit rounding make different ambiguity decisions on kinematic data, and end up metres apart ([report](spikes/m0-engine.md)). Anything with a threshold (outlier tests, convergence checks, ambiguity resolution) can do the same.
 
 ## 9. Host access
 
