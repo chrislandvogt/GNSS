@@ -26,7 +26,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # rustup installs the toolchain pinned in rust-toolchain.toml on first use.
       - run: rustup show active-toolchain
       - uses: Swatinem/rust-cache@v2
@@ -38,7 +38,7 @@ jobs:
     name: WebAssembly (headless Chrome)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: rustup show active-toolchain
       - uses: Swatinem/rust-cache@v2
       - name: Install the wasm-bindgen test runner matching Cargo.lock
@@ -61,7 +61,7 @@ jobs:
     name: Licences and advisories (cargo-deny)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2
 
   engine-module:
@@ -71,7 +71,7 @@ jobs:
       WASI_SDK_VERSION: "34"
       WASMTIME_VERSION: "49.0.3"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install wasi-sdk
         run: |
           curl -sSfL "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux.tar.gz" \
@@ -94,7 +94,7 @@ jobs:
           mkdir -p engine-modules/rtklib-ex/dist/testdata
           cp engine-modules/rtklib-ex/.src/rtklib/test/data/rinex/{07590920.05o,30400920.05n,30400920.05o} \
             engine-modules/rtklib-ex/dist/testdata/
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: rnx2rtkp-wasm
           path: engine-modules/rtklib-ex/dist/
@@ -108,10 +108,10 @@ jobs:
       run:
         working-directory: apps/web/ui
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: rustup show active-toolchain
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -121,7 +121,7 @@ jobs:
           version="$(cargo metadata --format-version 1 --locked \
             | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')"
           cargo install wasm-bindgen-cli --version "$version" --locked
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: rnx2rtkp-wasm
           path: engine-modules/rtklib-ex/dist
@@ -143,7 +143,7 @@ jobs:
       - name: End-to-end app test in Chromium (storage, hashing, offline)
         run: npm run test:app
       - name: Upload the deployable site
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: web-app
           path: apps/web/ui/dist/
@@ -154,7 +154,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Check every commit is signed off by its author
