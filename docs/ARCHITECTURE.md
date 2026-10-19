@@ -121,10 +121,10 @@ These are detailed in `docs/CONVENTIONS.md` (milestone M0). The essentials:
 - **Logging.** Structured logging with `tracing`. Provenance is a separate, durable record, not a log.
 - **Numerics.** f64 throughout. Numeric paths iterate in a deterministic order (`BTreeMap` or `IndexMap`, never `HashMap`). Tolerances are defined centrally.
 - **Host access.** The core never touches the file system, network, clock or threads directly. The host provides them through interfaces (`store`, the fetch client, the pipeline executor, the module host): the standard library natively, and browser APIs in the web app. This is what lets one core build for both targets.
-- **Determinism.**
+- **Determinism (D-024).**
   - WebAssembly arithmetic is fully specified, so a given web build produces bit-identical outputs in every browser on every operating system. We don't enable relaxed SIMD, which isn't deterministic.
-  - Native builds produce bit-identical outputs on the same platform. Across platforms, and between native and web builds, results agree within 1e-6 m (FMA, SIMD and maths libraries can differ).
-  - Engine modules are the same binary everywhere, so they give identical outputs for identical inputs in any browser and in the CLI.
+  - The core uses one maths library, the `libm` crate, on every target. So the CLI on every platform and the web app give bit-identical outputs for the same inputs. Golden tests check this natively and in the browser.
+  - Engine modules are the same binary everywhere, carrying their own C library, so they give identical outputs for identical inputs in any browser and in the CLI. A native build of the same engine isn't equivalent: in the M0 spike, glibc builds of RTKLIB-EX made different fix decisions from the module on kinematic data.
 
 ## 5. Domain model
 
@@ -332,9 +332,13 @@ Native-only engines (Ginan, section 9.4) run as separate processes, which only t
 
 ### 9.3 RTKLIB-EX module
 
-- **Build.** `rnx2rtkp` is compiled in CI from a pinned RTKLIB-EX tag to a single WASI module (`wasm32-wasip1`) with wasi-sdk, and its checksum is published. The web app serves it as a static asset, and the CLI embeds it. The M0 spike confirms that this build works and agrees with the native build (D-023).
+- **Build.** `rnx2rtkp` is compiled in CI from a pinned RTKLIB-EX tag to a single WASI module (`wasm32-wasip1`) with wasi-sdk, and its checksum is published. The web app serves it as a static asset, and the CLI embeds it. The only change RTKLIB-EX needs is a stub for `system()`, which it uses only to decompress inputs. The M0 spike confirmed the build: its results matched native builds byte for byte on 19 GA baselines, and were identical in Chromium, Firefox, WebKit and wasmtime ([report](spikes/m0-engine.md)).
 - **Hosts.** In the browser, each engine worker runs the module through a small WASI shim. File reads are served from the input files in slices, so large files are never copied into memory whole, and outputs are collected in memory. Natively, wasmtime runs the module with a preopened temporary directory.
-- **Inputs.** Before each run, the driver trims each RINEX file to the overlap window and decimates it to the processing interval. RTKLIB reads all epochs into memory, and trimming keeps a run well within WebAssembly's memory limit (4 GB at most per instance, and less on some devices).
+- **Inputs.**
+  - Before each run, the driver trims each RINEX file to the overlap window and decimates it to the processing interval. RTKLIB keeps every epoch in its window in memory, so trimming and decimating keep a run well within WebAssembly's memory limit (4 GB at most per instance, and less on some devices).
+  - Trimming also saves time. RTKLIB parses every line of an input file, even outside its time window. In the M0 spike, trimming roughly halved the run time in Chromium, without changing the solution.
+  - Navigation data must cover every constellation being processed (section 13). The driver refuses to run otherwise.
+  - The ANTEX file can be passed whole. Cutting it down to the antennas in use made no material difference to time or memory.
 - **Config.** The driver generates one config file per baseline. The example below is illustrative; the option names are checked against RTKLIB-EX source, and the real values come from the project settings:
 
 ```ini
@@ -368,7 +372,8 @@ When parsing the output, watch for these:
 
 - **Covariance signs.** In `.pos` output, the off-diagonal covariance columns (`sdxy`, `sdyz`, `sdzx`) are written as `sign(c)·sqrt(|c|)`. Recover the covariance as `c = sign(v)·v²`. RTKLIB's own solution reader squares these values and loses the sign, so don't copy that code.
 - **Q flag.** 1 is fix, 2 float, 3 SBAS, 4 DGPS, 5 single, 6 PPP. Only Q=1 with a passing ratio counts as fixed.
-- **Forward/backward agreement.** RTKLIB-EX only validates forward fixes against backward fixes in kinematic and moving-base modes, not static. The driver therefore also runs forward-only and backward-only solutions and compares them itself. Disagreement beyond their combined uncertainty marks the baseline as suspect.
+- **Forward/backward agreement.** RTKLIB-EX only validates forward fixes against backward fixes in kinematic and moving-base modes, not static. The driver therefore also runs forward-only and backward-only solutions and compares them itself. Disagreement beyond their combined uncertainty marks the baseline as suspect. In the M0 spike, forward and backward solutions differed by up to 73 mm on baselines over 10 km, against formal 3D standard deviations of 1 to 3 mm.
+- **Precision of the output.** Standard deviations and covariance terms are written in metres to four decimals. For sub-millimetre formal precisions, that loses up to about 10% of the value, and small correlations entirely. Decide in M8 whether to patch the output format in our build.
 - **`out-solstatic=single`** gives one final solution with covariance. Per-epoch output (`all`) is only produced for the inspector.
 
 **Baseline selection.** Within each session, choose independent baselines (n − 1 for n receivers) using one of these strategies:
@@ -644,6 +649,7 @@ The initial catalogue (M9):
 - **Relay.** Sources the browser can't reach go through an optional relay (`apps/relay`): a small, stateless proxy that forwards GET requests only to hosts declared in the packs, and keeps no logs or copies.
   - It's off by default. The relay sees which files are requested (station, date and product), which hints at where and when a survey happened, so the app says so before it's first used.
   - Agencies can host their own, the project may run a public instance, and `gnss serve` includes a private one on the user's own machine.
+- **Navigation files must be mixed-constellation.** In the GA archive, many stations publish their daily broadcast navigation data as separate per-constellation files (GPS, Galileo, BeiDou, GLONASS, QZSS) rather than one mixed (`_MN`) file. A single per-constellation file leaves the engine without ephemerides for the other systems. In the M0 spike this silently produced degraded single-constellation solutions, or no solution at all. The planner therefore requests a mixed file, or merges a station's per-constellation files, and a check flags navigation data that doesn't cover every constellation being processed.
 - **The Australian v1 workflow should need no relay.**
   - RINEX and broadcast navigation files come directly from GA. For baselines up to about 20 km, broadcast orbits should be adequate: their errors contribute roughly 0.1 ppm, a couple of millimetres at 20 km. The benchmark checks this.
   - ANTEX and the AUSGeoid2020 grid are served with the app, and cached on first use, if their licences allow redistribution (to confirm in M7). Otherwise they come through the relay or a data pack.
@@ -677,7 +683,7 @@ flowchart LR
 ```
 
 - **The main thread only renders.** The core runs in a dedicated worker, so long jobs never freeze the UI.
-- **Engine workers** form a pool sized to the machine's cores. Each module is compiled once, and each run gets a fresh instance (section 9.2). Workers exchange inputs and outputs by message passing, transferring buffers rather than copying them.
+- **Engine workers** form a pool sized to the machine's cores and memory. Each module is compiled once, and each run gets a fresh instance (section 9.2). Workers exchange inputs and outputs by message passing, transferring buffers rather than copying them. In the M0 spike, an RTKLIB-EX run used about 90 MB of module memory for a 2-hour session, and 228 MB for a whole day at 30 s. So phones and low-memory devices get a smaller pool.
 - **No shared memory.** Shared-memory threads inside WebAssembly currently need a nightly Rust toolchain and cross-origin isolation headers, which restrict what a page can load and embed. v1 doesn't use them: baselines run in parallel across workers, and the core's maths runs single-threaded. Very large adjustments can use the CLI. We'll revisit this if the web performance targets need it.
 - **Loading on demand.** The core, the engine modules and the PDF generator load when first needed, and come from the cache after that.
 
@@ -833,13 +839,17 @@ gnss serve [--bundle <zip>]     # serve the web app on localhost, with a private
 
 ## 20. Performance targets
 
-These are for an 8-core laptop. Web targets are for current Chrome or Edge, with the core's maths single-threaded (section 14.1). They're provisional until the M0 spike measures the real cost of WebAssembly.
+These are for an 8-core laptop. Web targets are for current Chrome or Edge, with the core's maths single-threaded (section 14.1).
+
+The engine targets come from the M0 spike's measurements ([report](spikes/m0-engine.md)). With trimmed inputs, RTKLIB-EX took 1.2 to 2.3 s per 2-hour baseline in Chromium, 1.1 to 1.5 times native. The core's own speed in WebAssembly isn't measured yet, so the adjustment and ingest targets stay provisional until M2 and M6.
 
 | Operation | Native CLI | Web app |
 |---|---|---|
 | Adjust 1,000 marks and 3,000 vectors, including statistics | under 2 s | under 6 s |
 | Adjust 10,000 marks with selected inverse | under 60 s | under 5 min |
-| Process 50 baselines (2 h at 30 s) with RTKLIB-EX | under 1 min | under 2 min |
+| Process 50 baselines (2 h at 30 s) with RTKLIB-EX | under 30 s | under 1 min |
+| Process one whole-day baseline (24 h at 30 s) with RTKLIB-EX | under 20 s | under 30 s |
+| Engine module memory per run: 2 h session, whole day at 30 s | n/a | under 128 MB, under 256 MB |
 | Ingest and QC a 24 h, 1 Hz RINEX 3 file | under 10 s | under 30 s |
 | Map with 10,000 marks and 30,000 vectors | n/a | smooth pan and zoom |
 | Start-up | n/a | under 2 s from cache; under 10 s on a first visit over a 25 Mbit/s connection |

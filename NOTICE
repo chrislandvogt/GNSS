@@ -1,0 +1,12 @@
+GNSS (working title)
+Copyright 2026 The GNSS project contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Builds of the web app and CLI include RTKLIB-EX, compiled to a WebAssembly
+module (see engine-modules/rtklib-ex):
+
+  RTKLIB-EX (https://github.com/rtklibexplorer/RTKLIB)
+  Copyright (c) 2007-2020, T. Takasu, and contributors
+  Licensed under the BSD 2-clause licence, whose text is distributed with
+  the module as LICENSE-RTKLIB.txt.

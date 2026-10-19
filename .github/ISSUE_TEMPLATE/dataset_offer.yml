@@ -1,0 +1,36 @@
+name: Offer a dataset
+description: Offer GNSS observations for the public benchmark (docs/VALIDATION.md).
+labels: ["area/validation", "type/dataset"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! Describe the data here; don't attach it yet. Benchmark data is published under CC BY 4.0.
+  - type: textarea
+    id: equipment
+    attributes:
+      label: Equipment
+      description: Receivers and firmware, antennas and radomes (IGS codes if you know them), and how heights were measured.
+    validations:
+      required: true
+  - type: textarea
+    id: observations
+    attributes:
+      label: Observations
+      description: Number of marks and sessions, session lengths, logging interval, constellations and signals, dates.
+    validations:
+      required: true
+  - type: textarea
+    id: truth
+    attributes:
+      label: Known coordinates
+      description: Which marks have known coordinates, from what source, with what uncertainty (for example SCIMS PU).
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Terms
+      options:
+        - label: I have the right to share this data under CC BY 4.0.
+          required: true
+        - label: None of the locations are security-sensitive.
+          required: true

@@ -2,7 +2,7 @@
 
 Free and open-source GNSS static survey processing: from field log to adjusted, defensible coordinates.
 
-> **Status: planning.** There's no code yet. This repo holds the plan, architecture and validation strategy. Start with [docs/PLAN.md](docs/PLAN.md), then work from [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status: bootstrapping (milestone M0).** The plan is written, and the foundations are in place: the Rust workspace, CI on Windows, macOS, Linux and in the browser, the web app skeleton, and RTKLIB-EX running as a WebAssembly module ([engine spike results](docs/spikes/m0-engine.md)). There's no surveying functionality yet. Start with [docs/PLAN.md](docs/PLAN.md), then work from [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## The problem
 
@@ -50,11 +50,13 @@ The core is in Rust, which gives memory-safe parsing and plenty of speed, and co
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical design: crates, data model, pipeline, engines, adjustment maths, datums, UI, packaging |
 | [VALIDATION.md](docs/VALIDATION.md) | Benchmark datasets, metrics and release gates |
 | [DECISIONS.md](docs/DECISIONS.md) | Decision log, including open decisions |
+| [CONVENTIONS.md](docs/CONVENTIONS.md) | Coding conventions: units, frames, time, errors, numerics and host access |
+| [spikes/m0-engine.md](docs/spikes/m0-engine.md) | The M0 engine spike: RTKLIB-EX as a WebAssembly module, compared with native builds |
 | [LANDSCAPE.md](docs/LANDSCAPE.md) | Existing commercial and open-source tools, and how this project relates to them |
 
 ## Licence
 
-The planned licence is Apache-2.0 (see [D-008](docs/DECISIONS.md)). The LICENSE file lands in milestone M0.
+Apache-2.0: see [LICENSE](LICENSE) and [D-008](docs/DECISIONS.md). Third-party components keep their own licences; see [NOTICE](NOTICE).
 
 ## Feedback
 

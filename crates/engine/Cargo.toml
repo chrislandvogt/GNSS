@@ -1,0 +1,12 @@
+[package]
+name = "gnss-engine"
+description = "Baseline engine and module host traits, and the job and result types they share."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

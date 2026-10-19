@@ -1,0 +1,41 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/cli", "apps/relay", "apps/web/core"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.97"
+license = "Apache-2.0"
+repository = "https://github.com/chrislandvogt/GNSS"
+# Nothing is published until the project has a name (D-014).
+publish = false
+
+[workspace.dependencies]
+gnss-api = { path = "crates/api" }
+gnss-store = { path = "crates/store" }
+sha2 = "0.10"
+wasm-bindgen = "0.2"
+wasm-bindgen-test = "0.3"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+# Code must never panic on user data (CONVENTIONS.md). Tests may unwrap.
+unwrap_used = "warn"
+expect_used = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# The web core is shipped to every user, so optimise it for size as well as speed.
+[profile.release-web]
+inherits = "release"
+opt-level = "s"
+lto = "fat"

@@ -1,0 +1,12 @@
+[package]
+name = "gnss-engine-host"
+description = "Runs engine modules natively with wasmtime. The only crate that doesn't build for WebAssembly."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

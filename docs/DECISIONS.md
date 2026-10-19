@@ -223,7 +223,7 @@ The tool shows the difference from adjusting directly in GDA2020, so the shortcu
 - It builds the foundation the rest depends on.
 
 ### D-023 Browser-first, local-first web app, with a native CLI
-**Status:** Accepted (confirm with the M0 engine spike; see Revisit)
+**Status:** Accepted. Confirmed by the M0 engine spike ([report](spikes/m0-engine.md)).
 
 **Decision:**
 - The main front end is a web app that runs entirely in the user's browser. The Rust core is compiled to WebAssembly and runs in a web worker. The site is static files: there's no application server, and project data never leaves the user's machine unless they export it or configure a destination.
@@ -258,3 +258,40 @@ The tool shows the difference from adjusting directly in GDA2020, so the shortcu
 - Users get a new version when they reload. Old versions stay at their URLs and as bundles, so a project can be re-run on the exact build that produced it.
 
 **Revisit:** if the M0 engine spike shows that RTKLIB-EX can't be built as a WebAssembly module, or that its results or speed are unacceptable compared with the native build. The fallback is to run it natively through the CLI, with the web app calling a local `gnss serve`, and to reconsider a desktop wrapper.
+
+**Spike results (M0, October 2026):** none of the revisit conditions came up. Details are in the [spike report](spikes/m0-engine.md).
+- **It builds.** RTKLIB-EX builds as a WASI module with wasi-sdk, needing only a stub for `system()`. The module is 1.17 MB (522 kB gzipped), and the build is reproducible.
+- **The results are identical.** On 19 GA CORS-pair baselines (0.07 to 50 km, four cases each), all 76 solution files from the module, in wasmtime and in Chromium, are byte-identical to those of native glibc and musl builds. RTKLIB's test output is byte-identical in Chromium, Firefox and WebKit.
+- **Speed.** In Chromium, a 2-hour session with trimmed inputs takes 1.2 to 2.3 s, 1.1 to 1.5 times native. A whole day at 30 s takes 1.2 to 1.4 times native. Untrimmed inputs cost 1.5 to 2.0 times native, so the core trims inputs before every run.
+- **Memory.** A 2-hour session uses 90 MB of module memory, and a whole day at 30 s uses 228 MB.
+- **A finding that changes the plan.** On RTKLIB's kinematic test data, glibc builds and the module make different fix decisions, and positions end up metres apart. The cause is the maths library. That confirms running the module in the CLI rather than a native build, and led to D-024.
+
+### D-024 One maths library on every platform
+**Status:** Proposed
+
+**Decision:**
+- The Rust core computes transcendental functions with the `libm` crate, a Rust port of musl's maths library, on every target. That covers the trigonometric and hyperbolic functions and their inverses, `atan2`, `exp`, logarithms, powers, `cbrt` and `hypot`.
+- The core never calls the matching `f64` methods. Clippy's `disallowed-methods` rejects them (`clippy.toml`).
+- Dependencies that do maths for us are configured to use the same library: nalgebra, for example, with its `libm-force` feature.
+- Operations that IEEE 754 defines exactly stay as they are: arithmetic, `sqrt`, `mul_add`, `abs` and rounding.
+- Golden numeric tests compare results exactly, and run both natively and in the browser in CI.
+
+**Why:**
+- **Last bits change decisions.** The M0 spike found that native RTKLIB-EX builds linked against glibc, and the WebAssembly module with its musl-derived maths library, make different ambiguity-fixing decisions on kinematic data. Their positions end up metres apart. Replacing glibc's maths functions with the `libm` crate's made the native build match the module bit for bit ([spike report](spikes/m0-engine.md)). Our own code has decisions too, such as outlier tests against critical values and convergence checks, and a last-bit difference can tip any of them.
+- **Rust's `f64` methods depend on the platform.** `f64::sin` and its relatives call glibc on Linux, the system library on macOS and Windows, and a musl port in WebAssembly. The same core would otherwise give slightly different numbers in the CLI on each operating system and in the browser.
+- **It makes reproducibility exact.** With one maths library, the CLI and the web app give bit-identical results for the same inputs, so "re-run the project and get the same answer" can be tested exactly. A difference between the CLI and the browser then always means a bug.
+- **The core and the engines share their arithmetic.** The `libm` crate is the library that reproduced the engine module's results in the spike.
+
+**Alternatives:**
+- **Accept platform differences within a tolerance** (the earlier plan: 1e-6 m). It's simpler, but a decision near a threshold can still flip, and agreement within a tolerance is harder to test and explain than identity.
+- **Correctly rounded maths libraries.** These would agree everywhere by definition, but there's no mature pure-Rust one covering every function we need yet.
+
+**Consequences:**
+- Code calls `libm::sin(x)`, not `x.sin()`. Clippy says so.
+- The `libm` crate can be slightly slower than a platform's tuned routines. That's negligible next to the rest of the work.
+- Determinism has more to check:
+  - Parallel code must not change the order of floating-point operations.
+  - Any dependency with CPU-specific kernels, such as a matrix multiply that uses fused multiply-add where the processor has it, must be configured to avoid them or kept out of numeric paths.
+  - The cross-target golden tests catch what slips through.
+
+**Revisit:** if a dependency we need can't be made deterministic. Then the affected results get a documented tolerance instead.

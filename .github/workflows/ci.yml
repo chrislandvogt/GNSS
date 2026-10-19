@@ -1,0 +1,173 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Crates that only build natively (ARCHITECTURE.md section 2).
+  NATIVE_ONLY: --exclude gnss-engine-host --exclude gnss-cli --exclude gnss-relay
+
+jobs:
+  native:
+    name: Native (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # rustup installs the toolchain pinned in rust-toolchain.toml on first use.
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+
+  wasm:
+    name: WebAssembly (headless Chrome)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - name: Install the wasm-bindgen test runner matching Cargo.lock
+        run: |
+          version="$(cargo metadata --format-version 1 --locked \
+            | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')"
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - name: Build
+        run: cargo build --target wasm32-unknown-unknown --workspace $NATIVE_ONLY --locked
+      - name: Clippy
+        run: cargo clippy --target wasm32-unknown-unknown --workspace $NATIVE_ONLY --all-targets --locked -- -D warnings
+      - name: Test in headless Chrome
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: |
+          export CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver"
+          cargo test --target wasm32-unknown-unknown --workspace $NATIVE_ONLY --locked
+
+  deny:
+    name: Licences and advisories (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  engine-module:
+    name: RTKLIB-EX module (reproducible build)
+    runs-on: ubuntu-latest
+    env:
+      WASI_SDK_VERSION: "34"
+      WASMTIME_VERSION: "49.0.3"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install wasi-sdk
+        run: |
+          curl -sSfL "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux.tar.gz" \
+            | tar xz -C "$RUNNER_TEMP"
+          echo "WASI_SDK_PATH=$RUNNER_TEMP/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux" >> "$GITHUB_ENV"
+      - name: Build the module
+        run: engine-modules/rtklib-ex/build.sh
+      - name: Check the module hash is reproduced
+        working-directory: engine-modules/rtklib-ex/dist
+        run: grep ' rnx2rtkp.wasm$' ../golden.sha256 | sha256sum -c -
+      - name: Install wasmtime
+        run: |
+          curl -sSfL "https://github.com/bytecodealliance/wasmtime/releases/download/v${WASMTIME_VERSION}/wasmtime-v${WASMTIME_VERSION}-x86_64-linux.tar.xz" \
+            | tar xJ -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/wasmtime-v${WASMTIME_VERSION}-x86_64-linux" >> "$GITHUB_PATH"
+      - name: Smoke test against RTKLIB's test data
+        run: engine-modules/rtklib-ex/smoke-test.sh
+      - name: Add RTKLIB's test data for the web app's end-to-end test
+        run: |
+          mkdir -p engine-modules/rtklib-ex/dist/testdata
+          cp engine-modules/rtklib-ex/.src/rtklib/test/data/rinex/{07590920.05o,30400920.05n,30400920.05o} \
+            engine-modules/rtklib-ex/dist/testdata/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rnx2rtkp-wasm
+          path: engine-modules/rtklib-ex/dist/
+
+  web:
+    name: Web app
+    # Built from the exact engine module the engine-module job produced and checked.
+    needs: engine-module
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web/ui
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/ui/package-lock.json
+      - name: Install the wasm-bindgen CLI matching Cargo.lock
+        run: |
+          version="$(cargo metadata --format-version 1 --locked \
+            | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')"
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - uses: actions/download-artifact@v4
+        with:
+          name: rnx2rtkp-wasm
+          path: engine-modules/rtklib-ex/dist
+      - run: npm ci
+      - name: Check JavaScript licences (D-005)
+        run: npm run licences
+      - run: npm run build
+      - name: Type-check
+        run: npm run check
+      - name: Install browsers for Playwright
+        run: npx playwright install --with-deps chromium firefox webkit
+      # The engine must give byte-identical output in every browser engine (D-023).
+      - name: End-to-end engine test in Chromium
+        run: npm run test:e2e -- ../../../engine-modules/rtklib-ex/dist/testdata
+      - name: End-to-end engine test in Firefox
+        run: BROWSER=firefox npm run test:e2e -- ../../../engine-modules/rtklib-ex/dist/testdata
+      - name: End-to-end engine test in WebKit
+        run: BROWSER=webkit npm run test:e2e -- ../../../engine-modules/rtklib-ex/dist/testdata
+      - name: End-to-end app test in Chromium (storage, hashing, offline)
+        run: npm run test:app
+      - name: Upload the deployable site
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-app
+          path: apps/web/ui/dist/
+
+  dco:
+    name: Developer Certificate of Origin
+    # Contributions from forks must be signed off (CONTRIBUTING.md).
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check every commit is signed off by its author
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          status=0
+          for commit in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            email="$(git log -1 --format=%ae "$commit")"
+            if ! git log -1 --format=%B "$commit" | grep -i "^Signed-off-by:" | grep -qiF "<$email>"; then
+              echo "::error::commit $commit isn't signed off by its author ($email)"
+              status=1
+            fi
+          done
+          exit $status

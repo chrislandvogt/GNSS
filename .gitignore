@@ -1,0 +1,26 @@
+# Rust
+/target/
+
+# Node
+node_modules/
+/apps/web/ui/dist/
+
+# Engine module builds
+/engine-modules/*/.src/
+/engine-modules/*/dist/
+
+# Benchmark and spike working data (downloads, runs, results) and tool builds
+/benchmarks/*/work/
+/benchmarks/*/*/target/
+__pycache__/
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Web app build inputs generated from the core and engine modules
+/apps/web/ui/src/generated/
+/apps/web/ui/public/engines/
