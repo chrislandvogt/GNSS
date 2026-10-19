@@ -25,7 +25,7 @@ This is the work plan: four phases broken into milestones, each with tasks, exit
 3. [x] Create the Cargo workspace and the CI matrix, with native and WebAssembly builds and cargo-deny (M0).
 4. [x] Run the engine spike: build RTKLIB-EX as a WebAssembly module and compare it with the native build. This confirms or revisits D-023 (M0).
 5. [x] Write the conventions doc covering units, frames, time, errors, numerics and host access (M0).
-6. [ ] Implement the `datum` core types so every position carries a frame and an epoch, then ECEF, geodetic and ENU conversions plus Helmert transformations, with property tests (M1).
+6. [x] Implement the `datum` core types so every position carries a frame and an epoch, then ECEF, geodetic and ENU conversions plus Helmert transformations, with property tests (M1).
 7. [ ] Build the synthetic network generator, which the M2 tests depend on (M2).
 8. [ ] Implement a vector-only adjustment with minimal constraints and the global test (M2).
 9. [ ] Install DynAdjust locally and produce the first oracle outputs (M2, M4).
