@@ -116,29 +116,31 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 
 **Goal:** frames, epochs and transformations that are correct by construction.
 
-- [ ] Time: adopt hifitime. Handle GPST, UTC and TAI conversions with leap seconds. Compute decimal-year epochs in one documented function.
-- [ ] Core types:
-  - [ ] `FrameId` with a registry covering ITRF2020, ITRF2014, IGS20, ATRF2014, GDA2020, GDA94, and WGS84 realisations as aliases with a stated tolerance.
-  - [ ] `Epoch`, and `Position { frame, epoch, xyz, cov }`.
-  - [ ] Geodetic and ENU views.
-  - [ ] Enforce the static-frame and dynamic-frame rules.
-- [ ] Ellipsoids (GRS80, WGS84): ECEF to geodetic and back, and local ENU rotations, each with covariance propagation.
-- [ ] Helmert transformations:
-  - [ ] 7-parameter and 14-parameter (time-dependent), with covariance propagation.
-  - [ ] IERS ITRF2020 to ITRF2014 parameters.
-- [ ] Plate motion: ITRF2014 and ATRF2014 to GDA2020 using the Australian Plate Motion Model from the GDA2020 Technical Manual.
-- [ ] GDA94 to GDA2020: the 7-parameter conformal transformation and the conformal-plus-distortion NTv2 grid. Document which to use when.
+- [x] Time: adopt hifitime. Handle GPST, UTC and TAI conversions with leap seconds. Compute decimal-year epochs in one documented function (`CoordinateEpoch::from_time`).
+- [x] Core types:
+  - [x] `FrameId` with a registry covering ITRF2020, ITRF2014, IGS20, ATRF2014, GDA2020, GDA94, and WGS84 realisations as aliases with a stated tolerance.
+  - [x] `CoordinateEpoch`, and `Position { frame, epoch, xyz, cov }`.
+  - [x] Geodetic and ENU views.
+  - [x] Enforce the static-frame and dynamic-frame rules.
+- [x] Ellipsoids (GRS80, WGS84): ECEF to geodetic and back, and local ENU rotations, each with covariance propagation.
+- [x] Helmert transformations:
+  - [x] 7-parameter and 14-parameter (time-dependent), with covariance propagation.
+  - [x] IERS ITRF2020 to ITRF2014 parameters.
+- [x] Plate motion: ITRF2014 and ATRF2014 to GDA2020 using the Australian Plate Motion Model from the GDA2020 Technical Manual.
+- [ ] GDA94 to GDA2020: the 7-parameter conformal transformation (done) and the conformal-plus-distortion NTv2 grid. Document which to use when.
 - [ ] Grids:
   - [ ] NTv2 and geoid grid interpolation.
   - [ ] AUSGeoid2020 to convert ellipsoidal heights to AHD, including the model's uncertainty values.
   - [ ] Decide between our own grid reader and PROJ (D-011). PROJ would also have to be built for WebAssembly.
-- [ ] Projections: MGA2020 and MGA94 (Transverse Mercator via the Krüger series), point scale factor, grid convergence and combined scale factor.
+- [x] Projections: MGA2020 and MGA94 (Transverse Mercator via the Krüger series), point scale factor, grid convergence and combined scale factor.
 - [ ] Australian jurisdiction pack v0 (`packs/au`): frames, transformations, and grid references with URLs, SHA-256 hashes and whether browsers can download them directly.
 - [ ] Tests:
-  - [ ] Property tests for round trips and covariance propagation.
-  - [ ] Comparisons against GeodePy and PROJ on a published point set.
-  - [ ] GDA2020 Technical Manual worked examples.
-- [ ] User doc: "How datums and epochs work in this tool".
+  - [x] Property tests for round trips and covariance propagation (deterministic pseudo-random cases, so the same ones run natively and in the browser).
+  - [x] Comparisons against GeodePy and PROJ on a published point set (`crates/datum/tests`), plus DynAdjust's coordinates for the 109 national CORS.
+  - [x] GDA2020 Technical Manual worked examples.
+  - [x] A golden hash of results, checked natively on every OS and in the browser (D-024).
+  - [ ] The same for the grid transformations.
+- [ ] User doc: "How datums and epochs work in this tool" ([draft](user/datums-and-epochs.md); heights and grids to come).
 
 **Exit criteria:**
 - Analytic transformations agree with GeodePy and PROJ within 0.1 mm, and grid transformations within 1 mm.

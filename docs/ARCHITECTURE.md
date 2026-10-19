@@ -519,6 +519,11 @@ Groups can be sessions, engines, receiver types or any other user-defined split.
   - its validity area and time
   - its uncertainty
 - **Explicit paths.** The tool finds a path, shows it, and records it in provenance. The datum panel in the app displays each step with its numbers.
+- **Epoch changes go through a static frame.** Moving a coordinate in a dynamic frame to another epoch needs a model of how the ground moves. In Australia that's the plate motion model, so the path runs through GDA2020 (ATRF2014 at 2018.0, to GDA2020, to ATRF2014 at 2025.0). Elsewhere there's no path, and the tool says so.
+- **Areas narrow the search.** Transformations defined only in part of the world, such as the Australian ones, are left out of the search when the position is outside their area.
+- **Aliases are identities with a tolerance.** WGS 84 realisations, IGS20 and ATRF2014 are tied to the ITRF frames they're aligned with by identity transformations that carry the stated tolerance as uncertainty (for example 10 mm for WGS 84 (G2139) to ITRF2014, and 2 m for WGS 84 without a realisation).
+- **Two kinds of uncertainty.** A position's own covariance is propagated through each step. The transformations' parameter uncertainty is common to every position transformed along the same path, so it doesn't affect vectors between them; it's reported separately, for absolute uncertainty only.
+- **Reverse transformations** change the sign of every parameter, as EPSG defines them. For these small rotations that matches an exact inverse to well under a micrometre.
 
 ### 11.2 Default strategy for Australia (D-017, to be validated with GA)
 
@@ -537,8 +542,9 @@ Groups can be sessions, engines, receiver types or any other user-defined split.
 
 ### 11.4 Projections
 
-- MGA2020 and MGA94 use Transverse Mercator via the Krüger n-series, which is accurate to well under a millimetre across a zone.
-- Point scale factor, grid convergence, and line and combined scale factors (including height) for ground-distance work.
+- MGA2020 and MGA94 use Transverse Mercator via the Krüger n-series (Karney 2011, to eighth order), which is accurate to well under a micrometre across a zone.
+- Point scale factor, grid convergence, and line and combined scale factors (including height) for ground-distance work. The line scale factor uses Simpson's rule over the point scale factors.
+- Grid convergence uses the GDA2020 Technical Manual's sign: grid bearing = azimuth + γ, negative west of the central meridian in the southern hemisphere. PROJ and GeographicLib report the opposite sign.
 
 ### 11.5 Implementation (D-011)
 

@@ -26,7 +26,7 @@ These rules keep the code correct by construction and the same in every build. T
 ## 4. Time
 
 - **Observation times are hifitime epochs in GPST.** Conversions to and from UTC handle leap seconds through hifitime, never by hand.
-- **Frame epochs are decimal years**, computed by one documented function in `datum`. No other code converts dates to decimal years.
+- **Coordinate epochs are decimal years** (`CoordinateEpoch`), computed by one documented function, `CoordinateEpoch::from_time`. No other code converts dates to decimal years. The convention is the calendar year plus the elapsed fraction of it in GPST, so 1 January 2018 is 2018.0.
 - **Time spans are half-open**: `[start, end)`.
 - **The core never reads the clock.** Run timestamps in provenance come from the host (section 9).
 
