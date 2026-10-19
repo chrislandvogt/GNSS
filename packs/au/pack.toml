@@ -1,0 +1,149 @@
+# The Australian jurisdiction pack, version 0 (ARCHITECTURE.md section 11.6).
+#
+# A pack is data, not code. This one declares the frames, transformations,
+# grids and height models used in Australia, and where to get the grid files.
+# The datum crate implements the transformations, and its pack test
+# (crates/datum/tests/pack.rs) checks that everything named here exists there.
+# Standards and data sources come in later milestones (M6 and M7).
+#
+# Grid files are fetched and checked against their SHA-256, not committed or
+# bundled. `browser` says whether the web app can download a file directly
+# ("direct", because the host sends cross-origin headers) or needs the relay or
+# a data pack ("relay"). See ARCHITECTURE.md section 13.
+
+[pack]
+id = "au"
+name = "Australia"
+version = "0.1.0"
+
+[frames]
+# Results are delivered in GDA2020, and adjustments work in ATRF2014 (D-017).
+target = "GDA2020"
+adjustment = "ATRF2014"
+supported = [
+    "ITRF2020",
+    "IGS20",
+    "ITRF2014",
+    "ATRF2014",
+    "GDA2020",
+    "GDA94",
+    "WGS 84 (G2296)",
+    "WGS 84 (G2139)",
+    "WGS 84",
+]
+
+# Transformations, by their EPSG names. Each can be used in either direction.
+
+[[transformations]]
+name = "ITRF2014 to ITRF2020 (1)"
+epsg = 9991
+
+[[transformations]]
+name = "IGS20 = ITRF2020"
+# EPSG has no transformation: IGS20 is the IGS realisation of ITRF2020.
+
+[[transformations]]
+name = "ITRF2014 to ATRF2014 (1)"
+epsg = 9460
+
+[[transformations]]
+name = "ATRF2014 to GDA2020 (1)"
+epsg = 9459
+
+[[transformations]]
+name = "ITRF2014 to GDA2020 (1)"
+epsg = 8049
+
+[[transformations]]
+name = "GDA94 to GDA2020 (1)"
+epsg = 8048
+use = """\
+The conformal transformation. Use it for GDA94 coordinates that don't carry the \
+state and territory networks' distortion, such as those computed directly from \
+CORS, and for Christmas and Cocos Islands, which the grid doesn't cover."""
+
+[[transformations]]
+name = "GDA94 to GDA2020 (2)"
+epsg = 8447
+grid = "gda94-gda2020-conformal-and-distortion"
+use = """\
+The conformal and distortion grid. Use it for GDA94 coordinates from the state \
+and territory survey networks, which carry their distortion. It covers mainland \
+Australia and Tasmania. Ellipsoidal heights follow the conformal transformation, \
+since the grid is 2D. The GDA2020 Technical Manual and ICSM's fact sheet T1 give \
+the guidance."""
+
+[[transformations]]
+name = "WGS 84 (G2296) to ITRF2020 (1)"
+epsg = 10608
+
+[[transformations]]
+name = "WGS 84 (G2139) to ITRF2014 (1)"
+epsg = 9757
+
+[[transformations]]
+name = "WGS 84 ensemble to WGS 84 (G2139)"
+# EPSG's datum ensemble 6326, accurate to 2 m.
+
+[[height_models]]
+name = "AUSGeoid2020"
+epsg = 8451
+# GDA2020 ellipsoidal heights to AHD (EPSG:5711).
+frame = "GDA2020"
+height = "AHD"
+grid = "ausgeoid2020"
+uncertainty = "ausgeoid2020-uncertainty"
+
+[[grids]]
+id = "gda94-gda2020-conformal-and-distortion"
+kind = "horizontal-shift"
+description = "ICSM's GDA94 to GDA2020 conformal and distortion grid, version NAT_DC6 (2017-11-20)"
+licence = "CC BY 4.0, Intergovernmental Committee on Surveying and Mapping"
+
+[[grids.files]]
+# PROJ-data's GeoTIFF of ICSM's GDA94_GDA2020_conformal_and_distortion.gsb.
+# ICSM's own NTv2 file reads too, but isn't listed until its hash is checked.
+format = "geotiff"
+file = "au_icsm_GDA94_GDA2020_conformal_and_distortion.tif"
+url = "https://raw.githubusercontent.com/OSGeo/PROJ-data/1.25.0/au_icsm/au_icsm_GDA94_GDA2020_conformal_and_distortion.tif"
+sha256 = "89bb9e5c55a714c8925ddc134bf4c191be8df2607b229a05efb778f5f6166ee0"
+bytes = 27272664
+browser = "direct" # checked 2026-10-19
+
+[[grids]]
+id = "ausgeoid2020"
+kind = "geoid"
+description = "AUSGeoid2020, release 2018-02-01: N, the separation of AHD from the GDA2020 ellipsoid"
+licence = "CC BY 4.0, Geoscience Australia"
+
+[[grids.files]]
+# Geoscience Australia's NTv2 file: N and the deflections of the vertical.
+format = "ntv2"
+file = "AUSGeoid2020_20180201.gsb"
+url = "https://s3-ap-southeast-2.amazonaws.com/geoid/AUSGeoid/AUSGeoid2020_20180201.gsb"
+sha256 = "aa40b8953d7ed00410f586d94ea00b8e466a1f37c328b60399074a744ca14bdb"
+bytes = 247277168
+browser = "relay" # no cross-origin headers, checked 2026-10-19
+
+[[grids.files]]
+# PROJ-data's GeoTIFF of the same model: N only, with identical values.
+format = "geotiff"
+file = "au_ga_AUSGeoid2020_20180201.tif"
+url = "https://raw.githubusercontent.com/OSGeo/PROJ-data/1.25.0/au_ga/au_ga_AUSGeoid2020_20180201.tif"
+sha256 = "1eb8bc33f6bf27e6f16d277ad4f38d92ffaec33a7e6e355b6f840a7ab79998af"
+bytes = 5839686
+browser = "direct" # checked 2026-10-19
+
+[[grids]]
+id = "ausgeoid2020-uncertainty"
+kind = "geoid-uncertainty"
+description = "AUSGeoid2020's one-sigma uncertainty of N, release 2018-02-01"
+licence = "CC BY 4.0, Geoscience Australia"
+
+[[grids.files]]
+format = "ntv2"
+file = "AUSGeoid2020_20180201_error.gsb"
+url = "https://s3-ap-southeast-2.amazonaws.com/geoid/AUSGeoid/AUSGeoid2020_20180201_error.gsb"
+sha256 = "1e8d87a0404f8f26f53dc6e15b85d972edd7be8fad3612cfd666beaafdd50f5a"
+bytes = 247277168
+browser = "relay" # no cross-origin headers, checked 2026-10-19
