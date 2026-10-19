@@ -90,7 +90,7 @@ Every crate except `engine-host` compiles to both native code and WebAssembly. C
 | Crate | Responsibility | Key dependencies |
 |---|---|---|
 | `model` | Domain entities, IDs, serialisation, schema versions | serde, toml, schemars |
-| `datum` | Frames, epochs, Helmert transformations, plate motion, grids, geoid, projections | hifitime, nalgebra |
+| `datum` | Frames, epochs, Helmert transformations, plate motion, grids, geoid, projections | hifitime, nalgebra, libm, tiff |
 | `adjust` | Least squares, statistics, reliability, VCE, uncertainty, loops | faer (sparse), nalgebra, statrs |
 | `formats` | Parsers and writers for exchange formats | quick-xml, csv, rusqlite (GeoPackage; needs a SQLite build for WebAssembly, checked in M3) |
 | `rinex-io` | RINEX parsing (wrapped), header extraction, QC | rinex (nav-solutions, MPL-2.0) |
@@ -523,7 +523,8 @@ Groups can be sessions, engines, receiver types or any other user-defined split.
 - **Areas narrow the search.** Transformations defined only in part of the world, such as the Australian ones, are left out of the search when the position is outside their area.
 - **Aliases are identities with a tolerance.** WGS 84 realisations, IGS20 and ATRF2014 are tied to the ITRF frames they're aligned with by identity transformations that carry the stated tolerance as uncertainty (for example 10 mm for WGS 84 (G2139) to ITRF2014, and 2 m for WGS 84 without a realisation).
 - **Two kinds of uncertainty.** A position's own covariance is propagated through each step. The transformations' parameter uncertainty is common to every position transformed along the same path, so it doesn't affect vectors between them; it's reported separately, for absolute uncertainty only.
-- **Reverse transformations** change the sign of every parameter, as EPSG defines them. For these small rotations that matches an exact inverse to well under a micrometre.
+- **Reverse transformations** change the sign of every parameter, as EPSG defines them. For these small rotations that matches an exact inverse to under a micrometre.
+- **Grid transformations** need a grid file, which the host supplies, so the built-in graph has only the analytic ones. A project that loads a grid gets a graph that prefers it (`TransformationGraph::with_preferred`): the grid is used wherever it covers the position, and the analytic transformation elsewhere. For GDA94 to GDA2020 that means ICSM's conformal and distortion grid over the mainland and Tasmania, and the conformal transformation on Christmas and Cocos Islands. The grid is 2D, so ellipsoidal heights come from the conformal transformation. The reverse direction is found by iteration, as PROJ does.
 
 ### 11.2 Default strategy for Australia (D-017, to be validated with GA)
 
@@ -539,6 +540,9 @@ Groups can be sessions, engines, receiver types or any other user-defined split.
 - Ellipsoidal heights (GRS80) are the working quantity.
 - AHD heights are computed through AUSGeoid2020, with its uncertainty. AVWS heights are computed through the Australian gravimetric quasigeoid.
 - Every height records its kind and the model used. There is no untyped "height".
+- A geoid model is tied to its frame: AUSGeoid2020 takes only GDA2020 positions, so a position in another frame has to be transformed first.
+- N is interpolated bilinearly. At the edge of the model's coverage, where some of the four nodes have no value, the others are used with rescaled weights, as PROJ does.
+- An AHD height's sigma combines AUSGeoid2020's (from its separate uncertainty grid) with the position's vertical sigma, and is unknown if either is.
 
 ### 11.4 Projections
 
@@ -549,13 +553,17 @@ Groups can be sessions, engines, receiver types or any other user-defined split.
 ### 11.5 Implementation (D-011)
 
 - **Our own Rust code** for the analytic pieces: ECEF and geodetic conversions, Helmert 7 and 14, plate motion and Transverse Mercator. They're small, fast and easy to test, need no C dependency, and compile to WebAssembly unchanged.
-- **Grids:** a Rust NTv2 and GeoTIFF grid reader for the GDA94 to GDA2020 grids and the geoid models. It reads grids in slices, so a large grid never has to fit in memory. This avoids shipping PROJ, which would have to be built for every platform and for WebAssembly.
+- **Grids:** a Rust NTv2 and GeoTIFF grid reader for the GDA94 to GDA2020 grids and the geoid models. This avoids shipping PROJ, which would have to be built for every platform and for WebAssembly.
+  - The host supplies a grid's bytes through `GridSource`, which reads at any offset: a file natively, a `File` or OPFS handle in the browser. The reader takes only what it needs (the headers, then the nodes around each point), so a 247 MB grid never has to fit in memory.
+  - NTv2 is read directly. GeoTIFF is decoded by the `tiff` crate (deflate and LZW, predictors, tiles and strips), one tile at a time with a small cache, and interpreted with PROJ's conventions: tie point and pixel scale, `PixelIsPoint` or `PixelIsArea`, and GDAL's metadata for band roles, units, offsets, scales and subgrid names.
+  - Subgrids nest as NTv2 defines; a point uses the densest one covering it. Interpolation is bilinear, in double precision.
+  - Both readers are fuzzed in CI.
 - **PROJ** serves as a test oracle, and optionally as a backend in native builds for jurisdictions whose transformations we haven't implemented ourselves.
 - **Validation** is against GeodePy, PROJ and the GDA2020 Technical Manual examples (see [VALIDATION.md](VALIDATION.md)).
 
 ### 11.6 Jurisdiction packs
 
-A pack is data, not code. It declares frames, transformations, grids, height models, standards and data sources. For example (illustrative):
+A pack is data, not code. It declares frames, transformations, grids, height models, standards and data sources. `packs/au/pack.toml` is version 0, with the frames, transformations, height models and grids; standards and data sources follow in M6 and M7. An excerpt:
 
 ```toml
 [pack]
@@ -568,34 +576,36 @@ target = "GDA2020"
 adjustment = "ATRF2014"
 
 [[transformations]]
-from = "ITRF2014"
-to = "GDA2020"
-method = "plate-motion"
-parameters = "transformations/itrf2014-gda2020.toml"
-source = "GDA2020 Technical Manual"
+name = "GDA94 to GDA2020 (2)"   # EPSG's name; the datum crate implements it
+epsg = 8447
+grid = "gda94-gda2020-conformal-and-distortion"
+use = "GDA94 coordinates from the state and territory survey networks..."
+
+[[height_models]]
+name = "AUSGeoid2020"
+epsg = 8451
+frame = "GDA2020"
+height = "AHD"
+grid = "ausgeoid2020"
+uncertainty = "ausgeoid2020-uncertainty"
 
 [[grids]]
 id = "ausgeoid2020"
 kind = "geoid"
-file = "AUSGeoid2020.gsb"
-url = "<official download URL>"
-sha256 = "<hash>"
-browser = "relay"        # host sends no cross-origin headers (checked 2026-10-15)
+licence = "CC BY 4.0, Geoscience Australia"
 
-[standards]
-id = "icsm-sp1-v2.2"
-
-[[data_sources]]
-id = "ga-gnss-archive"
-kind = "rinex"
-api = "https://data.gnss.ga.gov.au/api/rinexFiles"
-licence = "CC BY (confirm version with GA)"
-browser = "direct"       # API and archive downloads send cross-origin headers (checked 2026-10-15)
+[[grids.files]]                 # one grid can come in several formats
+format = "ntv2"
+file = "AUSGeoid2020_20180201.gsb"
+url = "https://s3-ap-southeast-2.amazonaws.com/geoid/AUSGeoid/AUSGeoid2020_20180201.gsb"
+sha256 = "aa40b895..."
+bytes = 247277168
+browser = "relay"               # no cross-origin headers (checked 2026-10-19)
 ```
 
-`browser` says whether the web app can download from a source directly, because the host sends cross-origin headers, or needs the relay or a data pack (section 13).
-
-Grid files are fetched and hash-verified rather than committed or bundled, unless their licence allows redistribution.
+- **Transformations are named, not parameterised.** Their parameters are in the datum crate, checked against EPSG and the oracles; the pack says which apply and when. The datum crate's pack test checks that every transformation and frame the pack names exists, with the same EPSG code, and that the crate has none the pack leaves out.
+- **`browser`** says whether the web app can download a file directly, because the host sends cross-origin headers, or needs the relay or a data pack (section 13).
+- **Grid files are fetched and hash-verified** rather than committed or bundled. ICSM's and Geoscience Australia's grids are CC BY 4.0, so the app could serve them itself, with attribution (to settle in M7).
 
 ## 12. Blunder checks
 
@@ -649,7 +659,8 @@ The initial catalogue (M9):
   |---|---|
   | GA Web API, its archive downloads (observation and navigation files) and the `ga-gnss-data-rinex-v1` bucket | Direct |
   | `files.igs.org` (ANTEX, IGS station files) | Relay or data pack |
-  | The AUSGeoid2020 grid on its S3 host | Relay or data pack |
+  | The AUSGeoid2020 grid and its uncertainty grid on Geoscience Australia's S3 host | Relay or data pack |
+  | PROJ-data on GitHub: the GDA94 to GDA2020 grid, and AUSGeoid2020's N without its uncertainty, as GeoTIFF (checked 2026-10-19) | Direct |
   | The BKG and IGN IGS mirrors | Unknown: no response to the test |
 
 - **Relay.** Sources the browser can't reach go through an optional relay (`apps/relay`): a small, stateless proxy that forwards GET requests only to hosts declared in the packs, and keeps no logs or copies.

@@ -127,6 +127,11 @@ Add new entries at the end with the next number. Never renumber an entry. Supers
 
 **Why:** it avoids building PROJ on every platform, keeps the core pure Rust and easy to audit, and the native code is validated against PROJ and GeodePy anyway.
 
+**Progress (M1):** both parts are built as proposed, so confirming this decision needs no further work.
+- The analytic transformations match PROJ to the last bit or to nanometres.
+- The grid reader matches PROJ to under a micrometre on ICSM's GDA94 to GDA2020 grid and on AUSGeoid2020.
+- GeoTIFF decoding uses the `tiff` crate (MIT), wrapped behind the reader's own types.
+
 ### D-012 PDF report generation
 **Status:** Open
 
