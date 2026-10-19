@@ -33,6 +33,15 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
+      # The grid readers on the grids PROJ publishes, beyond the test windows.
+      - name: Fetch PROJ's published grids
+        if: matrix.os == 'ubuntu-latest'
+        run: python3 crates/datum/tests/oracle/fetch_grids.py "$RUNNER_TEMP/grids" --format geotiff
+      - name: Test the grid readers on the published grids
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          GNSS_GRID_DIR: ${{ runner.temp }}/grids
+        run: cargo test -p gnss-datum --test grids --locked published_grids_match_proj -- --nocapture
 
   wasm:
     name: WebAssembly (headless Chrome)
@@ -56,6 +65,31 @@ jobs:
         run: |
           export CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver"
           cargo test --target wasm32-unknown-unknown --workspace $NATIVE_ONLY --locked
+
+  fuzz:
+    name: Fuzz the grid readers
+    # Every parser of external data is fuzzed (CONVENTIONS.md section 6).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup toolchain install nightly --profile minimal
+      # Restores cargo-fuzz and the fuzz target's build, so both are quick after the first run.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/datum/fuzz
+      - run: cargo +nightly install cargo-fuzz --locked
+      - name: Fuzz for two minutes, starting from the test grids
+        working-directory: crates/datum/fuzz
+        run: |
+          mkdir -p corpus/grid
+          cp ../tests/data/grids/*.gsb ../tests/data/grids/*.tif corpus/grid/
+          cargo +nightly fuzz run grid corpus/grid -- -max_total_time=120 -max_len=262144 -rss_limit_mb=2048
+      - name: Keep the input that failed
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: fuzz-artifacts
+          path: crates/datum/fuzz/artifacts/
 
   deny:
     name: Licences and advisories (cargo-deny)

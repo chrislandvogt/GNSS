@@ -11,4 +11,21 @@
 
 The first line of each generated file records the versions it was made with. To regenerate, see `tests/oracle/generate.py`.
 
+## Grids
+
+`grids/` holds windows cut from the published grids around the test points, and reference values from the full grids, all written by `tests/oracle/generate_grids.py` from the files `packs/au/pack.toml` lists.
+
+| File | What it is | Source |
+|---|---|---|
+| `gda94_gda2020_crop.gsb` | 44 windows of ICSM's GDA94 to GDA2020 conformal and distortion grid, as NTv2 | PROJ-data's GeoTIFF of ICSM's grid, written here |
+| `gda94_gda2020_crop.tif` | The same windows as GeoTIFF in PROJ's conventions, `PixelIsArea`, 16 × 16 tiles, band by band | Written by GDAL 3.12 through rasterio |
+| `gda94_gda2020.csv` | 49 points: GDA2020 latitude and longitude by the grid both ways, heights by EPSG:8048, ECEF, and GeodePy's shifts and accuracies | PROJ (full grid) and GeodePy (the NTv2 windows) |
+| `gda94_gda2020_full.csv` | 400 points over the whole grid, both ways | PROJ |
+| `ausgeoid2020_crop.gsb`, `ausgeoid2020_error_crop.gsb` | 33 windows of AUSGeoid2020 and of its uncertainty grid, node records copied unchanged | Geoscience Australia's NTv2 files |
+| `ausgeoid2020_crop.tif` | The same windows of N as GeoTIFF, `PixelIsPoint`, in strips | PROJ-data's GeoTIFF, written by GDAL |
+| `ausgeoid2020.csv` | N and its uncertainty at 33 points, one at the edge of the model's coverage | PROJ (N, full grid) and NumPy (uncertainty, full grid) |
+| `ausgeoid2020_full.csv` | The same at 400 points over the whole model | PROJ and NumPy |
+
+The grids are © ICSM and © Geoscience Australia, under Creative Commons Attribution 4.0 (see NOTICE).
+
 `natadjust_rvs_example.dat` is copied unchanged from [GeodePy](https://github.com/geoscienceaustralia/GeodePy), © Geoscience Australia, under the Apache License 2.0. Its columns are: station, constraints, easting, northing, zone, latitude and longitude (DDD.MMSSsssss), AHD height, ellipsoidal height, X, Y, Z, and the standard deviations of east, north and up.
