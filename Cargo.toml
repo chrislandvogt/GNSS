@@ -21,6 +21,8 @@ libm = "0.2.16"
 nalgebra = { version = "0.35", default-features = false, features = ["std", "libm-force"] }
 sha2 = "0.10"
 thiserror = "2"
+# GeoTIFF grids (D-011). Deflate and LZW only: PROJ's grids use deflate.
+tiff = { version = "0.11", default-features = false, features = ["deflate", "lzw"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-test = "0.3"
 

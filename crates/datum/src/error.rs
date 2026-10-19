@@ -162,4 +162,85 @@ pub enum DatumError {
         /// The position's frame.
         frame: FrameId,
     },
+
+    /// A grid file that can't be read as the format it claims to be, or that
+    /// doesn't hold what it's being used for.
+    #[error("{grid}: {reason}")]
+    InvalidGrid {
+        /// The grid, usually its file name.
+        grid: String,
+        /// What's wrong with it.
+        reason: String,
+    },
+
+    /// The host couldn't supply a grid's bytes.
+    #[error("couldn't read {grid}: {reason}")]
+    GridRead {
+        /// The grid, usually its file name.
+        grid: String,
+        /// The host's error.
+        reason: String,
+    },
+
+    /// A point outside every subgrid of a grid.
+    #[error("{grid} doesn't cover latitude {latitude_deg:.6}°, longitude {longitude_deg:.6}°")]
+    OutsideGrid {
+        /// The grid.
+        grid: String,
+        /// Latitude of the point, in degrees.
+        latitude_deg: f64,
+        /// Longitude of the point, in degrees.
+        longitude_deg: f64,
+    },
+
+    /// A point inside a grid's extent where the grid has no value, for example
+    /// a geoid model offshore.
+    #[error("{grid} has no value at latitude {latitude_deg:.6}°, longitude {longitude_deg:.6}°")]
+    NoGridValue {
+        /// The grid.
+        grid: String,
+        /// Latitude of the point, in degrees.
+        latitude_deg: f64,
+        /// Longitude of the point, in degrees.
+        longitude_deg: f64,
+    },
+
+    /// The iteration that applies a grid shift in reverse didn't converge.
+    #[error(
+        "the inverse of {grid} didn't converge at latitude {latitude_deg:.6}°, longitude \
+         {longitude_deg:.6}°, probably because the point is at the grid's edge"
+    )]
+    GridInverseDiverged {
+        /// The grid.
+        grid: String,
+        /// Latitude of the point, in degrees.
+        latitude_deg: f64,
+        /// Longitude of the point, in degrees.
+        longitude_deg: f64,
+    },
+
+    /// A height model that doesn't belong to the frame of the position.
+    #[error(
+        "{model} relates heights to the {expected} ellipsoid, but the position is in {frame}; \
+         transform it to {expected} first"
+    )]
+    WrongFrameForHeightModel {
+        /// The model, for example "AUSGeoid2020".
+        model: String,
+        /// The frame it's defined on.
+        expected: FrameId,
+        /// The position's frame.
+        frame: FrameId,
+    },
+
+    /// A height of one kind given where another was needed.
+    #[error("{operation} needs {expected}, but was given {given}")]
+    WrongHeightKind {
+        /// What was being done.
+        operation: &'static str,
+        /// The kind of height it needs.
+        expected: String,
+        /// The kind it was given.
+        given: String,
+    },
 }

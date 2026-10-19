@@ -11,16 +11,22 @@
 //! frame, using a plate motion model: for example ITRF2014 at 2018.0, to
 //! GDA2020, to ITRF2014 at 2025.0. Outside the area a plate motion model
 //! covers there's no way to change epoch, and the graph says so.
+//!
+//! Grid transformations, such as ICSM's GDA94 to GDA2020 conformal and
+//! distortion grid, need the grid file, which the host supplies. Build a graph
+//! that prefers them with [`TransformationGraph::with_preferred`].
 
 use std::collections::VecDeque;
 use std::fmt;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
-use nalgebra::Matrix3;
+use nalgebra::{Matrix3, Vector3};
 
 use crate::epoch::CoordinateEpoch;
 use crate::error::DatumError;
 use crate::frame::FrameId;
+use crate::geodetic::{Geodetic, enu_rotation};
+use crate::gridshift::HorizontalShiftGrid;
 use crate::helmert::{Helmert7, Helmert14, HelmertParameters, RotationConvention};
 use crate::position::{Position, describe, resolve_epoch};
 
@@ -56,7 +62,7 @@ pub const AUSTRALIA: Area = Area {
 };
 
 /// How a transformation changes coordinates.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Method {
     /// A 7-parameter similarity transformation.
     Helmert7(Helmert7),
@@ -68,6 +74,28 @@ pub enum Method {
         /// One-sigma difference between the frames, per axis, in metres.
         sigma_m: f64,
     },
+    /// Latitude and longitude shifts from a grid, between two frames on the
+    /// same ellipsoid.
+    Grid(GridMethod),
+}
+
+/// A grid transformation: latitude and longitude from a shift grid, and
+/// ellipsoidal heights from a similarity transformation, since the grid only
+/// shifts horizontally.
+#[derive(Debug, Clone)]
+pub struct GridMethod {
+    /// The shift grid.
+    pub grid: Arc<HorizontalShiftGrid>,
+    /// The similarity transformation that gives ellipsoidal heights, or `None`
+    /// to leave heights unchanged. Its parameter uncertainty is also the
+    /// uncertainty of the shift wherever the grid gives none.
+    pub heights: Option<Helmert7>,
+}
+
+impl PartialEq for GridMethod {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.grid, &other.grid) && self.heights == other.heights
+    }
 }
 
 /// One published transformation between two frames.
@@ -87,6 +115,30 @@ pub struct Transformation {
     pub area: Option<Area>,
 }
 
+/// What one step of a path did to the coordinates.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Applied {
+    /// Nothing: the frames are aligned.
+    Identity,
+    /// This 7-parameter transformation. A 14-parameter one appears here
+    /// evaluated at the coordinate epoch, and a reverse one with its
+    /// parameters negated.
+    Helmert(Helmert7),
+    /// A shift from a grid.
+    GridShift {
+        /// The grid, as named when it was opened.
+        grid: String,
+        /// The subgrid used.
+        subgrid: String,
+        /// The change in latitude, in radians.
+        latitude_change_rad: f64,
+        /// The change in longitude, in radians.
+        longitude_change_rad: f64,
+        /// The change in ellipsoidal height, in metres.
+        height_change_m: f64,
+    },
+}
+
 /// One step of a transformation path, as applied.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Step {
@@ -104,8 +156,8 @@ pub struct Step {
     pub reversed: bool,
     /// Where its parameters come from.
     pub source: &'static str,
-    /// The 7-parameter transformation actually applied, or `None` for an identity.
-    pub applied: Option<Helmert7>,
+    /// What it did.
+    pub applied: Applied,
 }
 
 impl fmt::Display for Step {
@@ -189,6 +241,17 @@ impl TransformationGraph {
         &self.transformations
     }
 
+    /// This graph with more transformations, which win over the ones already
+    /// in it wherever both give a path of the same length: for example a grid
+    /// preferred over a similarity transformation between the same frames.
+    /// A preferred transformation is only used where it's valid, so outside a
+    /// grid the others still apply.
+    pub fn with_preferred(&self, preferred: Vec<Transformation>) -> TransformationGraph {
+        let mut transformations = preferred;
+        transformations.extend(self.transformations.iter().cloned());
+        TransformationGraph { transformations }
+    }
+
     /// Transforms a position to a frame and, for a dynamic frame, a coordinate epoch.
     pub fn transform(
         &self,
@@ -203,8 +266,14 @@ impl TransformationGraph {
             .transformations
             .iter()
             .map(|t| {
-                t.area
-                    .is_none_or(|a| a.contains(here.latitude_deg(), here.longitude_deg()))
+                let in_area = t
+                    .area
+                    .is_none_or(|a| a.contains(here.latitude_deg(), here.longitude_deg()));
+                let covered = match &t.method {
+                    Method::Grid(g) => g.grid.covers(here.latitude_rad(), here.longitude_rad()),
+                    _ => true,
+                };
+                in_area && covered
             })
             .collect();
         let path = self.find_path(
@@ -242,8 +311,8 @@ impl TransformationGraph {
                     });
                 }
             }
-            let applied = match t.method {
-                Method::Helmert7(h) => Some(if u.reversed { h.inverse() } else { h }),
+            let helmert = match &t.method {
+                Method::Helmert7(h) => Some(if u.reversed { h.inverse() } else { *h }),
                 Method::Helmert14(h) => {
                     // Evaluated at the epoch of whichever side is dynamic.
                     let at = if frame.is_static() {
@@ -251,24 +320,36 @@ impl TransformationGraph {
                     } else {
                         current_epoch
                     };
-                    Some(if u.reversed { h.inverse() } else { h }.at(at))
+                    Some(if u.reversed { h.inverse() } else { *h }.at(at))
                 }
-                Method::Identity { .. } => None,
+                Method::Identity { .. } | Method::Grid(_) => None,
             };
-            match (&applied, t.method) {
-                (Some(h), _) => {
+            let applied = match (&t.method, helmert) {
+                (_, Some(h)) => {
                     let jacobian = h.jacobian();
                     transformation_covariance =
                         jacobian * transformation_covariance * jacobian.transpose()
                             + h.parameter_covariance(&xyz);
                     covariance = covariance.map(|c| c.propagate(&jacobian));
                     xyz = h.apply(&xyz);
+                    Applied::Helmert(h)
                 }
-                (None, Method::Identity { sigma_m }) => {
+                (Method::Identity { sigma_m }, None) => {
                     transformation_covariance += Matrix3::from_diagonal_element(sigma_m * sigma_m);
+                    Applied::Identity
                 }
-                (None, _) => {}
-            }
+                (Method::Grid(g), None) => {
+                    let shifted = apply_grid(g, frame, &xyz, u.reversed)?;
+                    let jacobian = shifted.jacobian;
+                    transformation_covariance =
+                        jacobian * transformation_covariance * jacobian.transpose()
+                            + shifted.added_covariance;
+                    covariance = covariance.map(|c| c.propagate(&jacobian));
+                    xyz = shifted.xyz;
+                    shifted.applied
+                }
+                (_, None) => Applied::Identity,
+            };
             steps.push(Step {
                 from: frame,
                 from_epoch: current_epoch,
@@ -400,6 +481,134 @@ fn unwind(visited: &[Visit], end: State) -> Vec<Use> {
     path
 }
 
+/// A grid step's result.
+struct GridStep {
+    xyz: Vector3<f64>,
+    jacobian: Matrix3<f64>,
+    added_covariance: Matrix3<f64>,
+    applied: Applied,
+}
+
+/// Applies a grid transformation to ECEF coordinates in `frame`: latitude and
+/// longitude from the grid (in reverse, by iteration), and ellipsoidal height
+/// from the similarity transformation, if there is one.
+fn apply_grid(
+    g: &GridMethod,
+    frame: FrameId,
+    xyz: &Vector3<f64>,
+    reversed: bool,
+) -> Result<GridStep, DatumError> {
+    let ellipsoid = frame.ellipsoid();
+    let here = ellipsoid.ecef_to_geodetic(xyz)?;
+    let (lat, lon, shift) = if reversed {
+        g.grid.inverse(here.latitude_rad(), here.longitude_rad())?
+    } else {
+        g.grid.forward(here.latitude_rad(), here.longitude_rad())?
+    };
+    let helmert = g.heights.map(|h| if reversed { h.inverse() } else { h });
+    let height = match helmert {
+        Some(h) => ellipsoid
+            .ecef_to_geodetic(&h.apply(xyz))?
+            .ellipsoidal_height_m(),
+        None => here.ellipsoidal_height_m(),
+    };
+    let there = Geodetic::new(lat, lon, height)?;
+
+    // The shift changes by well under a millionth of a metre per metre, so the
+    // step's Jacobian is the similarity transformation's, or the identity.
+    let jacobian = helmert.map_or_else(Matrix3::identity, |h| h.jacobian());
+    // The conformal part's uncertainty applies everywhere. Where the grid
+    // gives an accuracy, the distortion model's uncertainty adds to it.
+    let mut added = helmert.map_or_else(Matrix3::zeros, |h| h.parameter_covariance(xyz));
+    if let (Some(s_lat), Some(s_lon)) = (shift.latitude_sigma_rad, shift.longitude_sigma_rad) {
+        let north_m = s_lat * (ellipsoid.meridian_radius_m(lat) + height);
+        let east_m = s_lon * (ellipsoid.prime_vertical_radius_m(lat) + height) * libm::cos(lat);
+        let r = enu_rotation(lat, lon);
+        let enu = Matrix3::from_diagonal(&Vector3::new(east_m * east_m, north_m * north_m, 0.0));
+        added += r.transpose() * enu * r;
+    }
+    let subgrid = g
+        .grid
+        .grid()
+        .subgrids()
+        .get(shift.subgrid)
+        .map_or_else(String::new, |s| s.name.clone());
+    Ok(GridStep {
+        xyz: ellipsoid.geodetic_to_ecef(&there),
+        jacobian,
+        added_covariance: added,
+        applied: Applied::GridShift {
+            grid: g.grid.grid().name().to_owned(),
+            subgrid,
+            latitude_change_rad: lat - here.latitude_rad(),
+            longitude_change_rad: lon - here.longitude_rad(),
+            height_change_m: height - here.ellipsoidal_height_m(),
+        },
+    })
+}
+
+/// GDA94 to GDA2020 (1), EPSG:8048: the conformal 7-parameter transformation
+/// of the GDA2020 Technical Manual v1.2, section 3.1.
+fn gda94_to_gda2020_conformal() -> Helmert7 {
+    Helmert7 {
+        parameters: HelmertParameters::from_mm_mas_ppb(
+            [61.55, -10.87, -40.19],
+            [-39.4924, -32.7221, -32.8979],
+            -9.994,
+        ),
+        sigmas: Some(HelmertParameters::from_mm_mas_ppb(
+            [0.7, 0.6, 0.7],
+            [0.011, 0.010, 0.011],
+            0.10,
+        )),
+        convention: RotationConvention::CoordinateFrame,
+    }
+}
+
+/// GDA94 to GDA2020 (2), EPSG:8447: ICSM's conformal and distortion grid.
+/// It's for GDA94 coordinates that carry the distortion of the state and
+/// territory survey networks; see the GDA2020 Technical Manual and ICSM's fact
+/// sheet T1 for when to use it rather than the conformal transformation.
+///
+/// `grid` is ICSM's `GDA94_GDA2020_conformal_and_distortion.gsb` or PROJ's
+/// `au_icsm_GDA94_GDA2020_conformal_and_distortion.tif`. It covers mainland
+/// Australia and Tasmania. The grid is 2D, so ellipsoidal heights come from
+/// the conformal transformation (EPSG:8048).
+pub fn gda94_to_gda2020_conformal_and_distortion(
+    grid: Arc<HorizontalShiftGrid>,
+) -> Result<Transformation, DatumError> {
+    let g = grid.grid();
+    let meta = g.metadata();
+    // Lenient about spelling (GDA94, GDA_94, GDA 1994), but enough to catch
+    // the wrong grid, such as a geoid model.
+    let is_gda94_to_gda2020 = match g.format() {
+        crate::grid::GridFormat::Ntv2 => {
+            let from = meta.get("SYSTEM_F").unwrap_or("");
+            let to = meta.get("SYSTEM_T").unwrap_or("");
+            from.contains("94") && !from.contains("2020") && to.contains("2020")
+        }
+        crate::grid::GridFormat::GeoTiff => meta.get("target_crs_epsg_code") == Some("7844"),
+    };
+    if !is_gda94_to_gda2020 {
+        return Err(crate::grid::invalid(
+            g.name(),
+            "isn't a GDA94 to GDA2020 grid: its header doesn't relate GDA94 to GDA2020 \
+             (NTv2 SYSTEM_F and SYSTEM_T) or target EPSG:7844 (GeoTIFF)",
+        ));
+    }
+    Ok(Transformation {
+        from: FrameId::Gda94,
+        to: FrameId::Gda2020,
+        method: Method::Grid(GridMethod {
+            grid,
+            heights: Some(gda94_to_gda2020_conformal()),
+        }),
+        name: "GDA94 to GDA2020 (2)",
+        source: "EPSG:8447, ICSM conformal and distortion grid; ellipsoidal heights by EPSG:8048",
+        area: Some(AUSTRALIA),
+    })
+}
+
 /// The transformations this crate ships with.
 ///
 /// Parameters are as EPSG publishes them (database v12.029, read through
@@ -483,19 +692,7 @@ pub fn builtin_transformations() -> Vec<Transformation> {
         Transformation {
             from: FrameId::Gda94,
             to: FrameId::Gda2020,
-            method: Method::Helmert7(Helmert7 {
-                parameters: HelmertParameters::from_mm_mas_ppb(
-                    [61.55, -10.87, -40.19],
-                    [-39.4924, -32.7221, -32.8979],
-                    -9.994,
-                ),
-                sigmas: Some(HelmertParameters::from_mm_mas_ppb(
-                    [0.7, 0.6, 0.7],
-                    [0.011, 0.010, 0.011],
-                    0.10,
-                )),
-                convention: RotationConvention::CoordinateFrame,
-            }),
+            method: Method::Helmert7(gda94_to_gda2020_conformal()),
             name: "GDA94 to GDA2020 (1)",
             source: "EPSG:8048, GDA2020 Technical Manual v1.2 section 3.1 (conformal)",
             area: Some(AUSTRALIA),
@@ -655,6 +852,175 @@ mod tests {
             transform(&p, FrameId::Gda2020, Some(epoch(2018.0))),
             Err(DatumError::EpochOnStaticFrame { .. })
         ));
+    }
+
+    /// A GDA94 to GDA2020 grid around Alice Springs whose shifts are the
+    /// conformal transformation's own, as in ICSM's conformal-only grid
+    /// (EPSG:8446), so the grid path must reproduce the conformal one.
+    fn conformal_grid() -> Arc<HorizontalShiftGrid> {
+        use crate::ellipsoid::GRS80;
+        use crate::grid::Grid;
+        use crate::grid::tests::{TestSubgrid, ntv2_bytes};
+        let conformal = gda94_to_gda2020_conformal();
+        let values = move |lat: f64, lon: f64| {
+            let g = Geodetic::from_degrees(lat, lon, 0.0).unwrap();
+            let moved = GRS80
+                .ecef_to_geodetic(&conformal.apply(&GRS80.geodetic_to_ecef(&g)))
+                .unwrap();
+            let arc_seconds = |rad: f64| rad.to_degrees() * 3600.0;
+            [
+                arc_seconds(moved.latitude_rad() - g.latitude_rad()) as f32,
+                // NTv2 longitude shifts are positive west.
+                -arc_seconds(moved.longitude_rad() - g.longitude_rad()) as f32,
+                0.0001,
+                0.0002,
+            ]
+        };
+        let bytes = ntv2_bytes(
+            &[TestSubgrid {
+                name: "ALIC",
+                parent: "NONE",
+                s_lat: -24.5 * 3600.0,
+                n_lat: -23.0 * 3600.0,
+                e_long: -134.5 * 3600.0,
+                w_long: -133.0 * 3600.0,
+                lat_inc: 180.0,
+                long_inc: 180.0,
+                values: &values,
+            }],
+            true,
+        );
+        let grid = Grid::open("conformal-test.gsb", Arc::new(bytes)).unwrap();
+        Arc::new(HorizontalShiftGrid::new(grid).unwrap())
+    }
+
+    fn graph_with_grid() -> TransformationGraph {
+        let t = gda94_to_gda2020_conformal_and_distortion(conformal_grid()).unwrap();
+        TransformationGraph::builtin().with_preferred(vec![t])
+    }
+
+    #[test]
+    fn a_grid_of_the_conformal_shifts_reproduces_them() {
+        let graph = graph_with_grid();
+        let p = pos(FrameId::Gda94, None, ALIC_GDA94);
+        let by_grid = graph.transform(&p, FrameId::Gda2020, None).unwrap();
+        assert_eq!(by_grid.steps[0].transformation, "GDA94 to GDA2020 (2)");
+        let by_helmert = transform(&p, FrameId::Gda2020, None).unwrap();
+        // Bilinear interpolation of a smooth field, from f32 nodes: micrometres.
+        let d = (by_grid.position.xyz() - by_helmert.position.xyz()).norm();
+        assert!(d < 1e-5, "{d}");
+        assert_close(
+            by_grid.position.xyz(),
+            ALIC_GDA2020_FROM_GDA94,
+            0.5 * TENTH_MM + 1e-5,
+        );
+
+        let back = graph
+            .transform(&by_grid.position, FrameId::Gda94, None)
+            .unwrap();
+        assert_eq!(back.steps[0].transformation, "GDA94 to GDA2020 (2)");
+        assert!(back.steps[0].reversed);
+        // Latitude and longitude return exactly; heights go through the
+        // conformal transformation and its EPSG reverse, which negates the
+        // parameters and so misses an exact inverse by a fraction of a
+        // micrometre, as in the Helmert round trip above.
+        let d = (back.position.xyz() - p.xyz()).norm();
+        assert!(d < 1e-6, "{d}");
+    }
+
+    #[test]
+    fn grid_steps_record_the_shift_and_heights_follow_the_conformal_transformation() {
+        let p = pos(FrameId::Gda94, None, ALIC_GDA94);
+        let t = graph_with_grid()
+            .transform(&p, FrameId::Gda2020, None)
+            .unwrap();
+        let Applied::GridShift {
+            grid,
+            subgrid,
+            latitude_change_rad,
+            height_change_m,
+            ..
+        } = &t.steps[0].applied
+        else {
+            panic!("expected a grid shift, got {:?}", t.steps[0].applied);
+        };
+        assert_eq!(
+            (grid.as_str(), subgrid.as_str()),
+            ("conformal-test.gsb", "ALIC")
+        );
+        // About 1.5 m north.
+        let north_m = latitude_change_rad * 6.36e6;
+        assert!((north_m - 1.5).abs() < 0.1, "{north_m}");
+        let conformal = transform(&p, FrameId::Gda2020, None).unwrap();
+        let expected = conformal.position.geodetic().ellipsoidal_height_m()
+            - p.geodetic().ellipsoidal_height_m();
+        assert!((height_change_m - expected).abs() < 1e-9);
+    }
+
+    #[test]
+    fn the_grids_accuracy_adds_to_the_conformal_uncertainty() {
+        let p = pos(FrameId::Gda94, None, ALIC_GDA94);
+        let g = p.geodetic();
+        let by_grid = graph_with_grid()
+            .transform(&p, FrameId::Gda2020, None)
+            .unwrap();
+        let by_helmert = transform(&p, FrameId::Gda2020, None).unwrap();
+        let r = g.enu_rotation();
+        let extra = r
+            * (by_grid.transformation_covariance - by_helmert.transformation_covariance)
+            * r.transpose();
+        // 0.0002" east and 0.0001" north, at 30.9 m per arc-second of latitude.
+        let arc_second_m = 30.9;
+        let east = 0.0002 * arc_second_m * libm::cos(g.latitude_rad());
+        let north = 0.0001 * arc_second_m;
+        assert!((libm::sqrt(extra[(0, 0)]) - east).abs() < 0.01 * east);
+        assert!((libm::sqrt(extra[(1, 1)]) - north).abs() < 0.01 * north);
+        assert!(extra[(2, 2)].abs() < 1e-12);
+    }
+
+    #[test]
+    fn outside_the_grid_the_conformal_transformation_applies() {
+        let perth = Position::from_geodetic(
+            FrameId::Gda94,
+            None,
+            &Geodetic::from_degrees(-31.95, 115.86, 10.0).unwrap(),
+            None,
+        )
+        .unwrap();
+        let t = graph_with_grid()
+            .transform(&perth, FrameId::Gda2020, None)
+            .unwrap();
+        assert_eq!(t.steps[0].transformation, "GDA94 to GDA2020 (1)");
+        assert!(matches!(t.steps[0].applied, Applied::Helmert(_)));
+    }
+
+    #[test]
+    fn only_a_gda94_to_gda2020_grid_is_accepted() {
+        use crate::grid::Grid;
+        use crate::grid::tests::{TestSubgrid, ntv2_bytes, plane};
+        let mut bytes = ntv2_bytes(
+            &[TestSubgrid {
+                name: "X",
+                parent: "NONE",
+                s_lat: -36.0 * 3600.0,
+                n_lat: -35.0 * 3600.0,
+                e_long: -146.0 * 3600.0,
+                w_long: -145.0 * 3600.0,
+                lat_inc: 3600.0,
+                long_inc: 3600.0,
+                values: &plane,
+            }],
+            true,
+        );
+        // SYSTEM_T becomes AGD66.
+        bytes[16 * 6 + 8..16 * 6 + 16].copy_from_slice(b"AGD66   ");
+        let grid =
+            HorizontalShiftGrid::new(Grid::open("agd.gsb", Arc::new(bytes)).unwrap()).unwrap();
+        let err = gda94_to_gda2020_conformal_and_distortion(Arc::new(grid)).unwrap_err();
+        assert!(
+            err.to_string().contains("isn't a GDA94 to GDA2020 grid"),
+            "{err}"
+        );
     }
 
     #[test]
