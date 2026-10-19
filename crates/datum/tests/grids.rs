@@ -285,7 +285,7 @@ fn published_grids_match_proj() {
             continue;
         };
         let model = GeoidModel::ausgeoid2020(g, uncertainty()).unwrap();
-        let (mut worst_n, mut worst_sigma) = (0.0_f64, 0.0_f64);
+        let (mut worst_n, mut worst_sigma, mut sigmas) = (0.0_f64, 0.0_f64, 0);
         for r in rows(include_str!("data/grids/ausgeoid2020_full.csv")) {
             let s = model
                 .separation(r[0].to_radians(), r[1].to_radians())
@@ -293,9 +293,18 @@ fn published_grids_match_proj() {
             worst_n = worst_n.max((s.n_m - r[2]).abs());
             if let Some(sigma) = s.sigma_m {
                 worst_sigma = worst_sigma.max((sigma - r[3]).abs());
+                sigmas += 1;
             }
         }
-        eprintln!("{name} vs PROJ: N {worst_n:.1e} m, sigma {worst_sigma:.1e} m");
+        // Without the uncertainty grid there's no sigma to check, and the
+        // output says so rather than reporting a perfect zero.
+        let sigma_checked = if model.uncertainty_grid().is_some() {
+            assert_eq!(sigmas, 400, "every point should have a sigma");
+            format!("sigma {worst_sigma:.1e} m at {sigmas} points")
+        } else {
+            "sigma not checked (no uncertainty grid)".to_owned()
+        };
+        eprintln!("{name} vs PROJ: N {worst_n:.1e} m, {sigma_checked}");
         assert!(worst_n < PROJ_N_M && worst_sigma < 1e-9);
         tested.push(name);
     }
