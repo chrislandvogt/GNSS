@@ -26,7 +26,7 @@ These rules keep the code correct by construction and the same in every build. T
 ## 4. Time
 
 - **Observation times are hifitime epochs in GPST.** Conversions to and from UTC handle leap seconds through hifitime, never by hand.
-- **Frame epochs are decimal years**, computed by one documented function in `datum`. No other code converts dates to decimal years.
+- **Coordinate epochs are decimal years** (`CoordinateEpoch`), computed by one documented function, `CoordinateEpoch::from_time`. No other code converts dates to decimal years. The convention is the calendar year plus the elapsed fraction of it in GPST, so 1 January 2018 is 2018.0.
 - **Time spans are half-open**: `[start, end)`.
 - **The core never reads the clock.** Run timestamps in provenance come from the host (section 9).
 
@@ -41,7 +41,7 @@ These rules keep the code correct by construction and the same in every build. T
 - **Libraries return errors; they don't panic on user data.** Use `thiserror` for error types in library crates, and `anyhow` only in binaries.
 - **`unwrap` and `expect` are linted** (`clippy::unwrap_used`, `clippy::expect_used`). Tests may use them. Elsewhere, an `expect` needs a comment explaining why it can't fail, and an `#[allow]` on the narrowest scope.
 - **Errors explain themselves.** Name the file, line, mark, occupation or observation involved, and say what was expected. "Invalid input" is not an error message.
-- **Parsers are fuzzed.** Every parser of external data gets a fuzz target in the same pull request that adds it.
+- **Parsers are fuzzed.** Every parser of external data gets a fuzz target in the same pull request that adds it, in the crate's `fuzz/` directory (cargo-fuzz, its own workspace), and CI runs it.
 
 ## 7. Logging and provenance
 
@@ -74,6 +74,7 @@ The core never touches the file system, network, clock, randomness or threads di
 | Running jobs | the pipeline executor | tokio and rayon | web workers |
 | Engine modules | `ModuleHost` | wasmtime | engine workers |
 | Time | passed in by the host | system clock | `Date.now()` |
+| Grid files | `datum::grid::GridSource` (read at an offset) | a file | a `File` or OPFS handle in a worker |
 
 This is what lets one core build for both targets. It also makes the core easy to test, because tests supply fake hosts.
 

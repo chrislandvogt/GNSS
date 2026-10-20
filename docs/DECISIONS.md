@@ -127,6 +127,11 @@ Add new entries at the end with the next number. Never renumber an entry. Supers
 
 **Why:** it avoids building PROJ on every platform, keeps the core pure Rust and easy to audit, and the native code is validated against PROJ and GeodePy anyway.
 
+**Progress (M1):** both parts are built as proposed, so confirming this decision needs no further work.
+- The analytic transformations match PROJ to the last bit or to nanometres.
+- The grid reader matches PROJ to under a micrometre on ICSM's GDA94 to GDA2020 grid and on AUSGeoid2020.
+- GeoTIFF decoding uses the `tiff` crate (MIT), wrapped behind the reader's own types.
+
 ### D-012 PDF report generation
 **Status:** Open
 
@@ -295,3 +300,27 @@ The tool shows the difference from adjusting directly in GDA2020, so the shortcu
   - The cross-target golden tests catch what slips through.
 
 **Revisit:** if a dependency we need can't be made deterministic. Then the affected results get a documented tolerance instead.
+
+### D-025 Our own linear algebra and distributions in the adjustment
+**Status:** Proposed
+
+**Decision:**
+- The adjustment solves its normal equations with its own block-sparse factorisation: `L D Lᵀ` in 3×3 blocks, in minimum-degree order with ties to the lowest mark, and the Takahashi recurrence for the selected inverse. It doesn't use faer.
+- nalgebra is built without its `std` feature, which would hand dynamic matrix products to matrixmultiply.
+- The distributions behind the critical values (normal, χ², non-central χ² and Student's t) are our own, computed with `libm`. It doesn't use statrs.
+
+**Why:**
+- **Test decisions sit on the last bits (D-024).** General-purpose linear algebra libraries choose SIMD and FMA kernels by CPU at run time. faer has its own dispatch, and nalgebra with `std` uses matrixmultiply for products larger than about 5×5. Different kernels sum in different orders, so results would differ between machines, and between native code and the browser.
+- **statrs uses the platform's maths library** through the `f64` methods, which D-024 rules out, and its quantiles would set the critical values.
+- **The structure is simple.** A GNSS network's normal equations are 3×3 blocks with a sparse pattern. A block factorisation is a few hundred lines, and the selected inverse gives every block the statistics need at about the cost of the factorisation.
+- **It's fast enough by a wide margin.** 1,000 marks and 3,000 vectors adjust in 17 ms natively and 38 ms in Chromium, against targets of 2 s and 6 s. 10,000 marks and 30,000 vectors take 0.3 s natively.
+
+**Alternatives:**
+- **faer, or another sparse solver, with a tolerance on results.** Faster for very large networks, but it gives up bit-identical results, and a test near its critical value could flip between the CLI and the web app.
+- **A dense path for small networks**, as first planned. The sparse path is exact and fast at every size, so it isn't needed.
+
+**Consequences:**
+- We maintain the numerical code. It's checked against dense nalgebra solutions, a textbook dense adjustment, SciPy's distributions and the cross-platform golden hash.
+- The ordering is a simple greedy minimum degree. Much larger networks may want a better one, which stays deterministic as long as it's our own code.
+
+**Revisit:** if networks far beyond 10,000 marks become common and the solver becomes the bottleneck.

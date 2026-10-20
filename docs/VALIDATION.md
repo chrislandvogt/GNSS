@@ -63,17 +63,81 @@ Baselines formed between continuously operating reference stations whose coordin
 - **Injected blunders** of known size, type and location, which test detection power against MDB theory.
 - **The generator itself** is versioned and seeded, so every network can be regenerated exactly.
 
+The first generator is in place (`gnss_adjust::synthetic`, M2). It scatters marks over a disc, joins each to its nearest neighbours by vectors, measures some vectors together from a common base so they're correlated, and adds weighted control. Noise is drawn from each observation's own covariance, so the statistics should follow theory exactly. Geometry types and covariance realism from D1 come later. The tests in `crates/adjust/tests` found:
+
+| Check | Result |
+|---|---|
+| Against a textbook dense adjustment, in each datum (weighted control, weighted plus fixed control, one fixed mark, inner constraints) | Positions within 1e-8 m. w, MDB, redundancy, vector test and external reliability within 1e-7 relative |
+| Invariance between two fixed marks and inner constraints | Residuals within 1e-10 m, test statistics within 1e-8 relative, and positions that differ only by a translation |
+| σ̂₀² over 200 noise draws (r = 138) | Mean 1.013, with a standard error of 0.0085 |
+| Global test at 5% | Passed 194 of 200 times (190 expected) |
+| 45,600 w-tests without blunders | Mean 0.002, variance 1.013, and 47 false alarms at α₀ = 0.1% (45.6 expected) |
+| 15,200 vector tests without blunders | 87 false alarms at the B-method's 0.55% (83.6 expected) |
+| A bias of one MDB, over 400 draws (G-POW) | Detected by the w-test 79.8% of the time and by the vector test 80.3% (β₀ = 80%) |
+| Coordinate errors against their covariances (PU), over 4,000 draws | Mean dᵀΣ⁻¹d of 2.981 ± 0.024 (3 expected) |
+| Relative errors of all 91 pairs against their covariances (RU), over 4,000 draws | Mean 2.989 ± 0.015 (3 expected) |
+| Horizontal errors inside the 95% PU circle (ICSM's formula), over 4,000 draws | 95.06% |
+| Every block of Qₓ, including pairs that share no observation, against the dense adjustment | Within 1e-14 m² in each datum |
+| Critical values against SciPy | Within 1e-12 relative (B-method critical values within 1e-10) |
+| Variance component estimation with one group's covariances four times too optimistic, over 200 draws | Estimated factors average 1.009 ± 0.013 and 0.990 ± 0.010 of the truth, in 9 to 24 rounds |
+| Loop closures: 34 loops in a network of clusters, over 1,000 draws | Mean statistic 2.973 ± 0.020 (3 expected); 0.553% fail at the 0.55% level |
+| A good baseline excluded, over 10,000 draws each for four baselines | Mean misclosure test 2.98 to 3.02, ± 0.025 (3 expected) |
+| The same, against its vector test with it in | Equal to 1e-7 relative, the rounding of ECEF coordinates |
+| A 10 cm blunder | First among the suspects; excluded, its misclosure shows the 10 cm and fails, and the global test then passes |
+| Set-ups against the dense adjustment, in each datum | Errors within 1e-9 m; their priors' tests within 1e-7 relative |
+| A network with 88 set-ups, their errors drawn from their priors, over 1,000 draws | σ̂₀² 1.0009 ± 0.0042; 184 false alarms in 189,000 vector w-tests and 264 in 264,000 prior w-tests (189 and 264 expected); loop statistics 3.020 ± 0.025 |
+| A set-up's height wrong by three of its MDBs | The set-up's prior is first among the suspects, with the error estimated upward |
+
 ### D4 Oracle networks (adjustment)
 
 - D3 networks and real (anonymised) networks run through DynAdjust.
 - Outputs are stored as golden files, with the DynAdjust version and settings recorded.
 - STAR*NET comparisons are made by partners who hold licences, then published manually. Commercial software can't run in CI.
 
+The first three synthetic networks are in place (`crates/adjust/tests/dynadjust.rs`), with DynAdjust 1.4.1's results made by `tests/oracle/dynadjust.py`. They have baselines, clusters, weighted control (point clusters), a fixed mark, and injected blunders of 2 to 6 cm. DynAdjust flags a component when its N-stat, the residual over its own standard deviation, exceeds 1.96 (95%), so it's compared with our standardised residuals. Against G-ADJ:
+
+| Network | Coordinates | σ̂₀² | PU | N-stat | Flagged by both |
+|---|---|---|---|---|---|
+| 30 marks, clusters of three vectors, 4 control marks | 4.7e-10 m | Within 1e-6 relative | 1.5e-9 relative | 1.2e-7 | The same 18 of 246 components |
+| 25 marks, single baselines, 3 control marks and a fixed mark | 2.7e-7 m | Within 1e-6 relative | 3.7e-8 relative | 8.2e-6 | The same 10 of 147 |
+| 120 marks over 50 km, pairs of vectors, 6 control marks | 6.6e-10 m | Within 1e-6 relative | 4.5e-9 relative | 2.1e-7 | The same 62 of 1,131 |
+
+The degrees of freedom match exactly, and the global test's bounds to 1e-9.
+
+Two things in DynAdjust need allowing for:
+- **Free stations get a weak a priori constraint**, 10 m by default. The oracle sets it to 1 km, where it changes nothing at this precision.
+- **Fixed stations are held only to 1 µm.** In the network with a fixed mark, the control moves the whole network by about 0.3 µm in DynAdjust, which accounts for that network's larger differences.
+
 ### D5 Geodesy points (datums)
 
 - The GDA2020 Technical Manual worked examples.
 - A generated point grid across Australia at epochs from 1994 to 2030, covering every transformation and projection in the AU pack.
 - Reference values come from GeodePy and PROJ, with versions recorded.
+- DynAdjust's GDA2020 coordinates for the 109 Recognised Value Standard CORS (from GeodePy's test suite).
+
+The analytic part is in place (`crates/datum/tests`, generated by `tests/oracle/generate.py`): 86 points over Australia and its offshore territories at six epochs from 1994.0 to 2031.0. Against the G-DAT threshold of 0.1 mm, the first results were:
+
+| Comparison | Largest difference |
+|---|---|
+| Helmert and plate motion transformations vs PROJ (551 cases) | 0 (identical bits) |
+| Transformations vs GeodePy, with covariance propagation | 0; covariances to 4e-16 relative |
+| Geodetic and ECEF vs PROJ | 1.9 nm |
+| MGA2020 vs PROJ, own and neighbouring zones | 2.4 nm; point scale 5e-11; convergence 6.5e-10° |
+| MGA2020 vs GeodePy | 0.05 mm (GeodePy's rounding) |
+| The 109 CORS vs DynAdjust | 0.19 mm XYZ, 0.36 mm MGA (the file's rounding) |
+| GDA2020 Technical Manual examples (ALIC) | within the manual's 0.1 mm rounding |
+
+The grids are tested the same way (`tests/grids.rs`, generated by `tests/oracle/generate_grids.py`). The published grids are too big to commit, so the tests use windows cut from them around 49 GDA94 to GDA2020 points and 33 AUSGeoid2020 points, as NTv2 and as GDAL-written GeoTIFF. CI also reads PROJ's published GeoTIFFs at 400 more points each, and the published NTv2 files were checked the same way before committing. Against the G-DAT threshold of 1 mm for grids:
+
+| Comparison | Largest difference |
+|---|---|
+| GDA94 to GDA2020 grid vs PROJ, both directions | 0.07 µm (0.09 µm on the published grid) |
+| The grid's shifts and accuracies vs GeodePy | within GeodePy's 1e-6" rounding |
+| GDA94 to GDA2020 positions with heights (grid, then EPSG:8048 for heights) vs PROJ | 0.07 µm |
+| AUSGeoid2020 N vs PROJ | 5e-11 m |
+| AUSGeoid2020's uncertainty vs an independent interpolation (NumPy) | 1e-15 m |
+
+The differences from PROJ come from PROJ rounding each node's shift to single precision in radians.
 
 ### D6 Blunder corpus (checks)
 

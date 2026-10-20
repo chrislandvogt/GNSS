@@ -90,8 +90,8 @@ Every crate except `engine-host` compiles to both native code and WebAssembly. C
 | Crate | Responsibility | Key dependencies |
 |---|---|---|
 | `model` | Domain entities, IDs, serialisation, schema versions | serde, toml, schemars |
-| `datum` | Frames, epochs, Helmert transformations, plate motion, grids, geoid, projections | hifitime, nalgebra |
-| `adjust` | Least squares, statistics, reliability, VCE, uncertainty, loops | faer (sparse), nalgebra, statrs |
+| `datum` | Frames, epochs, Helmert transformations, plate motion, grids, geoid, projections | hifitime, nalgebra, libm, tiff |
+| `adjust` | Least squares, statistics, reliability, VCE, uncertainty, loops | nalgebra, libm; its own block-sparse solver and distributions (D-025) |
 | `formats` | Parsers and writers for exchange formats | quick-xml, csv, rusqlite (GeoPackage; needs a SQLite build for WebAssembly, checked in M3) |
 | `rinex-io` | RINEX parsing (wrapped), header extraction, QC | rinex (nav-solutions, MPL-2.0) |
 | `fetch` | Source registry, download, cache, data packs | reqwest (uses the browser's fetch in the web app), sha2 |
@@ -422,6 +422,8 @@ Here the vector has already been reduced to the marks using the antenna heights 
 
 For GNSS-only networks the model is linear in ECEF, so no iteration is needed. Iteration arrives with VCE and, in Phase 3, with terrestrial observations.
 
+Set-ups are optional: an element's ends can name the set-up they were measured from. Each set-up's error is a block of unknowns beside the marks', and its prior is a pseudo-observation that the error is zero, so it adds as many rows as unknowns and the degrees of freedom don't change. The prior is tested like any observation: a w-test per local axis and a 3-DoF test. A misread antenna height or an antenna off its mark shows there, on the set-up, rather than spread over its vectors. Inner constraints move the marks, not the set-up errors.
+
 ### 10.2 Stochastic model
 
 - `Σ_ll = σ₀² Q_ll`, with `Q_ll` built from the engine covariances and per-group scale factors `k_g` (from VCE or set by the user).
@@ -439,35 +441,42 @@ For GNSS-only networks the model is linear in ECEF, so no iteration is needed. I
 GNSS vectors carry scale and orientation from the orbits, so a vector-only network has a 3-parameter translation defect.
 
 - **Minimally constrained.** Fix one mark, or apply inner constraints on translation. The residuals and test statistics are invariant to which choice is made, and this invariance is a property test.
+  - A fixed mark is held at its approximate position.
+  - Inner constraints keep the centroid of the approximate positions. They're solved by holding one mark, then moving the solution to the centroid with an S-transformation, which costs three extra solves.
 - **Constrained.** Control marks enter as weighted constraints with their covariance (point clusters), or as hard constraints if the user asks. Comparing constrained and minimally constrained solutions tests the consistency of the control: `ΔΩ = Ω_c − Ω_mc` is tested against χ² with (constraints − 3) degrees of freedom, and inconsistent control is reported by mark.
 
 ### 10.4 Solution
 
-- Normal equations `N = AᵀPA` and `u = AᵀPl`, solved by sparse Cholesky factorisation with AMD ordering (faer). The matrix has a natural 3×3 block structure.
-- Parameter covariance `Q_x̂ = N⁻¹`:
-  - **Up to about 2,000 marks:** compute the full inverse densely.
-  - **Larger networks:** compute only the blocks that are needed, using a selected inverse (Takahashi equations). These are the mark diagonals, the pairs required for RU, and the blocks needed for `Q_v̂v̂`.
-- Residuals `v̂ = A x̂ − l`, and `Q_v̂v̂ = Q_ll − A Q_x̂ Aᵀ`. Only the per-observation blocks are needed.
-- The weighted sum of squares is `Ω = v̂ᵀPv̂`, with *r* degrees of freedom.
+- **Normal equations.** `N = AᵀPA` and `u = AᵀPl` are built in 3×3 blocks, a block row per mark. Their pattern has a block wherever two marks share an observation.
+- **Factorisation.** `N = L D Lᵀ` with block pivots, eliminating marks in minimum-degree order, with ties going to the lowest mark. This is our own code (D-025): every step is plain arithmetic in a fixed order, so results are the same bits natively and in the browser.
+- **Parameter covariance `Q_x̂ = N⁻¹`.** The selected inverse (Takahashi recurrence) gives every block on the factor's pattern: each mark's own block and every pair of marks that share an observation. That's everything the statistics need, at about the cost of the factorisation, for networks of any size. Any other pair, such as RU between distant marks, costs three solves.
+- **Residuals.** `v̂ = A x̂ − l`, adjusted minus observed, and `Q_v̂v̂ = Q_ll − A Q_x̂ Aᵀ`, of which only the per-observation blocks are needed.
+- **Fit.** The weighted sum of squares is `Ω = v̂ᵀPv̂`, with *r* degrees of freedom.
+- **Speed.** 1,000 marks and 3,000 vectors adjust, with all statistics, in 17 ms natively and 38 ms in Chromium. 10,000 marks and 30,000 vectors take 0.3 s natively.
 
 ### 10.5 Statistical testing
 
-- **Global test.** `Ω/σ₀² ~ χ²(r)`, two-tailed.
-- **w-test (data snooping, σ₀ known).** For each alternative vector *c* (one per vector component, expressed in local ENU so results read as horizontal or vertical):
+- **Global test.** `Ω/σ₀² ~ χ²(r)`, two-tailed, at its own level: 5% by default, as in the ICSM guideline and DynAdjust. It doesn't take its level from λ₀. The B-method would put it near 40% for a network with 100 degrees of freedom, so correct networks would fail routinely.
+- **w-test (data snooping, σ₀ known).** For each alternative vector *c* (one per vector component, expressed in local ENU at the vector's first mark so results read as horizontal or vertical):
 
   ```math
   w = \frac{c^T P \hat v}{\sigma_0 \sqrt{c^T P Q_{\hat v \hat v} P c}} \sim N(0,1)
   ```
 
+- **Standardised residuals.** Each ECEF component's residual over its own standard deviation, `v_k / (σ₀ sqrt(Q_v̂v̂,kk))`, ignoring correlations. This is DynAdjust's N-stat, kept for comparison with it. It equals the w-test only for uncorrelated components.
 - **Vector test (3 DoF).** For vector *i*, with `C_i` selecting its three components:
 
   ```math
   T_i = \frac{\hat v^T P C_i \,(C_i^T P Q_{\hat v \hat v} P C_i)^{-1}\, C_i^T P \hat v}{\sigma_0^2} \sim \chi^2_3
   ```
 
-- **Tau test (Pope)** is available when the a posteriori variance factor is used.
-- **Critical values** follow Baarda's B-method. Choose α₀ (default 0.1%) and β₀ (default 80%), giving λ₀ ≈ 17.07. The levels for the 3-DoF test and the global test are derived from the same λ₀ and β₀, so all tests are equally sensitive.
+- **Tau test (Pope)** is the w-test with the a posteriori variance factor, against Pope's critical value at α₀. It needs at least 2 degrees of freedom.
+- **Critical values** follow Baarda's B-method. Choose α₀ (default 0.1%) and β₀ (default 80%), giving λ₀ ≈ 17.07. The 3-DoF test's level is derived from the same λ₀ and β₀ (0.55% for the defaults), so it's as sensitive as the w-test.
+- **Untestable components.** A component that the other observations check less than 1e-8 of, such as a spur or bridge vector's, gets no w-test and no MDB: its residual is rounding error over rounding error, and the bias it could hide is unbounded.
 - **Outlier handling.** Suspects are ranked by test statistic and shown with evidence. Excluding or re-weighting an observation is a recorded user action, and the tool never iterates silently.
+  - Suspects are the failed w-tests and vector tests, ranked by how far they fail on a scale that grows with the bias: `|w|` over its critical value, or `sqrt(T)` over the square root of its critical value.
+  - An edit names the observation, the action (exclude, or scale the covariance by a factor) and the person's reason. The edits travel with the results as the audit trail.
+  - An excluded observation is compared with the network adjusted without it: its misclosures `d`, and per element `dᵀ(Q_ll + A Q_x̂ Aᵀ)⁻¹d / σ₀² ~ χ²(3)`, which says whether it would fit. For a single baseline this equals its vector test with it in, which the tests check.
 
 ### 10.6 Reliability
 
@@ -479,7 +488,7 @@ GNSS vectors carry scale and orientation from the orbits, so a vector-only netwo
   ```
 
   For uncorrelated observations this reduces to `σ_i·sqrt(λ₀/r_i)`.
-- **External reliability:** `∇x̂ = Q_x̂ AᵀP c ∇_c`, the largest coordinate shift that an undetectable blunder could cause.
+- **External reliability:** `∇x̂ = Q_x̂ AᵀP c ∇_c`, the largest coordinate shift that an undetectable blunder could cause. It's computed for the observation's own marks, relative to the datum: those blocks of `Q_x̂` are on the selected inverse's pattern, while shifts elsewhere would cost a solve per component.
 - MDBs and external reliability are drawn on the map, so weak parts of the network are visible before anyone looks at a table.
 
 ### 10.7 Variance component estimation
@@ -492,12 +501,15 @@ Group scale factors are estimated with the simplified Helmert (Förstner) estima
 
 Groups can be sessions, engines, receiver types or any other user-defined split. Each factor is reported with its redundancy. A warning is raised when a group has too little redundancy (r_g below about 10) for a meaningful estimate. The factors are the evidence for, or against, the realism of the engine covariances.
 
+Observations in no group, such as control, keep their covariances as given. Each round re-adjusts with the new factors until every group's `Ω_g / (σ₀² r_g)` is within 1e-6 of 1, which takes 10 to 25 rounds on the synthetic networks. Every round's factors are kept as the convergence record.
+
 ### 10.8 Uncertainty and SP1
 
 - Mark covariances come from `Q_x̂`, scaled per project policy (a priori or a posteriori variance factor). The policy is recorded.
 - **Error ellipses.** Rotate the covariance to local ENU. The horizontal 2×2 block gives the standard error ellipse. The 95% ellipse scales it by `sqrt(χ²₂(0.95)) ≈ 2.4477`, and the vertical 95% value is `1.96·σ_u`.
-- **Positional uncertainty (PU), per SP1 v2.2 section 4.2.** The horizontal PU is the 95% circular measure derived from the error ellipse, computed exactly as the ICSM *Guideline for Adjustment and Evaluation of Survey Control* specifies. The vertical PU is `1.96·σ_u` (95%). PU is relative to the datum, so it includes control uncertainty, which comes naturally from weighted constraints.
-- **Relative uncertainty (RU)** between marks *i* and *j* uses `Σ_Δ = Σ_ii + Σ_jj − Σ_ij − Σ_ji`, rotated to local ENU, with the same 95% measures. RU excludes datum uncertainty.
+- **Positional uncertainty (PU), per SP1 v2.2 section 4.2.** The horizontal PU is the 95% circular measure derived from the error ellipse, computed exactly as the ICSM *Guideline for Adjustment and Evaluation of Survey Control* specifies: `a(1.960790 + 0.004071c + 0.114276c² + 0.371625c³)`, with `c = b/a` from the standard ellipse (the same coefficients as GeodePy's `circ_hz_pu`). The vertical PU is `1.96·σ_u` (95%). PU is relative to the datum, so it includes control uncertainty, which comes naturally from weighted constraints.
+- **Relative uncertainty (RU)** between marks *i* and *j* uses `Σ_Δ = Σ_ii + Σ_jj − Σ_ij − Σ_ji`, rotated to local ENU at mark *i*, with the same 95% measures. RU excludes datum uncertainty. It's available for any pair: `Σ_ij` comes from the selected inverse when the marks share an observation, and otherwise from three solves with the kept factorisation.
+- **Error ellipsoids.** The 3D standard ellipsoid comes from the ENU covariance's eigenvectors, and the 95% one scales it by `sqrt(χ²₃(0.95)) ≈ 2.7955`.
 - **AHD uncertainty** combines the ellipsoidal height uncertainty with the AUSGeoid2020 uncertainty at the mark, per SP1 section 4.2.2. The combination rule is defined in the jurisdiction pack.
 - Jurisdiction-specific measures, such as Local Uncertainty where it's still published (for example in SCIMS), are computed by pack-defined evaluators.
 - Every formula is checked against the guideline text and ICSM worked examples before v1.0 (M12).
@@ -507,6 +519,7 @@ Groups can be sessions, engines, receiver types or any other user-defined split.
 - **Loops.** Build a graph with marks as nodes and selected vectors as edges. A spanning tree gives a fundamental cycle basis: each non-tree edge closes exactly one loop. The misclosure is `w = Σ s_k ΔX_k` with signs from direction, and `Σ_w` comes from the loop vectors including any cluster correlations. Test `wᵀΣ_w⁻¹w ~ χ²(3)`, and report the misclosure in ENU (mm) and as ppm of loop length.
 - **Repeat baselines.** Differences between repeated vectors over the same mark pair, tested the same way.
 - Loops are a pre-adjustment screen and an aid to explanation. They don't replace the adjustment tests.
+- The spanning tree is built breadth first along the vectors in order, over the first vector of each pair of marks, so the loops are the same every time. Both tests use the vector test's critical value (B-method), and `Σ_w` includes the correlations between vectors of a cluster, which matter: a base's error cancels in a loop of its own vectors.
 
 ## 11. Datums and geodesy
 
@@ -519,6 +532,12 @@ Groups can be sessions, engines, receiver types or any other user-defined split.
   - its validity area and time
   - its uncertainty
 - **Explicit paths.** The tool finds a path, shows it, and records it in provenance. The datum panel in the app displays each step with its numbers.
+- **Epoch changes go through a static frame.** Moving a coordinate in a dynamic frame to another epoch needs a model of how the ground moves. In Australia that's the plate motion model, so the path runs through GDA2020 (ATRF2014 at 2018.0, to GDA2020, to ATRF2014 at 2025.0). Elsewhere there's no path, and the tool says so.
+- **Areas narrow the search.** Transformations defined only in part of the world, such as the Australian ones, are left out of the search when the position is outside their area.
+- **Aliases are identities with a tolerance.** WGS 84 realisations, IGS20 and ATRF2014 are tied to the ITRF frames they're aligned with by identity transformations that carry the stated tolerance as uncertainty (for example 10 mm for WGS 84 (G2139) to ITRF2014, and 2 m for WGS 84 without a realisation).
+- **Two kinds of uncertainty.** A position's own covariance is propagated through each step. The transformations' parameter uncertainty is common to every position transformed along the same path, so it doesn't affect vectors between them; it's reported separately, for absolute uncertainty only.
+- **Reverse transformations** change the sign of every parameter, as EPSG defines them. For these small rotations that matches an exact inverse to under a micrometre.
+- **Grid transformations** need a grid file, which the host supplies, so the built-in graph has only the analytic ones. A project that loads a grid gets a graph that prefers it (`TransformationGraph::with_preferred`): the grid is used wherever it covers the position, and the analytic transformation elsewhere. For GDA94 to GDA2020 that means ICSM's conformal and distortion grid over the mainland and Tasmania, and the conformal transformation on Christmas and Cocos Islands. The grid is 2D, so ellipsoidal heights come from the conformal transformation. The reverse direction is found by iteration, as PROJ does.
 
 ### 11.2 Default strategy for Australia (D-017, to be validated with GA)
 
@@ -534,22 +553,30 @@ Groups can be sessions, engines, receiver types or any other user-defined split.
 - Ellipsoidal heights (GRS80) are the working quantity.
 - AHD heights are computed through AUSGeoid2020, with its uncertainty. AVWS heights are computed through the Australian gravimetric quasigeoid.
 - Every height records its kind and the model used. There is no untyped "height".
+- A geoid model is tied to its frame: AUSGeoid2020 takes only GDA2020 positions, so a position in another frame has to be transformed first.
+- N is interpolated bilinearly. At the edge of the model's coverage, where some of the four nodes have no value, the others are used with rescaled weights, as PROJ does.
+- An AHD height's sigma combines AUSGeoid2020's (from its separate uncertainty grid) with the position's vertical sigma, and is unknown if either is.
 
 ### 11.4 Projections
 
-- MGA2020 and MGA94 use Transverse Mercator via the Krüger n-series, which is accurate to well under a millimetre across a zone.
-- Point scale factor, grid convergence, and line and combined scale factors (including height) for ground-distance work.
+- MGA2020 and MGA94 use Transverse Mercator via the Krüger n-series (Karney 2011, to eighth order), which is accurate to well under a micrometre across a zone.
+- Point scale factor, grid convergence, and line and combined scale factors (including height) for ground-distance work. The line scale factor uses Simpson's rule over the point scale factors.
+- Grid convergence uses the GDA2020 Technical Manual's sign: grid bearing = azimuth + γ, negative west of the central meridian in the southern hemisphere. PROJ and GeographicLib report the opposite sign.
 
 ### 11.5 Implementation (D-011)
 
 - **Our own Rust code** for the analytic pieces: ECEF and geodetic conversions, Helmert 7 and 14, plate motion and Transverse Mercator. They're small, fast and easy to test, need no C dependency, and compile to WebAssembly unchanged.
-- **Grids:** a Rust NTv2 and GeoTIFF grid reader for the GDA94 to GDA2020 grids and the geoid models. It reads grids in slices, so a large grid never has to fit in memory. This avoids shipping PROJ, which would have to be built for every platform and for WebAssembly.
+- **Grids:** a Rust NTv2 and GeoTIFF grid reader for the GDA94 to GDA2020 grids and the geoid models. This avoids shipping PROJ, which would have to be built for every platform and for WebAssembly.
+  - The host supplies a grid's bytes through `GridSource`, which reads at any offset: a file natively, a `File` or OPFS handle in the browser. The reader takes only what it needs (the headers, then the nodes around each point), so a 247 MB grid never has to fit in memory.
+  - NTv2 is read directly. GeoTIFF is decoded by the `tiff` crate (deflate and LZW, predictors, tiles and strips), one tile at a time with a small cache, and interpreted with PROJ's conventions: tie point and pixel scale, `PixelIsPoint` or `PixelIsArea`, and GDAL's metadata for band roles, units, offsets, scales and subgrid names.
+  - Subgrids nest as NTv2 defines; a point uses the densest one covering it. Interpolation is bilinear, in double precision.
+  - Both readers are fuzzed in CI.
 - **PROJ** serves as a test oracle, and optionally as a backend in native builds for jurisdictions whose transformations we haven't implemented ourselves.
 - **Validation** is against GeodePy, PROJ and the GDA2020 Technical Manual examples (see [VALIDATION.md](VALIDATION.md)).
 
 ### 11.6 Jurisdiction packs
 
-A pack is data, not code. It declares frames, transformations, grids, height models, standards and data sources. For example (illustrative):
+A pack is data, not code. It declares frames, transformations, grids, height models, standards and data sources. `packs/au/pack.toml` is version 0, with the frames, transformations, height models and grids; standards and data sources follow in M6 and M7. An excerpt:
 
 ```toml
 [pack]
@@ -562,34 +589,36 @@ target = "GDA2020"
 adjustment = "ATRF2014"
 
 [[transformations]]
-from = "ITRF2014"
-to = "GDA2020"
-method = "plate-motion"
-parameters = "transformations/itrf2014-gda2020.toml"
-source = "GDA2020 Technical Manual"
+name = "GDA94 to GDA2020 (2)"   # EPSG's name; the datum crate implements it
+epsg = 8447
+grid = "gda94-gda2020-conformal-and-distortion"
+use = "GDA94 coordinates from the state and territory survey networks..."
+
+[[height_models]]
+name = "AUSGeoid2020"
+epsg = 8451
+frame = "GDA2020"
+height = "AHD"
+grid = "ausgeoid2020"
+uncertainty = "ausgeoid2020-uncertainty"
 
 [[grids]]
 id = "ausgeoid2020"
 kind = "geoid"
-file = "AUSGeoid2020.gsb"
-url = "<official download URL>"
-sha256 = "<hash>"
-browser = "relay"        # host sends no cross-origin headers (checked 2026-10-15)
+licence = "CC BY 4.0, Geoscience Australia"
 
-[standards]
-id = "icsm-sp1-v2.2"
-
-[[data_sources]]
-id = "ga-gnss-archive"
-kind = "rinex"
-api = "https://data.gnss.ga.gov.au/api/rinexFiles"
-licence = "CC BY (confirm version with GA)"
-browser = "direct"       # API and archive downloads send cross-origin headers (checked 2026-10-15)
+[[grids.files]]                 # one grid can come in several formats
+format = "ntv2"
+file = "AUSGeoid2020_20180201.gsb"
+url = "https://s3-ap-southeast-2.amazonaws.com/geoid/AUSGeoid/AUSGeoid2020_20180201.gsb"
+sha256 = "aa40b895..."
+bytes = 247277168
+browser = "relay"               # no cross-origin headers (checked 2026-10-19)
 ```
 
-`browser` says whether the web app can download from a source directly, because the host sends cross-origin headers, or needs the relay or a data pack (section 13).
-
-Grid files are fetched and hash-verified rather than committed or bundled, unless their licence allows redistribution.
+- **Transformations are named, not parameterised.** Their parameters are in the datum crate, checked against EPSG and the oracles; the pack says which apply and when. The datum crate's pack test checks that every transformation and frame the pack names exists, with the same EPSG code, and that the crate has none the pack leaves out.
+- **`browser`** says whether the web app can download a file directly, because the host sends cross-origin headers, or needs the relay or a data pack (section 13).
+- **Grid files are fetched and hash-verified** rather than committed or bundled. ICSM's and Geoscience Australia's grids are CC BY 4.0, so the app could serve them itself, with attribution (to settle in M7).
 
 ## 12. Blunder checks
 
@@ -643,7 +672,8 @@ The initial catalogue (M9):
   |---|---|
   | GA Web API, its archive downloads (observation and navigation files) and the `ga-gnss-data-rinex-v1` bucket | Direct |
   | `files.igs.org` (ANTEX, IGS station files) | Relay or data pack |
-  | The AUSGeoid2020 grid on its S3 host | Relay or data pack |
+  | The AUSGeoid2020 grid and its uncertainty grid on Geoscience Australia's S3 host | Relay or data pack |
+  | PROJ-data on GitHub: the GDA94 to GDA2020 grid, and AUSGeoid2020's N without its uncertainty, as GeoTIFF (checked 2026-10-19) | Direct |
   | The BKG and IGN IGS mirrors | Unknown: no response to the test |
 
 - **Relay.** Sources the browser can't reach go through an optional relay (`apps/relay`): a small, stateless proxy that forwards GET requests only to hosts declared in the packs, and keeps no logs or copies.
@@ -841,7 +871,9 @@ gnss serve [--bundle <zip>]     # serve the web app on localhost, with a private
 
 These are for an 8-core laptop. Web targets are for current Chrome or Edge, with the core's maths single-threaded (section 14.1).
 
-The engine targets come from the M0 spike's measurements ([report](spikes/m0-engine.md)). With trimmed inputs, RTKLIB-EX took 1.2 to 2.3 s per 2-hour baseline in Chromium, 1.1 to 1.5 times native. The core's own speed in WebAssembly isn't measured yet, so the adjustment and ingest targets stay provisional until M2 and M6.
+The engine targets come from the M0 spike's measurements ([report](spikes/m0-engine.md)). With trimmed inputs, RTKLIB-EX took 1.2 to 2.3 s per 2-hour baseline in Chromium, 1.1 to 1.5 times native.
+
+The adjustment targets are met with a wide margin (section 10.4). A synthetic network of 1,000 marks and 3,000 vectors adjusts in 17 ms natively and 38 ms in Chromium, about 2.2 times native. 10,000 marks and 30,000 vectors take 0.3 s natively. CI checks the first target natively and in headless Chrome on every change. The ingest target stays provisional until M6.
 
 | Operation | Native CLI | Web app |
 |---|---|---|

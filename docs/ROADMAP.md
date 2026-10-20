@@ -25,7 +25,7 @@ This is the work plan: four phases broken into milestones, each with tasks, exit
 3. [x] Create the Cargo workspace and the CI matrix, with native and WebAssembly builds and cargo-deny (M0).
 4. [x] Run the engine spike: build RTKLIB-EX as a WebAssembly module and compare it with the native build. This confirms or revisits D-023 (M0).
 5. [x] Write the conventions doc covering units, frames, time, errors, numerics and host access (M0).
-6. [ ] Implement the `datum` core types so every position carries a frame and an epoch, then ECEF, geodetic and ENU conversions plus Helmert transformations, with property tests (M1).
+6. [x] Implement the `datum` core types so every position carries a frame and an epoch, then ECEF, geodetic and ENU conversions plus Helmert transformations, with property tests (M1).
 7. [ ] Build the synthetic network generator, which the M2 tests depend on (M2).
 8. [ ] Implement a vector-only adjustment with minimal constraints and the global test (M2).
 9. [ ] Install DynAdjust locally and produce the first oracle outputs (M2, M4).
@@ -116,29 +116,31 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 
 **Goal:** frames, epochs and transformations that are correct by construction.
 
-- [ ] Time: adopt hifitime. Handle GPST, UTC and TAI conversions with leap seconds. Compute decimal-year epochs in one documented function.
-- [ ] Core types:
-  - [ ] `FrameId` with a registry covering ITRF2020, ITRF2014, IGS20, ATRF2014, GDA2020, GDA94, and WGS84 realisations as aliases with a stated tolerance.
-  - [ ] `Epoch`, and `Position { frame, epoch, xyz, cov }`.
-  - [ ] Geodetic and ENU views.
-  - [ ] Enforce the static-frame and dynamic-frame rules.
-- [ ] Ellipsoids (GRS80, WGS84): ECEF to geodetic and back, and local ENU rotations, each with covariance propagation.
-- [ ] Helmert transformations:
-  - [ ] 7-parameter and 14-parameter (time-dependent), with covariance propagation.
-  - [ ] IERS ITRF2020 to ITRF2014 parameters.
-- [ ] Plate motion: ITRF2014 and ATRF2014 to GDA2020 using the Australian Plate Motion Model from the GDA2020 Technical Manual.
-- [ ] GDA94 to GDA2020: the 7-parameter conformal transformation and the conformal-plus-distortion NTv2 grid. Document which to use when.
-- [ ] Grids:
-  - [ ] NTv2 and geoid grid interpolation.
-  - [ ] AUSGeoid2020 to convert ellipsoidal heights to AHD, including the model's uncertainty values.
-  - [ ] Decide between our own grid reader and PROJ (D-011). PROJ would also have to be built for WebAssembly.
-- [ ] Projections: MGA2020 and MGA94 (Transverse Mercator via the Krüger series), point scale factor, grid convergence and combined scale factor.
-- [ ] Australian jurisdiction pack v0 (`packs/au`): frames, transformations, and grid references with URLs, SHA-256 hashes and whether browsers can download them directly.
-- [ ] Tests:
-  - [ ] Property tests for round trips and covariance propagation.
-  - [ ] Comparisons against GeodePy and PROJ on a published point set.
-  - [ ] GDA2020 Technical Manual worked examples.
-- [ ] User doc: "How datums and epochs work in this tool".
+- [x] Time: adopt hifitime. Handle GPST, UTC and TAI conversions with leap seconds. Compute decimal-year epochs in one documented function (`CoordinateEpoch::from_time`).
+- [x] Core types:
+  - [x] `FrameId` with a registry covering ITRF2020, ITRF2014, IGS20, ATRF2014, GDA2020, GDA94, and WGS84 realisations as aliases with a stated tolerance.
+  - [x] `CoordinateEpoch`, and `Position { frame, epoch, xyz, cov }`.
+  - [x] Geodetic and ENU views.
+  - [x] Enforce the static-frame and dynamic-frame rules.
+- [x] Ellipsoids (GRS80, WGS84): ECEF to geodetic and back, and local ENU rotations, each with covariance propagation.
+- [x] Helmert transformations:
+  - [x] 7-parameter and 14-parameter (time-dependent), with covariance propagation.
+  - [x] IERS ITRF2020 to ITRF2014 parameters.
+- [x] Plate motion: ITRF2014 and ATRF2014 to GDA2020 using the Australian Plate Motion Model from the GDA2020 Technical Manual.
+- [x] GDA94 to GDA2020: the 7-parameter conformal transformation and the conformal-plus-distortion grid (ICSM's NTv2 file or PROJ's GeoTIFF), with guidance on which to use when.
+- [x] Grids:
+  - [x] NTv2 and geoid grid interpolation, from NTv2 and PROJ's GeoTIFF grids, read in slices.
+  - [x] AUSGeoid2020 to convert ellipsoidal heights to AHD, including the model's uncertainty values.
+  - [x] Decide between our own grid reader and PROJ (D-011): our own reader, as D-011 proposes. The decision awaits confirmation.
+- [x] Projections: MGA2020 and MGA94 (Transverse Mercator via the Krüger series), point scale factor, grid convergence and combined scale factor.
+- [x] Australian jurisdiction pack v0 (`packs/au`): frames, transformations, and grid references with URLs, SHA-256 hashes and whether browsers can download them directly.
+- [x] Tests:
+  - [x] Property tests for round trips and covariance propagation (deterministic pseudo-random cases, so the same ones run natively and in the browser).
+  - [x] Comparisons against GeodePy and PROJ on a published point set (`crates/datum/tests`), plus DynAdjust's coordinates for the 109 national CORS.
+  - [x] GDA2020 Technical Manual worked examples.
+  - [x] A golden hash of results, checked natively on every OS and in the browser (D-024).
+  - [x] The same for the grid transformations, plus fuzzing of the grid readers.
+- [x] User doc: "How datums and epochs work in this tool" ([guide](user/datums-and-epochs.md)).
 
 **Exit criteria:**
 - Analytic transformations agree with GeodePy and PROJ within 0.1 mm, and grid transformations within 1 mm.
@@ -150,43 +152,44 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 
 **Goal:** a rigorous, explainable 3D least squares adjustment of GNSS observations.
 
-- [ ] Observation types:
-  - [ ] GNSS baseline: a 3D vector with a 3×3 covariance.
-  - [ ] GNSS baseline cluster: n vectors with a full 3n×3n covariance.
-  - [ ] Point cluster: positions with covariance, for CORS, AUSPOS or control constraints.
-- [ ] Stochastic model:
-  - [ ] Input covariances, an a priori variance factor, and group scale factors.
-  - [ ] Centring and height-measurement errors as occupation-level nuisance parameters with priors, so vectors that share a set-up are correctly correlated.
-- [ ] Datum definition:
-  - [ ] Minimally constrained, by fixing one station or using inner constraints.
-  - [ ] Constrained, with fixed or weighted control.
-  - [ ] An explicit frame and epoch for the adjustment.
-- [ ] Solver:
-  - [ ] Sparse normal equations with fill-reducing ordering and Cholesky factorisation (faer), plus a dense path for small networks.
-  - [ ] Parameter covariance: a full inverse up to about 2,000 marks, and a selected inverse beyond that.
-- [ ] Diagnostics: detect disconnected sub-networks, an undefined datum and near-singular geometry, with errors that name the marks involved.
-- [ ] Statistics:
-  - [ ] Residuals, the a posteriori variance factor and the global test (two-tailed χ²).
-  - [ ] Redundancy numbers and standardised residuals.
-  - [ ] w-tests in local ENU per component, plus a 3-DoF test per vector, with the tau test as an option.
-- [ ] Reliability:
-  - [ ] Minimal detectable bias (MDB) per observation, using Baarda's B-method with configurable α₀ and β₀.
-  - [ ] External reliability: the effect of an undetected MDB on coordinates.
-- [ ] Variance component estimation by group (session, engine, receiver type), iterated, with convergence reporting.
-- [ ] Uncertainties:
-  - [ ] Standard and 95% error ellipses and ellipsoids.
-  - [ ] SP1 v2.2 positional uncertainty (PU) and relative uncertainty (RU) between any pair, following the ICSM *Guideline for Adjustment and Evaluation of Survey Control*.
-- [ ] Loop closures (fundamental cycles from a spanning tree) and repeat-baseline comparisons, with misclosure tests and ppm.
-- [ ] Outlier workflow:
-  - [ ] Rank the suspects.
-  - [ ] Exclude or re-weight with an audit trail.
-  - [ ] Nothing happens automatically without a record.
-- [ ] Results model: adjusted coordinates with covariance, residuals and statistics, ready for reporting.
-- [ ] Tests:
-  - [ ] Synthetic networks with known truth.
-  - [ ] Blunder injection, measuring detection power against MDB theory.
-  - [ ] Invariance: test statistics must not depend on which minimal constraint is chosen.
-  - [ ] DynAdjust oracle comparisons.
+- [x] Observation types:
+  - [x] GNSS baseline: a 3D vector with a 3×3 covariance.
+  - [x] GNSS baseline cluster: n vectors with a full 3n×3n covariance.
+  - [x] Point cluster: positions with covariance, for CORS, AUSPOS or control constraints.
+- [x] Stochastic model:
+  - [x] Input covariances, an a priori variance factor, and group scale factors.
+  - [x] Centring and height-measurement errors as occupation-level nuisance parameters with priors, so vectors that share a set-up are correctly correlated.
+- [x] Datum definition:
+  - [x] Minimally constrained, by fixing one station or using inner constraints.
+  - [x] Constrained, with fixed or weighted control.
+  - [x] An explicit frame and epoch for the adjustment.
+- [x] Solver:
+  - [x] Sparse normal equations in 3×3 blocks with a fill-reducing (minimum-degree) ordering and our own block `L D Lᵀ` factorisation, which gives the same bits on every platform (D-025). It's fast enough at every size, so there's no separate dense path.
+  - [x] Parameter covariance by selected inverse (Takahashi) at every size: each mark's block and every pair that shares an observation. Other pairs, for RU, cost three solves each.
+- [x] Diagnostics: detect disconnected sub-networks, an undefined datum and near-singular geometry, with errors that name the marks involved.
+- [x] Statistics:
+  - [x] Residuals, the a posteriori variance factor and the global test (two-tailed χ²).
+  - [x] Redundancy numbers and standardised residuals.
+  - [x] w-tests in local ENU per component, plus a 3-DoF test per vector, with the tau test as an option.
+- [x] Reliability:
+  - [x] Minimal detectable bias (MDB) per observation, using Baarda's B-method with configurable α₀ and β₀.
+  - [x] External reliability: the effect of an undetected MDB on coordinates (the observation's own marks).
+- [x] Variance component estimation by group (session, engine, receiver type), iterated, with convergence reporting.
+- [x] Uncertainties:
+  - [x] Standard and 95% error ellipses and ellipsoids.
+  - [x] SP1 v2.2 positional uncertainty (PU) and relative uncertainty (RU) between any pair, following the ICSM *Guideline for Adjustment and Evaluation of Survey Control*, scaled by the a priori or a posteriori variance factor as the project chooses.
+- [x] Loop closures (fundamental cycles from a spanning tree) and repeat-baseline comparisons, with misclosure tests and ppm.
+- [x] Outlier workflow:
+  - [x] Rank the suspects.
+  - [x] Exclude or re-weight with an audit trail.
+  - [x] Nothing happens automatically without a record.
+- [x] Results model: adjusted coordinates with covariance, residuals and statistics, ready for reporting. Each adjusted mark is also a datum-crate `Position` in the network's frame and epoch, with its covariance, so it can be transformed or projected.
+- [x] Tests:
+  - [x] Synthetic networks with known truth (`gnss_adjust::synthetic`), and a textbook dense adjustment as an oracle in every datum.
+  - [x] Blunder injection, measuring detection power against MDB theory.
+  - [x] Invariance: test statistics must not depend on which minimal constraint is chosen.
+  - [x] A golden hash of results, checked natively on every OS and in the browser (D-024).
+  - [x] DynAdjust oracle comparisons (`tests/dynadjust.rs`, made by `tests/oracle/dynadjust.py`).
 
 **Exit criteria:**
 - The adjustment matches DynAdjust on the oracle networks within 0.1 mm for coordinates and 0.1% for the variance factor, and flags the same outliers.

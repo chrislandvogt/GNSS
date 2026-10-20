@@ -10,3 +10,17 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+hifitime.workspace = true
+libm.workspace = true
+nalgebra.workspace = true
+thiserror.workspace = true
+tiff.workspace = true
+
+[dev-dependencies]
+sha2.workspace = true
+toml.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true

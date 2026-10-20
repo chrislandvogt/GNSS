@@ -1,0 +1,30 @@
+# Fuzz targets for the datum crate's parsers of external data (CONVENTIONS.md
+# section 6). Fuzzing needs a nightly toolchain and cargo-fuzz, so this is its
+# own workspace, outside the main build:
+#
+#     cargo +nightly fuzz run grid
+#
+# CI runs each target for a couple of minutes, starting from the test grids.
+
+[package]
+name = "gnss-datum-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+gnss-datum = { path = ".." }
+libfuzzer-sys = "0.4"
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "grid"
+path = "fuzz_targets/grid.rs"
+test = false
+doc = false
+bench = false

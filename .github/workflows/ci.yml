@@ -26,19 +26,32 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # rustup installs the toolchain pinned in rust-toolchain.toml on first use.
       - run: rustup show active-toolchain
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
+      # The adjustment's speed target (ARCHITECTURE.md section 20), in an optimised build.
+      - name: Time the adjustment
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --release -p gnss-adjust --test performance --locked -- --nocapture
+      # The grid readers on the grids PROJ publishes, beyond the test windows.
+      - name: Fetch PROJ's published grids
+        if: matrix.os == 'ubuntu-latest'
+        run: python3 crates/datum/tests/oracle/fetch_grids.py "$RUNNER_TEMP/grids" --format geotiff
+      - name: Test the grid readers on the published grids
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          GNSS_GRID_DIR: ${{ runner.temp }}/grids
+        run: cargo test -p gnss-datum --test grids --locked published_grids_match_proj -- --nocapture
 
   wasm:
     name: WebAssembly (headless Chrome)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: rustup show active-toolchain
       - uses: Swatinem/rust-cache@v2
       - name: Install the wasm-bindgen test runner matching Cargo.lock
@@ -56,12 +69,43 @@ jobs:
         run: |
           export CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver"
           cargo test --target wasm32-unknown-unknown --workspace $NATIVE_ONLY --locked
+      - name: Time the adjustment in headless Chrome
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: |
+          export CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver"
+          cargo test --release --target wasm32-unknown-unknown -p gnss-adjust --test performance --locked -- --nocapture
+
+  fuzz:
+    name: Fuzz the grid readers
+    # Every parser of external data is fuzzed (CONVENTIONS.md section 6).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup toolchain install nightly --profile minimal
+      # Restores cargo-fuzz and the fuzz target's build, so both are quick after the first run.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/datum/fuzz
+      - run: cargo +nightly install cargo-fuzz --locked
+      - name: Fuzz for two minutes, starting from the test grids
+        working-directory: crates/datum/fuzz
+        run: |
+          mkdir -p corpus/grid
+          cp ../tests/data/grids/*.gsb ../tests/data/grids/*.tif corpus/grid/
+          cargo +nightly fuzz run grid corpus/grid -- -max_total_time=120 -max_len=262144 -rss_limit_mb=2048
+      - name: Keep the input that failed
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: fuzz-artifacts
+          path: crates/datum/fuzz/artifacts/
 
   deny:
     name: Licences and advisories (cargo-deny)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2
 
   engine-module:
@@ -71,7 +115,7 @@ jobs:
       WASI_SDK_VERSION: "34"
       WASMTIME_VERSION: "49.0.3"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install wasi-sdk
         run: |
           curl -sSfL "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux.tar.gz" \
@@ -94,7 +138,7 @@ jobs:
           mkdir -p engine-modules/rtklib-ex/dist/testdata
           cp engine-modules/rtklib-ex/.src/rtklib/test/data/rinex/{07590920.05o,30400920.05n,30400920.05o} \
             engine-modules/rtklib-ex/dist/testdata/
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: rnx2rtkp-wasm
           path: engine-modules/rtklib-ex/dist/
@@ -108,10 +152,10 @@ jobs:
       run:
         working-directory: apps/web/ui
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: rustup show active-toolchain
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -121,7 +165,7 @@ jobs:
           version="$(cargo metadata --format-version 1 --locked \
             | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')"
           cargo install wasm-bindgen-cli --version "$version" --locked
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: rnx2rtkp-wasm
           path: engine-modules/rtklib-ex/dist
@@ -143,7 +187,7 @@ jobs:
       - name: End-to-end app test in Chromium (storage, hashing, offline)
         run: npm run test:app
       - name: Upload the deployable site
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: web-app
           path: apps/web/ui/dist/
@@ -154,7 +198,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Check every commit is signed off by its author

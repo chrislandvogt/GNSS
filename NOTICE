@@ -10,3 +10,22 @@ module (see engine-modules/rtklib-ex):
   Copyright (c) 2007-2020, T. Takasu, and contributors
   Licensed under the BSD 2-clause licence, whose text is distributed with
   the module as LICENSE-RTKLIB.txt.
+
+The datum crate's tests use reference data from GeodePy
+(crates/datum/tests/data/natadjust_rvs_example.dat):
+
+  GeodePy (https://github.com/geoscienceaustralia/GeodePy)
+  Copyright Geoscience Australia
+  Licensed under the Apache License, Version 2.0.
+
+The datum crate's test grids (crates/datum/tests/data/grids) are small windows
+cut from published grids, through PROJ-data (https://github.com/OSGeo/PROJ-data)
+for the GeoTIFF versions:
+
+  GDA94 to GDA2020 conformal and distortion grid
+  Copyright Intergovernmental Committee on Surveying and Mapping (ICSM)
+  Licensed under Creative Commons Attribution 4.0 International.
+
+  AUSGeoid2020 and its uncertainty grid
+  Copyright Geoscience Australia
+  Licensed under Creative Commons Attribution 4.0 International.
