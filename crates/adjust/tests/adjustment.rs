@@ -37,6 +37,8 @@ struct Dense {
     redundancy: Vec<[f64; 3]>,
     shift: Vec<[Option<f64>; 3]>,
     vector_test: Vec<Option<f64>>,
+    /// By element: vₖ/√Qᵥᵥ,ₖₖ in ECEF.
+    standardised: Vec<[Option<f64>; 3]>,
     sum_of_squares: f64,
 }
 
@@ -113,6 +115,7 @@ fn dense(network: &Network, datum: &Datum, lambda0: f64) -> Dense {
         redundancy: Vec::new(),
         shift: Vec::new(),
         vector_test: Vec::new(),
+        standardised: Vec::new(),
         sum_of_squares: v.dot(&pv),
     };
     for (e, element) in elements.iter().enumerate() {
@@ -153,6 +156,10 @@ fn dense(network: &Network, datum: &Datum, lambda0: f64) -> Dense {
         let m_ee: Matrix3<f64> = m.fixed_view::<3, 3>(3 * e, 3 * e).into_owned();
         let pv_e: Vector3<f64> = pv.fixed_rows::<3>(3 * e).into_owned();
         result.residuals.push(v.fixed_rows::<3>(3 * e).into_owned());
+        result.standardised.push(std::array::from_fn(|k| {
+            let i = 3 * e + k;
+            (qvv[(i, i)] > 1e-8 * q[(i, i)]).then(|| v[i] / libm::sqrt(qvv[(i, i)]))
+        }));
         result.w.push(w);
         result.mdb.push(mdb);
         result.redundancy.push(red);
@@ -245,6 +252,9 @@ fn compare(adjustment: &Adjustment, dense: &Dense) {
             close_option(c.shift, dense.shift[e][k], 1e-7);
         }
         close_option(element.vector_test, dense.vector_test[e], 1e-7);
+        for (k, s) in element.standardised.iter().enumerate() {
+            close_option(*s, dense.standardised[e][k], 1e-7);
+        }
     }
 }
 

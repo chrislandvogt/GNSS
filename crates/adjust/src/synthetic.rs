@@ -45,6 +45,10 @@ pub struct Spec {
     /// The standard deviation of each coordinate of the approximate
     /// positions, in metres.
     pub approximate_sigma_m: f64,
+    /// The number of groups the vectors are dealt into, in turn, named
+    /// "group-1" and so on, for variance component estimation. 0 for none.
+    /// Control is in no group.
+    pub groups: usize,
     /// The seed for the marks' positions and the choice of control.
     pub seed: u64,
 }
@@ -67,6 +71,7 @@ impl Default for Spec {
             control: 3,
             control_sigma_m: 0.01,
             approximate_sigma_m: 2.0,
+            groups: 0,
             seed: 1,
         }
     }
@@ -147,12 +152,14 @@ impl Synthetic {
                     }
                     baselines.push((from, to, vector));
                 }
-                let id = format!(
-                    "{}-{}",
-                    network.marks()[from].name,
-                    network.observations().len() + 1
-                );
-                network.add_observation(Observation::baseline_cluster(id, &baselines, covariance));
+                let index = network.observations().len();
+                let id = format!("{}-{}", network.marks()[from].name, index + 1);
+                let mut observation = Observation::baseline_cluster(id, &baselines, covariance);
+                if spec.groups > 0 {
+                    observation =
+                        observation.with_group(format!("group-{}", index % spec.groups + 1));
+                }
+                network.add_observation(observation);
                 pending.clear();
             }
         }
@@ -185,6 +192,13 @@ impl Synthetic {
     /// The network observed with noise drawn from each observation's
     /// covariance, from `seed`.
     pub fn observe(&self, seed: u64) -> Network {
+        self.observe_with(seed, |_| 1.0)
+    }
+
+    /// The network observed with noise drawn from each observation's
+    /// covariance times `scale(observation)`, from `seed`: observations
+    /// whose covariances are too optimistic or too pessimistic.
+    pub fn observe_with(&self, seed: u64, scale: impl Fn(&Observation) -> f64) -> Network {
         let mut rng = Rng::new(seed);
         let mut network = self.exact.clone();
         for o in network.observations_mut() {
@@ -192,7 +206,7 @@ impl Synthetic {
                 continue;
             };
             let z = DVector::from_fn(o.covariance.nrows(), |_, _| rng.gaussian());
-            let noise = cholesky.l() * z;
+            let noise = cholesky.l() * z * libm::sqrt(scale(o));
             for (p, element) in o.elements.iter_mut().enumerate() {
                 element.perturb(&noise.fixed_rows::<3>(3 * p).into_owned());
             }

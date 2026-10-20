@@ -13,6 +13,8 @@
 //! - [`Adjustment::positional_uncertainty`] and
 //!   [`Adjustment::relative_uncertainty`] give SP1's PU and RU, with error
 //!   ellipses and ellipsoids ([`uncertainty`]).
+//! - [`Network::estimate_variance_components`] estimates a scale factor
+//!   for each group of observations ([`vce`]).
 //! - [`synthetic`] makes networks with known truth, for tests and benchmarks.
 //!
 //! Every result is the same bits natively and in the browser (D-024).
@@ -24,6 +26,7 @@ pub mod sparse;
 pub mod stats;
 pub mod synthetic;
 pub mod uncertainty;
+pub mod vce;
 
 pub use adjustment::{
     AdjustedMark, Adjustment, ComponentResult, Criteria, ElementResult, GlobalTest,
@@ -32,6 +35,7 @@ pub use adjustment::{
 pub use error::AdjustError;
 pub use network::{Datum, Element, Mark, Network, Observation, Options};
 pub use uncertainty::{Ellipse, Ellipsoid, Scaling, Uncertainty};
+pub use vce::{GroupComponent, VarianceComponents, VceOptions};
 
 #[cfg(all(test, target_arch = "wasm32"))]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);

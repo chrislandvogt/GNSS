@@ -77,6 +77,10 @@ pub struct ElementResult {
     /// T = (Pv)ᵀ(PQᵥᵥP)⁻¹(Pv)/σ₀² over the element's components. `None` if a
     /// component isn't checked by the other observations.
     pub vector_test: Option<f64>,
+    /// Each ECEF component's residual over its own standard deviation,
+    /// vₖ/(σ₀√Qᵥᵥ,ₖₖ), ignoring correlations: DynAdjust's N-stat. It equals
+    /// the w-test only for uncorrelated components. `None` as for `w`.
+    pub standardised: [Option<f64>; 3],
 }
 
 /// The results for one component of an element.
@@ -698,10 +702,16 @@ impl Context<'_> {
                     .then(|| spd_inverse(&m_aa))
                     .flatten()
                     .map(|m_inverse| pv_a.dot(&(m_inverse * pv_a)) / (self.sigma0 * self.sigma0));
+                let standardised = std::array::from_fn(|k| {
+                    let i = 3 * a + k;
+                    (qvv[(i, i)] > MIN_REDUNDANCY * w.cofactor[(i, i)])
+                        .then(|| v_a[k] / (self.sigma0 * libm::sqrt(qvv[(i, i)])))
+                });
                 ElementResult {
                     residual: v_a,
                     components,
                     vector_test,
+                    standardised,
                 }
             })
             .collect();

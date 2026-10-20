@@ -15,7 +15,7 @@
 
 use gnss_adjust::stats::{self, BMethod};
 use gnss_adjust::synthetic::{Spec, Synthetic};
-use gnss_adjust::{Adjustment, Datum, Options, Scaling, Uncertainty};
+use gnss_adjust::{Adjustment, Datum, Options, Scaling, Uncertainty, VceOptions};
 use sha2::{Digest, Sha256};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_test::wasm_bindgen_test as test;
@@ -23,7 +23,7 @@ use wasm_bindgen_test::wasm_bindgen_test as test;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-const GOLDEN: &str = "b6acc40d239f5bcd2809a10c42c716f672403cdd1a41f19a22b122c0e7714e98";
+const GOLDEN: &str = "433b8ed519fdcfd8c140911739031c3742a9cb9c1cccc333ad781d7e0b9afd09";
 
 fn put(hasher: &mut Sha256, value: f64) {
     hasher.update(value.to_bits().to_le_bytes());
@@ -78,6 +78,10 @@ fn put_adjustment(hasher: &mut Sha256, adjustment: &Adjustment) {
         for element in &observation.elements {
             element.residual.iter().for_each(|&v| put(hasher, v));
             put_option(hasher, element.vector_test);
+            element
+                .standardised
+                .iter()
+                .for_each(|&s| put_option(hasher, s));
             for c in &element.components {
                 put(hasher, c.residual);
                 put(hasher, c.redundancy);
@@ -135,6 +139,41 @@ fn results_are_bit_identical_on_every_platform() {
             put_adjustment(&mut hasher, &network.adjust(&datum, &options).unwrap());
         }
     }
+
+    // Variance component estimation, iterated to convergence.
+    let grouped = Synthetic::generate(&Spec {
+        marks: 30,
+        neighbours: 4,
+        groups: 3,
+        control: 3,
+        seed: 23,
+        ..Spec::default()
+    })
+    .unwrap()
+    .observe_with(123, |o| {
+        if o.group.as_deref() == Some("group-2") {
+            2.5
+        } else {
+            1.0
+        }
+    });
+    let vce = grouped
+        .estimate_variance_components(
+            &Datum::Constrained { fixed: Vec::new() },
+            &options,
+            &VceOptions::default(),
+        )
+        .unwrap();
+    hasher.update((vce.iterations as u64).to_le_bytes());
+    for scales in &vce.history {
+        scales.iter().for_each(|&s| put(&mut hasher, s));
+    }
+    for g in &vce.groups {
+        for v in [g.redundancy, g.sum_of_squares, g.scale] {
+            put(&mut hasher, v);
+        }
+    }
+    put_adjustment(&mut hasher, &vce.adjustment);
 
     for p in [
         1e-12, 1e-6, 0.001, 0.025, 0.05, 0.2, 0.5, 0.8, 0.975, 0.999_999,
