@@ -183,6 +183,29 @@ pub enum Datum {
     Inner,
 }
 
+/// A person's decision about one observation, with their reason
+/// (ARCHITECTURE.md section 10.5). The adjustment applies these and nothing
+/// else: it never leaves out or re-weights an observation of its own accord.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Edit {
+    /// The observation's identifier.
+    pub observation: String,
+    /// What to do with it.
+    pub action: Action,
+    /// Why, in the person's words.
+    pub reason: String,
+}
+
+/// What an [`Edit`] does.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Action {
+    /// Leave the observation out. Its results then compare it with the
+    /// network adjusted without it.
+    Exclude,
+    /// Multiply its covariance by this factor; over 1 down-weights it.
+    Reweight(f64),
+}
+
 /// Settings for an adjustment.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Options {
@@ -199,6 +222,10 @@ pub struct Options {
     pub beta0: f64,
     /// The level of the global test, which is two-tailed.
     pub global_alpha: f64,
+    /// Exclusions and re-weightings, in the order they were made: the audit
+    /// trail. Re-weightings of one observation multiply, and an exclusion
+    /// overrides them.
+    pub edits: Vec<Edit>,
 }
 
 impl Default for Options {
@@ -211,6 +238,7 @@ impl Default for Options {
             alpha0: 0.001,
             beta0: 0.8,
             global_alpha: 0.05,
+            edits: Vec::new(),
         }
     }
 }
@@ -246,6 +274,13 @@ impl Options {
         }
         if !(self.global_alpha > 0.0 && self.global_alpha < 1.0) {
             return invalid("global_alpha", "between 0 and 1", self.global_alpha);
+        }
+        for edit in &self.edits {
+            if let Action::Reweight(factor) = edit.action
+                && !positive(factor)
+            {
+                return invalid("a re-weighting factor", "positive", factor);
+            }
         }
         Ok(())
     }
@@ -349,6 +384,17 @@ impl Network {
     pub fn add_observation(&mut self, observation: Observation) -> usize {
         self.observations.push(observation);
         self.observations.len() - 1
+    }
+
+    /// The same marks with other observations.
+    pub(crate) fn with_observations(&self, observations: Vec<Observation>) -> Network {
+        Network {
+            frame: self.frame,
+            epoch: self.epoch,
+            marks: self.marks.clone(),
+            names: self.names.clone(),
+            observations,
+        }
     }
 
     pub(crate) fn name(&self, mark: usize) -> String {

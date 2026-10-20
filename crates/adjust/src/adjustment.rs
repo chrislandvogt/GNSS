@@ -13,7 +13,7 @@ use gnss_datum::DatumError;
 use nalgebra::{DMatrix, DVector, Matrix3, Vector3};
 
 use crate::error::AdjustError;
-use crate::network::{Datum, Network, Observation, Options};
+use crate::network::{Action, Datum, Edit, Network, Observation, Options};
 use crate::sparse::{Block, BlockMatrix, Factor, SelectedInverse, spd_inverse};
 use crate::stats::{self, BMethod};
 use crate::uncertainty::{Scaling, Uncertainty};
@@ -40,6 +40,7 @@ pub struct Adjustment {
     statistics: Statistics,
     criteria: Criteria,
     a_priori: f64,
+    edits: Vec<Edit>,
     solution: Solution,
 }
 
@@ -63,6 +64,30 @@ pub struct ObservationResult {
     pub elements: Vec<ElementResult>,
     /// The observation's share of the weighted sum of squares, vᵀPv.
     pub sum_of_squares: f64,
+    /// False if an edit excluded the observation. Its residuals are then its
+    /// misclosures against the network adjusted without it, and each
+    /// element's vector test says whether it would fit.
+    pub used: bool,
+    /// The factor its covariance was scaled by: its group's scale factor
+    /// times any re-weighting.
+    pub scale: f64,
+}
+
+/// A failed test, for a person to judge (ARCHITECTURE.md section 10.5).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Suspect {
+    /// The observation.
+    pub observation: usize,
+    /// The element of the observation.
+    pub element: usize,
+    /// The local component (0 east, 1 north, 2 up) whose w-test failed, or
+    /// `None` for the element's vector test.
+    pub component: Option<usize>,
+    /// The test statistic: w for a component, T for an element.
+    pub statistic: f64,
+    /// How far the test failed, on a scale that grows in proportion to the
+    /// bias: |w| over its critical value, or √(T over its critical value).
+    pub excess: f64,
 }
 
 /// The results for one element of an observation.
@@ -183,6 +208,54 @@ impl Adjustment {
         &self.criteria
     }
 
+    /// The edits applied: the audit trail of exclusions and re-weightings.
+    pub fn edits(&self) -> &[Edit] {
+        &self.edits
+    }
+
+    /// Every failed w-test and vector test of the observations used, worst
+    /// first. They're evidence: leaving an observation out or re-weighting
+    /// it is a person's [`Edit`].
+    pub fn suspects(&self) -> Vec<Suspect> {
+        let mut suspects = Vec::new();
+        for (o, result) in self.observations.iter().enumerate().filter(|(_, r)| r.used) {
+            for (e, element) in result.elements.iter().enumerate() {
+                for (k, c) in element.components.iter().enumerate() {
+                    if let Some(w) = c.w
+                        && w.abs() > self.criteria.w
+                    {
+                        suspects.push(Suspect {
+                            observation: o,
+                            element: e,
+                            component: Some(k),
+                            statistic: w,
+                            excess: w.abs() / self.criteria.w,
+                        });
+                    }
+                }
+                if let Some(t) = element.vector_test
+                    && t > self.criteria.vector
+                {
+                    suspects.push(Suspect {
+                        observation: o,
+                        element: e,
+                        component: None,
+                        statistic: t,
+                        excess: libm::sqrt(t / self.criteria.vector),
+                    });
+                }
+            }
+        }
+        suspects.sort_by(|a, b| {
+            b.excess
+                .total_cmp(&a.excess)
+                .then(a.observation.cmp(&b.observation))
+                .then(a.element.cmp(&b.element))
+                .then(a.component.cmp(&b.component))
+        });
+        suspects
+    }
+
     /// The variance factor that `scaling` uses. The a posteriori factor
     /// needs redundancy.
     pub fn variance_factor(&self, scaling: Scaling) -> Result<f64, AdjustError> {
@@ -243,6 +316,55 @@ impl Adjustment {
         Ok(Uncertainty::from_enu(axes * relative * axes.transpose()))
     }
 
+    /// An excluded observation compared with the adjusted network: its
+    /// misclosures d, each element's test dᵀΣ⁻¹d/σ₀² with Σ = Q + AQₓAᵀ, and
+    /// each component's standardised misclosure.
+    fn excluded(&self, o: &Observation, w: &Weights, scale: f64) -> ObservationResult {
+        let sigma0 = libm::sqrt(self.a_priori);
+        let elements = o
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(p, element)| {
+                let mut adjusted = Vector3::zeros();
+                let mut aqa = Block::zeros();
+                for (a, sa) in element.terms() {
+                    adjusted += self.marks[a].position * sa;
+                    for (b, sb) in element.terms() {
+                        aqa += self.solution.datum_any(a, b) * (sa * sb);
+                    }
+                }
+                let misclosure = adjusted - element.value();
+                let own: Block = w.cofactor.fixed_view::<3, 3>(3 * p, 3 * p).into_owned();
+                let spread = own + aqa;
+                let axes = self.solution.axes[element.first_mark()];
+                let enu = axes * misclosure;
+                ElementResult {
+                    residual: misclosure,
+                    components: std::array::from_fn(|k| ComponentResult {
+                        residual: enu[k],
+                        redundancy: 0.0,
+                        w: None,
+                        tau: None,
+                        mdb: None,
+                        shift: None,
+                    }),
+                    vector_test: spd_inverse(&spread)
+                        .map(|inverse| misclosure.dot(&(inverse * misclosure)) / self.a_priori),
+                    standardised: std::array::from_fn(|k| {
+                        Some(misclosure[k] / (sigma0 * libm::sqrt(spread[(k, k)])))
+                    }),
+                }
+            })
+            .collect();
+        ObservationResult {
+            elements,
+            sum_of_squares: 0.0,
+            used: false,
+            scale,
+        }
+    }
+
     fn check_mark(&self, index: usize) -> Result<(), AdjustError> {
         if index < self.marks.len() {
             Ok(())
@@ -256,9 +378,83 @@ impl Adjustment {
 }
 
 impl Network {
-    /// Adjusts the network in `datum`.
+    /// Adjusts the network in `datum`, with the edits in `options`.
     pub fn adjust(&self, datum: &Datum, options: &Options) -> Result<Adjustment, AdjustError> {
         options.check()?;
+        self.check_observations()?;
+        // Each observation's re-weighting factor, or None if it's excluded.
+        let mut usage: Vec<Option<f64>> = vec![Some(1.0); self.observations().len()];
+        for edit in &options.edits {
+            let mut matches = self
+                .observations()
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| o.id == edit.observation)
+                .map(|(i, _)| i);
+            let (Some(i), None) = (matches.next(), matches.next()) else {
+                let count = self
+                    .observations()
+                    .iter()
+                    .filter(|o| o.id == edit.observation)
+                    .count();
+                let id = edit.observation.clone();
+                return Err(if count == 0 {
+                    AdjustError::NoSuchObservation { id }
+                } else {
+                    AdjustError::AmbiguousObservation { id, count }
+                });
+            };
+            usage[i] = match (usage[i], edit.action) {
+                (Some(factor), Action::Reweight(more)) => Some(factor * more),
+                _ => None,
+            };
+        }
+
+        let used: Vec<Observation> = self
+            .observations()
+            .iter()
+            .zip(&usage)
+            .filter_map(|(o, u)| {
+                u.map(|factor| {
+                    let mut o = o.clone();
+                    o.covariance *= factor;
+                    o
+                })
+            })
+            .collect();
+        let mut adjustment = self
+            .with_observations(used)
+            .adjust_used(datum, options)
+            .map_err(|e| match e {
+                AdjustError::Unobserved { name } => AdjustError::OnlyExcluded { name },
+                other => other,
+            })?;
+        adjustment.edits = options.edits.clone();
+
+        // Back in the network's order, with the excluded observations
+        // compared with the network adjusted without them.
+        let mut results = std::mem::take(&mut adjustment.observations).into_iter();
+        let mut observations = Vec::with_capacity(usage.len());
+        for (o, u) in self.observations().iter().zip(&usage) {
+            let scale = options.scale(o.group.as_ref());
+            // The used observations' results come in order, one each.
+            let used = u.and_then(|factor| results.next().map(|result| (factor, result)));
+            let result = match used {
+                Some((factor, mut result)) => {
+                    result.scale = scale * factor;
+                    result
+                }
+                None => adjustment.excluded(o, &Weights::new(o, scale)?, scale),
+            };
+            observations.push(result);
+        }
+        adjustment.observations = observations;
+        Ok(adjustment)
+    }
+
+    /// Adjusts every observation of the network in `datum`.
+    fn adjust_used(&self, datum: &Datum, options: &Options) -> Result<Adjustment, AdjustError> {
+        // Again without the excluded observations: a mark may have nothing left.
         self.check_observations()?;
         let held = self.check_datum(datum)?;
         let approximate = self.approximate_positions()?;
@@ -438,7 +634,10 @@ impl Network {
             .zip(&weights)
             .zip(&residuals)
             .zip(shares)
-            .map(|(((o, w), v), share)| context.observation(o, w, v, share))
+            .map(|(((o, w), v), share)| ObservationResult {
+                scale: options.scale(o.group.as_ref()),
+                ..context.observation(o, w, v, share)
+            })
             .collect();
 
         Ok(Adjustment {
@@ -453,9 +652,15 @@ impl Network {
             },
             criteria,
             a_priori: options.variance_factor,
+            edits: Vec::new(),
             solution,
         })
     }
+}
+
+/// An observation's cofactor matrix k C, checked.
+pub(crate) fn cofactor(o: &Observation, scale: f64) -> Result<DMatrix<f64>, AdjustError> {
+    Weights::new(o, scale).map(|w| w.cofactor)
 }
 
 /// An observation's weights: its cofactor matrix Q = k C and P = Q⁻¹.
@@ -718,6 +923,8 @@ impl Context<'_> {
         ObservationResult {
             elements,
             sum_of_squares,
+            used: true,
+            scale: 1.0,
         }
     }
 

@@ -80,6 +80,10 @@ The first generator is in place (`gnss_adjust::synthetic`, M2). It scatters mark
 | Every block of Qₓ, including pairs that share no observation, against the dense adjustment | Within 1e-14 m² in each datum |
 | Critical values against SciPy | Within 1e-12 relative (B-method critical values within 1e-10) |
 | Variance component estimation with one group's covariances four times too optimistic, over 200 draws | Estimated factors average 1.009 ± 0.013 and 0.990 ± 0.010 of the truth, in 9 to 24 rounds |
+| Loop closures: 34 loops in a network of clusters, over 1,000 draws | Mean statistic 2.973 ± 0.020 (3 expected); 0.553% fail at the 0.55% level |
+| A good baseline excluded, over 10,000 draws each for four baselines | Mean misclosure test 2.98 to 3.02, ± 0.025 (3 expected) |
+| The same, against its vector test with it in | Equal to 1e-7 relative, the rounding of ECEF coordinates |
+| A 10 cm blunder | First among the suspects; excluded, its misclosure shows the 10 cm and fails, and the global test then passes |
 
 ### D4 Oracle networks (adjustment)
 

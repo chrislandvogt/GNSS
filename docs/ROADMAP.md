@@ -178,11 +178,11 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 - [x] Uncertainties:
   - [x] Standard and 95% error ellipses and ellipsoids.
   - [x] SP1 v2.2 positional uncertainty (PU) and relative uncertainty (RU) between any pair, following the ICSM *Guideline for Adjustment and Evaluation of Survey Control*, scaled by the a priori or a posteriori variance factor as the project chooses.
-- [ ] Loop closures (fundamental cycles from a spanning tree) and repeat-baseline comparisons, with misclosure tests and ppm.
-- [ ] Outlier workflow:
-  - [ ] Rank the suspects.
-  - [ ] Exclude or re-weight with an audit trail.
-  - [ ] Nothing happens automatically without a record.
+- [x] Loop closures (fundamental cycles from a spanning tree) and repeat-baseline comparisons, with misclosure tests and ppm.
+- [x] Outlier workflow:
+  - [x] Rank the suspects.
+  - [x] Exclude or re-weight with an audit trail.
+  - [x] Nothing happens automatically without a record.
 - [ ] Results model: adjusted coordinates with covariance, residuals and statistics, ready for reporting.
 - [ ] Tests:
   - [x] Synthetic networks with known truth (`gnss_adjust::synthetic`), and a textbook dense adjustment as an oracle in every datum.

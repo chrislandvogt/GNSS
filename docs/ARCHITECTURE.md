@@ -472,6 +472,9 @@ GNSS vectors carry scale and orientation from the orbits, so a vector-only netwo
 - **Critical values** follow Baarda's B-method. Choose α₀ (default 0.1%) and β₀ (default 80%), giving λ₀ ≈ 17.07. The 3-DoF test's level is derived from the same λ₀ and β₀ (0.55% for the defaults), so it's as sensitive as the w-test.
 - **Untestable components.** A component that the other observations check less than 1e-8 of, such as a spur or bridge vector's, gets no w-test and no MDB: its residual is rounding error over rounding error, and the bias it could hide is unbounded.
 - **Outlier handling.** Suspects are ranked by test statistic and shown with evidence. Excluding or re-weighting an observation is a recorded user action, and the tool never iterates silently.
+  - Suspects are the failed w-tests and vector tests, ranked by how far they fail on a scale that grows with the bias: `|w|` over its critical value, or `sqrt(T)` over the square root of its critical value.
+  - An edit names the observation, the action (exclude, or scale the covariance by a factor) and the person's reason. The edits travel with the results as the audit trail.
+  - An excluded observation is compared with the network adjusted without it: its misclosures `d`, and per element `dᵀ(Q_ll + A Q_x̂ Aᵀ)⁻¹d / σ₀² ~ χ²(3)`, which says whether it would fit. For a single baseline this equals its vector test with it in, which the tests check.
 
 ### 10.6 Reliability
 
@@ -514,6 +517,7 @@ Observations in no group, such as control, keep their covariances as given. Each
 - **Loops.** Build a graph with marks as nodes and selected vectors as edges. A spanning tree gives a fundamental cycle basis: each non-tree edge closes exactly one loop. The misclosure is `w = Σ s_k ΔX_k` with signs from direction, and `Σ_w` comes from the loop vectors including any cluster correlations. Test `wᵀΣ_w⁻¹w ~ χ²(3)`, and report the misclosure in ENU (mm) and as ppm of loop length.
 - **Repeat baselines.** Differences between repeated vectors over the same mark pair, tested the same way.
 - Loops are a pre-adjustment screen and an aid to explanation. They don't replace the adjustment tests.
+- The spanning tree is built breadth first along the vectors in order, over the first vector of each pair of marks, so the loops are the same every time. Both tests use the vector test's critical value (B-method), and `Σ_w` includes the correlations between vectors of a cluster, which matter: a base's error cancels in a loop of its own vectors.
 
 ## 11. Datums and geodesy
 

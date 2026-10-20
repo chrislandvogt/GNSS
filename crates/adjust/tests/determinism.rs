@@ -15,7 +15,7 @@
 
 use gnss_adjust::stats::{self, BMethod};
 use gnss_adjust::synthetic::{Spec, Synthetic};
-use gnss_adjust::{Adjustment, Datum, Options, Scaling, Uncertainty, VceOptions};
+use gnss_adjust::{Action, Adjustment, Datum, Edit, Options, Scaling, Uncertainty, VceOptions};
 use sha2::{Digest, Sha256};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_test::wasm_bindgen_test as test;
@@ -23,7 +23,7 @@ use wasm_bindgen_test::wasm_bindgen_test as test;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-const GOLDEN: &str = "433b8ed519fdcfd8c140911739031c3742a9cb9c1cccc333ad781d7e0b9afd09";
+const GOLDEN: &str = "5fa0b18e56acc6733ad01711667a51d842e56524d04543e44b2fdd06f563ef10";
 
 fn put(hasher: &mut Sha256, value: f64) {
     hasher.update(value.to_bits().to_le_bytes());
@@ -137,6 +137,33 @@ fn results_are_bit_identical_on_every_platform() {
         };
         for datum in datums {
             put_adjustment(&mut hasher, &network.adjust(&datum, &options).unwrap());
+        }
+        // Loop closures and repeats, and the suspects and an exclusion.
+        let closures = network.closures(&options).unwrap();
+        for l in &closures.loops {
+            l.misclosure.iter().for_each(|&v| put(&mut hasher, v));
+            for v in [l.length, l.ppm, l.statistic] {
+                put(&mut hasher, v);
+            }
+        }
+        let datum = if control > 0 {
+            Datum::Constrained { fixed: Vec::new() }
+        } else {
+            Datum::Inner
+        };
+        let excluded = Options {
+            edits: vec![Edit {
+                observation: network.observations()[5].id.clone(),
+                action: Action::Exclude,
+                reason: String::new(),
+            }],
+            ..options.clone()
+        };
+        let adjustment = network.adjust(&datum, &excluded).unwrap();
+        put_adjustment(&mut hasher, &adjustment);
+        for s in adjustment.suspects() {
+            put(&mut hasher, s.statistic);
+            put(&mut hasher, s.excess);
         }
     }
 

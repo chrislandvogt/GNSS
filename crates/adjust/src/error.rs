@@ -93,6 +93,32 @@ pub enum AdjustError {
         source: DatumError,
     },
 
+    /// An edit to an observation that isn't in the network.
+    #[error("there's no observation {id} to edit")]
+    NoSuchObservation {
+        /// The identifier the edit gives.
+        id: String,
+    },
+
+    /// An edit to an identifier that more than one observation has.
+    #[error("{count} observations are called {id}, so an edit to it is ambiguous: rename them")]
+    AmbiguousObservation {
+        /// The identifier.
+        id: String,
+        /// How many observations have it.
+        count: usize,
+    },
+
+    /// A mark that only excluded observations refer to.
+    #[error(
+        "mark {name} is only in excluded observations, so it can't be adjusted: include one of \
+         them, or remove the mark"
+    )]
+    OnlyExcluded {
+        /// The mark's name.
+        name: String,
+    },
+
     /// A mark index past the end of the network.
     #[error("there's no mark {index}: the network has {count} marks")]
     NoSuchMark {

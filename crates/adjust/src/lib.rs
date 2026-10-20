@@ -13,6 +13,10 @@
 //! - [`Adjustment::positional_uncertainty`] and
 //!   [`Adjustment::relative_uncertainty`] give SP1's PU and RU, with error
 //!   ellipses and ellipsoids ([`uncertainty`]).
+//! - [`Network::closures`] gives loop closures and repeat baselines, a screen
+//!   before adjusting ([`closures`]).
+//! - [`Adjustment::suspects`] ranks failed tests, and [`Edit`]s exclude or
+//!   re-weight observations with a recorded reason.
 //! - [`Network::estimate_variance_components`] estimates a scale factor
 //!   for each group of observations ([`vce`]).
 //! - [`synthetic`] makes networks with known truth, for tests and benchmarks.
@@ -20,6 +24,7 @@
 //! Every result is the same bits natively and in the browser (D-024).
 
 pub mod adjustment;
+pub mod closures;
 pub mod error;
 pub mod network;
 pub mod sparse;
@@ -30,10 +35,11 @@ pub mod vce;
 
 pub use adjustment::{
     AdjustedMark, Adjustment, ComponentResult, Criteria, ElementResult, GlobalTest,
-    ObservationResult, Statistics,
+    ObservationResult, Statistics, Suspect,
 };
+pub use closures::{Closures, LoopClosure, RepeatBaseline};
 pub use error::AdjustError;
-pub use network::{Datum, Element, Mark, Network, Observation, Options};
+pub use network::{Action, Datum, Edit, Element, Mark, Network, Observation, Options};
 pub use uncertainty::{Ellipse, Ellipsoid, Scaling, Uncertainty};
 pub use vce::{GroupComponent, VarianceComponents, VceOptions};
 
