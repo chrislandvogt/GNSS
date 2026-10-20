@@ -16,9 +16,13 @@ gnss-api = { path = "crates/api" }
 gnss-datum = { path = "crates/datum" }
 gnss-store = { path = "crates/store" }
 hifitime = "4.3"
+js-sys = "0.3"
 # One maths library on every target (D-024).
 libm = "0.2.16"
-nalgebra = { version = "0.35", default-features = false, features = ["std", "libm-force"] }
+# Without "std": its dynamic matrix products would go to matrixmultiply, which
+# picks SIMD and FMA kernels by CPU at run time, so results would differ
+# between machines (D-024). Its own loops are the same everywhere.
+nalgebra = { version = "0.35", default-features = false, features = ["alloc", "libm-force"] }
 sha2 = "0.10"
 thiserror = "2"
 # Reading jurisdiction packs (ARCHITECTURE.md section 11.6).
