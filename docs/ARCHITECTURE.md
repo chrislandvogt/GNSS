@@ -92,7 +92,7 @@ Every crate except `engine-host` compiles to both native code and WebAssembly. C
 | `model` | Domain entities, IDs, serialisation, schema versions | serde, toml, schemars |
 | `datum` | Frames, epochs, Helmert transformations, plate motion, grids, geoid, projections | hifitime, nalgebra, libm, tiff |
 | `adjust` | Least squares, statistics, reliability, VCE, uncertainty, loops | nalgebra, libm; its own block-sparse solver and distributions (D-025) |
-| `formats` | Parsers and writers for exchange formats | quick-xml, csv, rusqlite (GeoPackage; needs a SQLite build for WebAssembly, checked in M3) |
+| `formats` | Parsers and writers for exchange formats | quick-xml, csv; its own SQLite file writer for GeoPackage (D-026) |
 | `rinex-io` | RINEX parsing (wrapped), header extraction, QC | rinex (nav-solutions, MPL-2.0) |
 | `fetch` | Source registry, download, cache, data packs | reqwest (uses the browser's fetch in the web app), sha2 |
 | `engine` | Engine and module host traits, job and result types | none of note |

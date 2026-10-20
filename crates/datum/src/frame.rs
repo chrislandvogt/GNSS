@@ -102,6 +102,40 @@ impl FrameId {
         }
     }
 
+    /// The EPSG code of the frame's geographic 2D CRS: latitude and longitude.
+    pub const fn geographic_epsg_code(self) -> u32 {
+        match self {
+            FrameId::Itrf2020 => 9990,
+            FrameId::Igs20 => 10178,
+            FrameId::Itrf2014 => 9000,
+            FrameId::Itrf2008 => 8999,
+            FrameId::Itrf2005 => 8998,
+            FrameId::Atrf2014 => 9309,
+            FrameId::Gda2020 => 7844,
+            FrameId::Gda94 => 4283,
+            FrameId::Wgs84G2296 => 10606,
+            FrameId::Wgs84G2139 => 9755,
+            FrameId::Wgs84 => 4326,
+        }
+    }
+
+    /// The name of the frame's datum, as EPSG gives it.
+    pub const fn datum_name(self) -> &'static str {
+        match self {
+            FrameId::Itrf2020 => "International Terrestrial Reference Frame 2020",
+            FrameId::Igs20 => "IGS20",
+            FrameId::Itrf2014 => "International Terrestrial Reference Frame 2014",
+            FrameId::Itrf2008 => "International Terrestrial Reference Frame 2008",
+            FrameId::Itrf2005 => "International Terrestrial Reference Frame 2005",
+            FrameId::Atrf2014 => "Australian Terrestrial Reference Frame 2014",
+            FrameId::Gda2020 => "Geocentric Datum of Australia 2020",
+            FrameId::Gda94 => "Geocentric Datum of Australia 1994",
+            FrameId::Wgs84G2296 => "World Geodetic System 1984 (G2296)",
+            FrameId::Wgs84G2139 => "World Geodetic System 1984 (G2139)",
+            FrameId::Wgs84 => "World Geodetic System 1984 ensemble",
+        }
+    }
+
     /// Whether the frame is static or dynamic.
     pub const fn kind(self) -> FrameKind {
         match self {

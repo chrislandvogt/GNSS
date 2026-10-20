@@ -12,8 +12,11 @@
 pub mod csv;
 pub mod dynaml;
 pub mod error;
+pub mod gpkg;
+pub mod landxml;
 pub mod rtklib;
 pub mod sinex;
+mod sqlite;
 pub mod starnet;
 pub mod survey;
 mod text;

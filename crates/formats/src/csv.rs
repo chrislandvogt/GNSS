@@ -783,3 +783,19 @@ pub fn write_control(
     }
     Ok(out)
 }
+
+/// Writes a table as CSV: a heading row, then the rows, quoting fields that
+/// need it.
+pub fn write_table(headings: &[&str], rows: &[Vec<String>]) -> String {
+    let mut out = headings
+        .iter()
+        .map(|h| field(h))
+        .collect::<Vec<_>>()
+        .join(",");
+    out.push('\n');
+    for row in rows {
+        out.push_str(&row.iter().map(|v| field(v)).collect::<Vec<_>>().join(","));
+        out.push('\n');
+    }
+    out
+}

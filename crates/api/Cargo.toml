@@ -13,6 +13,7 @@ gnss-adjust.workspace = true
 gnss-datum.workspace = true
 gnss-formats.workspace = true
 gnss-store.workspace = true
+libm.workspace = true
 nalgebra.workspace = true
 thiserror.workspace = true
 

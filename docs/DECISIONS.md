@@ -324,3 +324,24 @@ The tool shows the difference from adjusting directly in GDA2020, so the shortcu
 - The ordering is a simple greedy minimum degree. Much larger networks may want a better one, which stays deterministic as long as it's our own code.
 
 **Revisit:** if networks far beyond 10,000 marks become common and the solver becomes the bottleneck.
+
+### D-026 Write GeoPackage files directly, without SQLite
+**Status:** Proposed
+
+**Decision:** The formats crate writes GeoPackage exports as SQLite database files itself (`crates/formats/src/sqlite.rs`): table B-trees built bottom up, overflow pages, single-page indexes and the database header, following SQLite's documented file format. It doesn't link SQLite or rusqlite.
+
+**Why:**
+- **The browser.** SQLite is C. Building it for `wasm32-unknown-unknown` needs a C toolchain for WebAssembly and shims for its system calls, in every build of the core, for one export. M3 had a task just to check it could work.
+- **Exports are written once.** No queries, updates, journals or locking: rows go in once, in rowid order. That's a few hundred lines of the file format, not a database engine.
+- **Determinism (D-024).** The same results give the same bytes, natively and in the browser, with the caller supplying the only timestamp.
+
+**Alternatives:**
+- **rusqlite with bundled SQLite natively, and sqlite-wasm in the browser.** Two code paths for one file format, a C build in the web core, and outputs that differ between them.
+- **No GeoPackage, only CSV and LandXML.** GIS users would lose ellipses as polygons and vectors as lines with their statistics.
+
+**Consequences:**
+- We maintain a small file-format writer. SQLite's own integrity, quick and foreign-key checks and GDAL check its output in CI (`crates/formats/tests/oracle/check_gpkg.py`), including files with interior B-tree pages and overflow pages.
+- Indexes are limited to one page, which the GeoPackage metadata tables need. There's no spatial index, which GeoPackage leaves optional.
+- Reading GeoPackages, if it's ever needed, is a different matter.
+
+**Revisit:** if exports need features beyond writing tables once, such as spatial indexes on very large layers or updating a file in place.

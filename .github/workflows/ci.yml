@@ -37,6 +37,13 @@ jobs:
       - name: Time the adjustment
         if: matrix.os == 'ubuntu-latest'
         run: cargo test --release -p gnss-adjust --test performance --locked -- --nocapture
+      # GeoPackage exports, checked by SQLite and by GDAL.
+      - name: Check GeoPackage exports with SQLite and GDAL
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/gpkg"
+          "$RUNNER_TEMP/gpkg/bin/pip" install --quiet pyogrio
+          "$RUNNER_TEMP/gpkg/bin/python" -I crates/formats/tests/oracle/check_gpkg.py
       # The grid readers on the grids PROJ publishes, beyond the test windows.
       - name: Fetch PROJ's published grids
         if: matrix.os == 'ubuntu-latest'

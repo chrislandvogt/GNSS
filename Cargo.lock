@@ -214,6 +214,7 @@ dependencies = [
  "gnss-datum",
  "gnss-formats",
  "gnss-store",
+ "libm",
  "nalgebra",
  "thiserror",
  "wasm-bindgen-test",
