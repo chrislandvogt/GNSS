@@ -28,7 +28,7 @@ use crate::frame::FrameId;
 use crate::geodetic::{Geodetic, enu_rotation};
 use crate::gridshift::HorizontalShiftGrid;
 use crate::helmert::{Helmert7, Helmert14, HelmertParameters, RotationConvention};
-use crate::position::{Position, describe, resolve_epoch};
+use crate::position::{Position, describe};
 
 /// A geographic bounding box where a transformation is valid, in degrees.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -259,7 +259,7 @@ impl TransformationGraph {
         to: FrameId,
         epoch: Option<CoordinateEpoch>,
     ) -> Result<Transformed, DatumError> {
-        let target_epoch = resolve_epoch(to, epoch)?;
+        let target_epoch = to.resolve_epoch(epoch)?;
         // Only transformations valid where the position is can be on the path.
         let here = position.geodetic();
         let usable: Vec<bool> = self

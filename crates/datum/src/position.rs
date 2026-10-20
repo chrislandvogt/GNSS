@@ -6,7 +6,7 @@ use nalgebra::{Matrix3, Vector3};
 
 use crate::epoch::CoordinateEpoch;
 use crate::error::DatumError;
-use crate::frame::{FrameId, FrameKind};
+use crate::frame::FrameId;
 use crate::geodetic::Geodetic;
 
 /// Relative tolerance for a covariance matrix's symmetry.
@@ -120,7 +120,7 @@ impl Position {
         xyz: Vector3<f64>,
         covariance: Option<Covariance>,
     ) -> Result<Self, DatumError> {
-        let epoch = resolve_epoch(frame, epoch)?;
+        let epoch = frame.resolve_epoch(epoch)?;
         // Validates finiteness and that the point is near the Earth's surface.
         frame.ellipsoid().ecef_to_geodetic(&xyz)?;
         Ok(Self {
@@ -229,26 +229,6 @@ pub(crate) fn describe(frame: FrameId, epoch: CoordinateEpoch) -> String {
         frame.name().to_owned()
     } else {
         format!("{frame} at {epoch}")
-    }
-}
-
-/// The epoch a position in `frame` has, applying the static and dynamic frame rules.
-pub(crate) fn resolve_epoch(
-    frame: FrameId,
-    epoch: Option<CoordinateEpoch>,
-) -> Result<CoordinateEpoch, DatumError> {
-    match (frame.kind(), epoch) {
-        (FrameKind::Dynamic, Some(e)) => Ok(e),
-        (FrameKind::Dynamic, None) => Err(DatumError::MissingEpoch { frame }),
-        (FrameKind::Static { reference_epoch }, None) => Ok(reference_epoch),
-        (FrameKind::Static { reference_epoch }, Some(e)) if e == reference_epoch => Ok(e),
-        (FrameKind::Static { reference_epoch }, Some(given)) => {
-            Err(DatumError::EpochOnStaticFrame {
-                frame,
-                reference: reference_epoch,
-                given,
-            })
-        }
     }
 }
 

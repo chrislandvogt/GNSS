@@ -118,6 +118,28 @@ impl FrameId {
         }
     }
 
+    /// The coordinate epoch of a position in this frame: the epoch given, for
+    /// a dynamic frame, which needs one, or the reference epoch, for a static
+    /// frame, which accepts no other.
+    pub fn resolve_epoch(
+        self,
+        epoch: Option<CoordinateEpoch>,
+    ) -> Result<CoordinateEpoch, DatumError> {
+        match (self.kind(), epoch) {
+            (FrameKind::Dynamic, Some(e)) => Ok(e),
+            (FrameKind::Dynamic, None) => Err(DatumError::MissingEpoch { frame: self }),
+            (FrameKind::Static { reference_epoch }, None) => Ok(reference_epoch),
+            (FrameKind::Static { reference_epoch }, Some(e)) if e == reference_epoch => Ok(e),
+            (FrameKind::Static { reference_epoch }, Some(given)) => {
+                Err(DatumError::EpochOnStaticFrame {
+                    frame: self,
+                    reference: reference_epoch,
+                    given,
+                })
+            }
+        }
+    }
+
     /// The ellipsoid used for the frame's geodetic coordinates.
     pub const fn ellipsoid(self) -> Ellipsoid {
         match self {
