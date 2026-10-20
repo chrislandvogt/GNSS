@@ -461,6 +461,7 @@ GNSS vectors carry scale and orientation from the orbits, so a vector-only netwo
   w = \frac{c^T P \hat v}{\sigma_0 \sqrt{c^T P Q_{\hat v \hat v} P c}} \sim N(0,1)
   ```
 
+- **Standardised residuals.** Each ECEF component's residual over its own standard deviation, `v_k / (σ₀ sqrt(Q_v̂v̂,kk))`, ignoring correlations. This is DynAdjust's N-stat, kept for comparison with it. It equals the w-test only for uncorrelated components.
 - **Vector test (3 DoF).** For vector *i*, with `C_i` selecting its three components:
 
   ```math
@@ -494,6 +495,8 @@ Group scale factors are estimated with the simplified Helmert (Förstner) estima
 ```
 
 Groups can be sessions, engines, receiver types or any other user-defined split. Each factor is reported with its redundancy. A warning is raised when a group has too little redundancy (r_g below about 10) for a meaningful estimate. The factors are the evidence for, or against, the realism of the engine covariances.
+
+Observations in no group, such as control, keep their covariances as given. Each round re-adjusts with the new factors until every group's `Ω_g / (σ₀² r_g)` is within 1e-6 of 1, which takes 10 to 25 rounds on the synthetic networks. Every round's factors are kept as the convergence record.
 
 ### 10.8 Uncertainty and SP1
 

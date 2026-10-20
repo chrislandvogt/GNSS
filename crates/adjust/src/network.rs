@@ -318,6 +318,22 @@ impl Network {
         Ok(index)
     }
 
+    /// Sets a mark's approximate position: where a fixed mark is held, and
+    /// where the adjustment starts from.
+    pub fn set_approximate(
+        &mut self,
+        mark: usize,
+        approximate: Option<Vector3<f64>>,
+    ) -> Result<(), AdjustError> {
+        let count = self.marks.len();
+        let m = self
+            .marks
+            .get_mut(mark)
+            .ok_or(AdjustError::NoSuchMark { index: mark, count })?;
+        m.approximate = approximate;
+        Ok(())
+    }
+
     /// The index of the mark with this name.
     pub fn mark(&self, name: &str) -> Option<usize> {
         self.names.get(name).copied()

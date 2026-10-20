@@ -79,12 +79,27 @@ The first generator is in place (`gnss_adjust::synthetic`, M2). It scatters mark
 | Horizontal errors inside the 95% PU circle (ICSM's formula), over 4,000 draws | 95.06% |
 | Every block of Qₓ, including pairs that share no observation, against the dense adjustment | Within 1e-14 m² in each datum |
 | Critical values against SciPy | Within 1e-12 relative (B-method critical values within 1e-10) |
+| Variance component estimation with one group's covariances four times too optimistic, over 200 draws | Estimated factors average 1.009 ± 0.013 and 0.990 ± 0.010 of the truth, in 9 to 24 rounds |
 
 ### D4 Oracle networks (adjustment)
 
 - D3 networks and real (anonymised) networks run through DynAdjust.
 - Outputs are stored as golden files, with the DynAdjust version and settings recorded.
 - STAR*NET comparisons are made by partners who hold licences, then published manually. Commercial software can't run in CI.
+
+The first three synthetic networks are in place (`crates/adjust/tests/dynadjust.rs`), with DynAdjust 1.4.1's results made by `tests/oracle/dynadjust.py`. They have baselines, clusters, weighted control (point clusters), a fixed mark, and injected blunders of 2 to 6 cm. DynAdjust flags a component when its N-stat, the residual over its own standard deviation, exceeds 1.96 (95%), so it's compared with our standardised residuals. Against G-ADJ:
+
+| Network | Coordinates | σ̂₀² | PU | N-stat | Flagged by both |
+|---|---|---|---|---|---|
+| 30 marks, clusters of three vectors, 4 control marks | 4.7e-10 m | Within 1e-6 relative | 1.5e-9 relative | 1.2e-7 | The same 18 of 246 components |
+| 25 marks, single baselines, 3 control marks and a fixed mark | 2.7e-7 m | Within 1e-6 relative | 3.7e-8 relative | 8.2e-6 | The same 10 of 147 |
+| 120 marks over 50 km, pairs of vectors, 6 control marks | 6.6e-10 m | Within 1e-6 relative | 4.5e-9 relative | 2.1e-7 | The same 62 of 1,131 |
+
+The degrees of freedom match exactly, and the global test's bounds to 1e-9.
+
+Two things in DynAdjust need allowing for:
+- **Free stations get a weak a priori constraint**, 10 m by default. The oracle sets it to 1 km, where it changes nothing at this precision.
+- **Fixed stations are held only to 1 µm.** In the network with a fixed mark, the control moves the whole network by about 0.3 µm in DynAdjust, which accounts for that network's larger differences.
 
 ### D5 Geodesy points (datums)
 

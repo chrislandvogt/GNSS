@@ -174,7 +174,7 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 - [x] Reliability:
   - [x] Minimal detectable bias (MDB) per observation, using Baarda's B-method with configurable α₀ and β₀.
   - [x] External reliability: the effect of an undetected MDB on coordinates (the observation's own marks).
-- [ ] Variance component estimation by group (session, engine, receiver type), iterated, with convergence reporting.
+- [x] Variance component estimation by group (session, engine, receiver type), iterated, with convergence reporting.
 - [x] Uncertainties:
   - [x] Standard and 95% error ellipses and ellipsoids.
   - [x] SP1 v2.2 positional uncertainty (PU) and relative uncertainty (RU) between any pair, following the ICSM *Guideline for Adjustment and Evaluation of Survey Control*, scaled by the a priori or a posteriori variance factor as the project chooses.
@@ -189,7 +189,7 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
   - [x] Blunder injection, measuring detection power against MDB theory.
   - [x] Invariance: test statistics must not depend on which minimal constraint is chosen.
   - [x] A golden hash of results, checked natively on every OS and in the browser (D-024).
-  - [ ] DynAdjust oracle comparisons.
+  - [x] DynAdjust oracle comparisons (`tests/dynadjust.rs`, made by `tests/oracle/dynadjust.py`).
 
 **Exit criteria:**
 - The adjustment matches DynAdjust on the oracle networks within 0.1 mm for coordinates and 0.1% for the variance factor, and flags the same outliers.
