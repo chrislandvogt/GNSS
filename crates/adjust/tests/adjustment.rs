@@ -537,6 +537,29 @@ fn errors_are_consistent_with_the_cofactors() {
 }
 
 #[test]
+fn adjusted_positions_carry_their_frame_epoch_and_covariance() {
+    let network = clustered(3).observe(8);
+    let adjustment = network.adjust(&CONSTRAINED, &Options::default()).unwrap();
+    assert_eq!(adjustment.frame(), FrameId::Gda2020);
+    let position = adjustment.position(2, Scaling::APosteriori).unwrap();
+    assert_eq!(position.frame(), FrameId::Gda2020);
+    assert_eq!(position.epoch(), network.epoch());
+    assert_eq!(*position.xyz(), adjustment.marks()[2].position);
+    assert_eq!(
+        *position.covariance().unwrap().matrix(),
+        adjustment.covariance(2, Scaling::APosteriori).unwrap()
+    );
+    // In east, north and up: the datum crate takes the axes at the adjusted
+    // position and PU at the approximate one, a few metres and a fraction of
+    // a microradian apart.
+    let enu = position.enu_covariance().unwrap();
+    let pu = adjustment
+        .positional_uncertainty(2, Scaling::APosteriori)
+        .unwrap();
+    assert!((enu - pu.enu).abs().max() < 1e-6 * pu.enu.abs().max());
+}
+
+#[test]
 fn uncertainties_need_a_mark_and_a_variance_factor() {
     let network = clustered(3).observe(4);
     let adjustment = network.adjust(&CONSTRAINED, &Options::default()).unwrap();

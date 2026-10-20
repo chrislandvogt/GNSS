@@ -183,8 +183,8 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
   - [x] Rank the suspects.
   - [x] Exclude or re-weight with an audit trail.
   - [x] Nothing happens automatically without a record.
-- [ ] Results model: adjusted coordinates with covariance, residuals and statistics, ready for reporting.
-- [ ] Tests:
+- [x] Results model: adjusted coordinates with covariance, residuals and statistics, ready for reporting. Each adjusted mark is also a datum-crate `Position` in the network's frame and epoch, with its covariance, so it can be transformed or projected.
+- [x] Tests:
   - [x] Synthetic networks with known truth (`gnss_adjust::synthetic`), and a textbook dense adjustment as an oracle in every datum.
   - [x] Blunder injection, measuring detection power against MDB theory.
   - [x] Invariance: test statistics must not depend on which minimal constraint is chosen.

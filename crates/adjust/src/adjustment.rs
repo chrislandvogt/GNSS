@@ -9,7 +9,7 @@
 //! afterwards (an S-transformation), which leaves residuals and tests as they
 //! are: they don't depend on the datum, and the tests check that.
 
-use gnss_datum::DatumError;
+use gnss_datum::{CoordinateEpoch, Covariance, DatumError, FrameId, Position};
 use nalgebra::{DMatrix, DVector, Matrix3, Vector3};
 
 use crate::error::AdjustError;
@@ -34,6 +34,8 @@ const MIN_CONDITIONAL_VARIANCE: f64 = 1e-10;
 /// A network after adjustment.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Adjustment {
+    frame: FrameId,
+    epoch: CoordinateEpoch,
     datum: Datum,
     marks: Vec<AdjustedMark>,
     observations: Vec<ObservationResult>,
@@ -216,9 +218,33 @@ pub struct Criteria {
 }
 
 impl Adjustment {
+    /// The frame of the adjusted positions.
+    pub fn frame(&self) -> FrameId {
+        self.frame
+    }
+
+    /// The coordinate epoch of the adjusted positions.
+    pub fn epoch(&self) -> CoordinateEpoch {
+        self.epoch
+    }
+
     /// The datum.
     pub fn datum(&self) -> &Datum {
         &self.datum
+    }
+
+    /// A mark's adjusted position with its covariance, as a datum-crate
+    /// [`Position`] in the network's frame and epoch: ready to transform to
+    /// another frame or epoch, or to project, with the covariance carried
+    /// along.
+    pub fn position(&self, mark: usize, scaling: Scaling) -> Result<Position, AdjustError> {
+        let covariance = Covariance::new(self.covariance(mark, scaling)?)?;
+        Ok(Position::new(
+            self.frame,
+            Some(self.epoch),
+            self.marks[mark].position,
+            Some(covariance),
+        )?)
     }
 
     /// The adjusted marks, in the network's order.
@@ -758,6 +784,8 @@ impl Network {
             .collect();
 
         Ok(Adjustment {
+            frame: self.frame(),
+            epoch: self.epoch(),
             datum: datum.clone(),
             marks: adjusted_marks,
             observations,
