@@ -16,7 +16,6 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use gnss_api::export::{self, Results};
 use gnss_api::project::{
     self, AdjustmentSettings, EditRecord, Format, Import, Project, Run, Summary,
 };
@@ -445,60 +444,26 @@ fn report(cli: &Cli, args: &ReportArgs) -> Result<u8, Failure> {
 
 fn export_results(cli: &Cli, args: &ExportArgs) -> Result<u8, Failure> {
     let (folder, _, run) = run(cli, &args.datum)?;
-    let results = Results {
-        built: &run.built,
-        adjustment: &run.adjustment,
-        scaling: run.scaling,
+    let format = match args.format {
+        ExportFormat::Dynaml => project::ExportFormat::Dynaml,
+        ExportFormat::Starnet => project::ExportFormat::Starnet,
+        ExportFormat::Landxml => project::ExportFormat::Landxml,
+        ExportFormat::Gpkg => project::ExportFormat::Gpkg,
+        ExportFormat::Csv => project::ExportFormat::Csv,
     };
-    let (stamp, date, time) = now();
-    let place = |default: &str| {
-        args.output
-            .clone()
-            .unwrap_or_else(|| folder.results().join(default))
-    };
+    let (stamp, ..) = now();
+    let files = project::export(&run, format, args.ellipse_scale, &stamp)?;
+    // --output is the file for a format that writes one, and the folder for
+    // one that writes two.
     let mut written = Vec::new();
-    match args.format {
-        ExportFormat::Dynaml => {
-            let (stations, measurements) = export::dynaml(&results)?;
-            let directory = args.output.clone().unwrap_or_else(|| folder.results());
-            for (name, text) in [
-                ("adjusted-stn.xml", stations),
-                ("adjusted-msr.xml", measurements),
-            ] {
-                let path = directory.join(name);
-                folder.write(&path, text.as_bytes())?;
-                written.push(path);
-            }
-        }
-        ExportFormat::Starnet => {
-            let path = place("adjusted.gps");
-            folder.write(&path, export::starnet(&results)?.as_bytes())?;
-            written.push(path);
-        }
-        ExportFormat::Landxml => {
-            let path = place("control.xml");
-            folder.write(&path, export::landxml(&results, &date, &time)?.as_bytes())?;
-            written.push(path);
-        }
-        ExportFormat::Gpkg => {
-            let path = place("results.gpkg");
-            folder.write(
-                &path,
-                &export::geopackage(&results, args.ellipse_scale, &stamp)?,
-            )?;
-            written.push(path);
-        }
-        ExportFormat::Csv => {
-            let directory = args.output.clone().unwrap_or_else(|| folder.results());
-            for (name, text) in [
-                ("marks.csv", export::marks_csv(&results)?),
-                ("observations.csv", export::observations_csv(&results)),
-            ] {
-                let path = directory.join(name);
-                folder.write(&path, text.as_bytes())?;
-                written.push(path);
-            }
-        }
+    for file in files.iter() {
+        let path = match &args.output {
+            Some(output) if files.len() == 1 => output.clone(),
+            Some(output) => output.join(&file.name),
+            None => folder.results().join(&file.name),
+        };
+        folder.write(&path, &file.bytes)?;
+        written.push(path);
     }
     print(cli, &serde_json::json!({ "written": written }), || {
         for path in &written {

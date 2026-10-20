@@ -4,7 +4,9 @@
 
 #![allow(clippy::unwrap_used)]
 
-use gnss_api::project::{self, AdjustmentSettings, EditRecord, Format, Import, Project};
+use gnss_api::project::{
+    self, AdjustmentSettings, EditRecord, ExportFormat, Format, Import, Project,
+};
 use gnss_datum::FrameId;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_test::wasm_bindgen_test as test;
@@ -216,4 +218,61 @@ fn the_report_is_one_page_with_everything_escaped() {
     // BEEC, with its MGA zone 55 coordinates.
     assert!(html.contains("<tr><td>BEEC</td><td>weighted</td>"));
     assert!(html.contains("<td class=\"n\">55</td><td class=\"n\">469288.6177</td>"));
+}
+
+/// Every export and the report of the sample network, hashed: the same
+/// project gives the same bytes natively on every OS and in the browser
+/// (D-024), so the web page's downloads match the CLI's. A deliberate change
+/// to a format or the adjustment changes the hash: check the other tests,
+/// then update it.
+const EXPORTS_GOLDEN: &str = "43ecb34398df9dbae3bf0caa75ae80eb175200e63c53676ab32819a2de6d98b5";
+
+#[test]
+fn exports_are_the_same_bytes_everywhere() {
+    let project = sample();
+    let run = project::run(&project, &mut files).unwrap();
+    let mut all = Vec::new();
+    for (format, _) in ExportFormat::ALL {
+        for file in project::export(&run, format, 1000.0, "2026-10-20T08:00:00.000Z").unwrap() {
+            all.extend_from_slice(file.name.as_bytes());
+            all.extend_from_slice(&file.bytes);
+        }
+    }
+    // The report names the build it came from; nothing else differs.
+    let report = project::report(&project, &run, "2026-10-20 08:00:00 UTC");
+    let build = format!(" ({})", gnss_api::BuildTarget::current().as_str());
+    assert!(report.contains(&build));
+    all.extend_from_slice(report.replace(&build, "").as_bytes());
+    assert_eq!(
+        gnss_store::sha256_hex(&all),
+        EXPORTS_GOLDEN,
+        "the exports' bytes changed: either a format or the adjustment changed on purpose \
+         (check the other tests, then update EXPORTS_GOLDEN) or this platform differs (D-024)"
+    );
+}
+
+#[test]
+fn formats_are_guessed_from_contents_then_names() {
+    let guess = project::guess_format;
+    assert_eq!(guess("gnss-networkstn.xml", STATIONS), Some(Format::Dynaml));
+    assert_eq!(guess("anything.txt", MEASUREMENTS), Some(Format::Dynaml));
+    let rtklib = include_bytes!("../../formats/tests/data/rtklib/static-llh.pos");
+    assert_eq!(guess("solution.txt", rtklib), Some(Format::Rtklib));
+    let sinex = include_bytes!("../../formats/tests/data/sinex/TEST_ITRF05.SNX");
+    assert_eq!(guess("auspos", sinex), Some(Format::Sinex));
+    assert_eq!(guess("job.SNX", b""), Some(Format::Sinex));
+    assert_eq!(
+        guess("vectors.gps", b"G1 A-B 1 2 3\n"),
+        Some(Format::Starnet)
+    );
+    assert_eq!(
+        guess("vectors.csv", b"# exported\nFrom,To,dX (m),dY (m),dZ (m)\n"),
+        Some(Format::CsvVectors)
+    );
+    assert_eq!(
+        guess("control.csv", b"name;latitude;longitude;height\n"),
+        Some(Format::CsvControl)
+    );
+    assert_eq!(guess("control.xml", b"<LandXML>"), None);
+    assert_eq!(guess("photo.jpg", b"\xff\xd8\xff"), None);
 }

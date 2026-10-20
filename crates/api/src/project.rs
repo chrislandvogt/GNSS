@@ -13,6 +13,7 @@ use gnss_formats::{FormatError, Reference, Survey, csv, decode, dynaml, rtklib, 
 use serde::{Deserialize, Serialize};
 
 use crate::build::{BuildError, Built, DatumChoice, Settings, build};
+use crate::export::{self, ExportError, Results};
 
 /// The project file's schema version.
 pub const SCHEMA: u32 = 1;
@@ -138,6 +139,50 @@ impl Format {
             .find(|(_, n)| *n == name)
             .map(|(f, _)| *f)
     }
+
+    /// The format, for people.
+    pub fn label(self) -> &'static str {
+        match self {
+            Format::Dynaml => "DynaML stations or measurements",
+            Format::Starnet => "STAR*NET GPS vectors",
+            Format::Rtklib => "RTKLIB static solution (.pos)",
+            Format::CsvVectors => "CSV vectors",
+            Format::CsvControl => "CSV control",
+            Format::Sinex => "SINEX positions, such as AUSPOS",
+        }
+    }
+
+    /// Whether files in this format always say which frame their contents
+    /// are in. Otherwise the import may need a frame (and an epoch for a
+    /// dynamic frame); the reader says when it does.
+    pub fn states_frame(self) -> bool {
+        matches!(self, Format::Dynaml)
+    }
+}
+
+/// A file's likely format, from its contents and then its name, for a
+/// front end to offer; the person confirms it. `None` if it doesn't look
+/// like any of them.
+pub fn guess_format(name: &str, bytes: &[u8]) -> Option<Format> {
+    let head = decode(&bytes[..bytes.len().min(8192)]);
+    if head.starts_with("%=SNX") {
+        return Some(Format::Sinex);
+    }
+    if head.contains("<DnaXmlFormat") {
+        return Some(Format::Dynaml);
+    }
+    if head.starts_with('%') && head.lines().any(|l| l.contains("RTKLIB")) {
+        return Some(Format::Rtklib);
+    }
+    let name = name.to_ascii_lowercase();
+    match name.rsplit_once('.').map_or("", |(_, extension)| extension) {
+        "snx" | "sinex" => Some(Format::Sinex),
+        "pos" => Some(Format::Rtklib),
+        "gps" | "dat" => Some(Format::Starnet),
+        "csv" | "txt" if csv::has_vector_columns(&head) => Some(Format::CsvVectors),
+        "csv" => Some(Format::CsvControl),
+        _ => None,
+    }
 }
 
 /// A file imported into the project.
@@ -205,6 +250,9 @@ pub enum ProjectError {
     /// The network can't be adjusted.
     #[error("{0}")]
     Adjust(#[from] gnss_adjust::AdjustError),
+    /// The results can't be exported as asked.
+    #[error("{0}")]
+    Export(#[from] ExportError),
 }
 
 impl Project {
@@ -694,4 +742,132 @@ pub fn report(project: &Project, run: &Run, generated: &str) -> String {
         generated: generated.to_owned(),
     };
     gnss_report::html(&input)
+}
+
+/// What results can be exported as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportFormat {
+    /// DynaML stations and measurements of the network as adjusted.
+    Dynaml,
+    /// STAR*NET GPS vectors.
+    Starnet,
+    /// LandXML control points in MGA.
+    Landxml,
+    /// A GeoPackage of marks, vectors and error ellipses.
+    Gpkg,
+    /// CSV tables of marks and of observations.
+    Csv,
+}
+
+impl ExportFormat {
+    /// Every export format, with its name.
+    pub const ALL: [(ExportFormat, &'static str); 5] = [
+        (ExportFormat::Gpkg, "gpkg"),
+        (ExportFormat::Csv, "csv"),
+        (ExportFormat::Landxml, "landxml"),
+        (ExportFormat::Dynaml, "dynaml"),
+        (ExportFormat::Starnet, "starnet"),
+    ];
+
+    /// The format's name.
+    pub fn name(self) -> &'static str {
+        ExportFormat::ALL
+            .iter()
+            .find(|(f, _)| *f == self)
+            .map_or("", |(_, n)| n)
+    }
+
+    /// A format from its name.
+    pub fn parse(name: &str) -> Option<ExportFormat> {
+        ExportFormat::ALL
+            .iter()
+            .find(|(_, n)| *n == name)
+            .map(|(f, _)| *f)
+    }
+
+    /// The format's name, for people.
+    pub fn label(self) -> &'static str {
+        match self {
+            ExportFormat::Gpkg => "GeoPackage",
+            ExportFormat::Csv => "CSV",
+            ExportFormat::Landxml => "LandXML",
+            ExportFormat::Dynaml => "DynaML",
+            ExportFormat::Starnet => "STAR*NET",
+        }
+    }
+
+    /// What the export holds.
+    pub fn description(self) -> &'static str {
+        match self {
+            ExportFormat::Gpkg => "Marks, vectors and 95% error ellipses, for GIS",
+            ExportFormat::Csv => {
+                "Marks with their uncertainties, and observations with their tests"
+            }
+            ExportFormat::Landxml => "Control points in MGA",
+            ExportFormat::Dynaml => "Stations and measurements as adjusted, for DynAdjust",
+            ExportFormat::Starnet => "GPS vectors, for STAR*NET",
+        }
+    }
+}
+
+/// An exported file: its usual name and its contents.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExportFile {
+    /// Its name, such as "results.gpkg".
+    pub name: String,
+    /// Its contents.
+    pub bytes: Vec<u8>,
+}
+
+/// The run's results in a format, as one or two files. `ellipse_scale` is
+/// how many times their true size a GeoPackage draws error ellipses, and
+/// `now` the time to record in the file, in ISO 8601 UTC
+/// (`2026-10-20T08:00:00.000Z`).
+pub fn export(
+    run: &Run,
+    format: ExportFormat,
+    ellipse_scale: f64,
+    now: &str,
+) -> Result<Vec<ExportFile>, ProjectError> {
+    let results = Results {
+        built: &run.built,
+        adjustment: &run.adjustment,
+        scaling: run.scaling,
+    };
+    let file = |name: &str, bytes: Vec<u8>| ExportFile {
+        name: name.to_owned(),
+        bytes,
+    };
+    Ok(match format {
+        ExportFormat::Gpkg => vec![file(
+            "results.gpkg",
+            export::geopackage(&results, ellipse_scale, now)?,
+        )],
+        ExportFormat::Csv => vec![
+            file("marks.csv", export::marks_csv(&results)?.into_bytes()),
+            file(
+                "observations.csv",
+                export::observations_csv(&results).into_bytes(),
+            ),
+        ],
+        ExportFormat::Landxml => {
+            let (date, time) = now.split_once('T').unwrap_or((now, ""));
+            let time = time.get(..8).unwrap_or(time);
+            vec![file(
+                "control.xml",
+                export::landxml(&results, date, time)?.into_bytes(),
+            )]
+        }
+        ExportFormat::Dynaml => {
+            let (stations, measurements) = export::dynaml(&results)?;
+            vec![
+                file("adjusted-stn.xml", stations.into_bytes()),
+                file("adjusted-msr.xml", measurements.into_bytes()),
+            ]
+        }
+        ExportFormat::Starnet => vec![file(
+            "adjusted.gps",
+            export::starnet(&results)?.into_bytes(),
+        )],
+    })
 }

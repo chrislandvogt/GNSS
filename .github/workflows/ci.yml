@@ -207,7 +207,7 @@ jobs:
         run: BROWSER=firefox npm run test:e2e -- ../../../engine-modules/rtklib-ex/dist/testdata
       - name: End-to-end engine test in WebKit
         run: BROWSER=webkit npm run test:e2e -- ../../../engine-modules/rtklib-ex/dist/testdata
-      - name: End-to-end app test in Chromium (storage, hashing, offline)
+      - name: End-to-end app test in Chromium (adjustment, report, downloads, storage, offline)
         run: npm run test:app
       - name: Upload the deployable site
         uses: actions/upload-artifact@v6

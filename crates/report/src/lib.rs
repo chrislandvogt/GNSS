@@ -661,6 +661,40 @@ mod tests {
         );
     }
 
+    /// The web app shows reports in the page under a Content Security Policy
+    /// that allows only its own styles, so it names this style by its hash.
+    #[test]
+    fn the_web_apps_security_policy_allows_the_style() {
+        use sha2::Digest;
+        const HEADERS: &str = include_str!("../../../apps/web/ui/public/_headers");
+        let digest = sha2::Sha256::digest(STYLE.as_bytes());
+        let source = format!("'sha256-{}'", base64(&digest));
+        assert!(
+            HEADERS.contains(&source),
+            "the report's style changed: in apps/web/ui/public/_headers, style-src needs {source}"
+        );
+    }
+
+    fn base64(bytes: &[u8]) -> String {
+        const ALPHABET: &[u8; 64] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let n = chunk
+                .iter()
+                .enumerate()
+                .fold(0u32, |n, (i, &b)| n | u32::from(b) << (16 - 8 * i));
+            for i in 0..4 {
+                if i <= chunk.len() {
+                    out.push(char::from(ALPHABET[(n >> (18 - 6 * i) & 63) as usize]));
+                } else {
+                    out.push('=');
+                }
+            }
+        }
+        out
+    }
+
     #[test]
     fn escapes_html() {
         assert_eq!(

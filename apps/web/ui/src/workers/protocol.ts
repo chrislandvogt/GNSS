@@ -6,12 +6,87 @@ export interface CoreInfo {
   build: string
 }
 
+// The shapes below mirror the core's types (apps/web/core and
+// gnss_api::project) until types are generated from Rust (ARCHITECTURE.md
+// section 8).
+
+/** What the page offers: frames, import formats and export formats. */
+export interface Catalogue {
+  frames: { name: string; static: boolean }[]
+  formats: { name: string; label: string; states_frame: boolean }[]
+  exports: { name: string; label: string; description: string }[]
+}
+
+/** A file loaded into the core, with the format it looks like. */
+export interface LoadedFile {
+  name: string
+  bytes: number
+  sha256: string
+  format: string | null
+}
+
+/** A project, in project.toml's shape. Imports name loaded files as raw/<name>. */
+export interface ProjectSpec {
+  schema: 1
+  name: string
+  adjustment: {
+    frame: string
+    epoch?: number
+    datum: 'constrained' | 'minimal'
+    uncertainty: 'a-priori' | 'a-posteriori'
+  }
+  import: { file: string; format: string; frame?: string; epoch?: string; base?: string; rover?: string }[]
+  edit: { observation: string; action: 'exclude'; reason: string }[]
+}
+
+export interface Suspect {
+  observation: string
+  element: number
+  label: string
+  test: string
+  statistic: number
+  critical: number
+  excess: number
+}
+
+export interface Summary {
+  name: string
+  frame: string
+  epoch: number | null
+  marks: number
+  observations: number
+  degrees_of_freedom: number
+  variance_factor: number | null
+  global_test: { statistic: number; lower: number; upper: number; passed: boolean } | null
+  suspects: Suspect[]
+  loops: [number, number] | null
+  notes: string[]
+  passed: boolean
+}
+
+export interface Adjusted {
+  summary: Summary
+  /** The HTML report, one self-contained page. */
+  report: string
+}
+
+export interface ExportedFile {
+  name: string
+  data: ArrayBuffer
+}
+
 export type CoreRequest =
   | { id: number; type: 'info' }
   | { id: number; type: 'hash'; data: ArrayBuffer }
+  | { id: number; type: 'catalogue' }
+  | { id: number; type: 'add-file'; name: string; data: ArrayBuffer }
+  | { id: number; type: 'remove-file'; name: string }
+  | { id: number; type: 'adjust'; project: ProjectSpec; generated: string }
+  | { id: number; type: 'export'; format: string; ellipseScale: number; now: string }
+  | { id: number; type: 'project-toml'; project: ProjectSpec }
 
 export type CoreResponse =
-  | { id: number; ok: true; result: CoreInfo | string }
+  | { id: number; ok: true; result: unknown }
   | { id: number; ok: false; error: string }
 
 /** An input file for an engine run, either inline or fetched by URL. */

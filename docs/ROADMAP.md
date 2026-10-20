@@ -221,7 +221,7 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 - [x] CLI commands: `init`, `import`, `adjust`, `report`, `export`, and `exclude` for the outlier workflow.
   - [x] A `--json` output mode.
   - [x] A non-zero exit code when statistical tests fail, so the CLI can be used in scripts and CI.
-- [ ] A minimal web page: load vectors and control, run the adjustment and view the report, all in the browser. It builds on the M0 web skeleton; the full app comes in M11.
+- [x] A minimal web page: load vectors and control, run the adjustment and view the report, all in the browser. It builds on the M0 web skeleton; the full app comes in M11.
 - [x] Check that GeoPackage export works in the browser. The writer writes the SQLite file format itself (D-026), so it needs no SQLite build, and the export tests run in headless Chromium.
 - [x] HTML report v0:
   - [x] Network summary, statistics and outlier table.

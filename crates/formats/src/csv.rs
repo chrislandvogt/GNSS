@@ -3,7 +3,7 @@
 //! spaces, underscores and units in brackets (`dX (m)` is `dx`). Lines
 //! starting with `#` are comments. Commas separate fields, or semicolons or
 //! tabs if the heading uses them instead. The formats are documented, with
-//! examples, in `docs/user-guide/formats.md`.
+//! examples, in `docs/user/formats.md`.
 //!
 //! **Vectors**, one per row:
 //!
@@ -52,6 +52,20 @@ fn key(heading: &str) -> String {
         .filter(char::is_ascii_alphanumeric)
         .flat_map(|c| c.to_lowercase())
         .collect()
+}
+
+/// Whether a CSV file's heading has vector columns (`dx`), so a front end can
+/// tell the vector format from the control format before reading it.
+pub fn has_vector_columns(text: &str) -> bool {
+    text.lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !l.starts_with('#'))
+        .is_some_and(|heading| {
+            heading
+                .split([',', ';', '\t'])
+                .map(key)
+                .any(|k| k == "dx" || k == "deltax")
+        })
 }
 
 /// A CSV file's rows, with the column each name is in.

@@ -104,6 +104,17 @@ The first three synthetic networks are in place (`crates/adjust/tests/dynadjust.
 
 The degrees of freedom match exactly, and the global test's bounds to 1e-9.
 
+**DynAdjust's own sample network**, end to end (`crates/api/tests/dynaml.rs`, made by `tests/oracle/dynadjust_sample.py`): 43 marks, 129 ITRF2008 baselines and an ITRF2014 baseline cluster, adjusted in GDA2020 on 6 weighted control marks. It goes through the whole second-opinion path: reading DynaML, transforming the vectors to GDA2020 as DynAdjust's dnareftran does, building the network and adjusting it. Against DynAdjust 1.4.1:
+
+| Check | Agreement |
+|---|---|
+| Vectors transformed to GDA2020 | 0.5 µm |
+| Adjusted coordinates | 0.7 µm |
+| N-statistics | 1.2e-4 |
+| χ² (336.64 on 288 degrees of freedom) and flagged components | The same, and the same 10 components |
+
+The same network, written out as DynaML, as STAR*NET with CSV control, and as CSV, reads back to bit-identical adjustments. Its exports and report are pinned by a hash (`crates/api/tests/project.rs`), checked natively and in headless Chromium, so the web page's downloads are byte for byte the CLI's.
+
 Two things in DynAdjust need allowing for:
 - **Free stations get a weak a priori constraint**, 10 m by default. The oracle sets it to 1 km, where it changes nothing at this precision.
 - **Fixed stations are held only to 1 µm.** In the network with a fixed mark, the control moves the whole network by about 0.3 µm in DynAdjust, which accounts for that network's larger differences.

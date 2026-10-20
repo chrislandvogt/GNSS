@@ -1,8 +1,10 @@
 # Response headers for static hosts that support this file (Cloudflare Pages,
 # Netlify). See ARCHITECTURE.md sections 14.5 and 18. Hosts listed in packs
-# are added to connect-src as data fetching arrives (M7).
+# are added to connect-src as data fetching arrives (M7). The hash in
+# style-src allows the adjustment report's one inline style, so the page can
+# show the report as it's downloaded; the report crate's tests check it.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'sha256-Edh1qlzBYX8fMzQsZ4VBTVS+KKuy3u5KPOyWMt3qtQs='; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   Cross-Origin-Opener-Policy: same-origin

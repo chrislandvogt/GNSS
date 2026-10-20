@@ -436,6 +436,7 @@ dependencies = [
  "gnss-adjust",
  "gnss-datum",
  "libm",
+ "sha2",
  "wasm-bindgen-test",
 ]
 
@@ -456,6 +457,10 @@ name = "gnss-web-core"
 version = "0.0.0"
 dependencies = [
  "gnss-api",
+ "gnss-datum",
+ "js-sys",
+ "serde",
+ "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-test",
 ]

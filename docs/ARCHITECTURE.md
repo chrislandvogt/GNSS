@@ -792,11 +792,12 @@ flowchart LR
   | Datum | Step-by-step transformation working |
   | Report | Preview |
 
+- **M3's page** is a single page for the second-opinion adjustment: files in, settings, adjust, suspects with exclusions and reasons, the report and the downloads. The core worker keeps the loaded files and the last adjustment, so exports don't adjust again. The views above arrive with the full app (M11).
 - **Basemaps.** Providers are user-configurable, including ArcGIS basemap services with the user's own key. The app ships a small low-zoom world basemap as PMTiles, and supports offline PMTiles files. In offline mode, no tiles are fetched. Defaults respect provider usage policies (no bulk use of openstreetmap.org tiles).
 - **State.** The UI holds view state only. Domain state lives in the core, is read through the API and is updated by events.
 - **Accessibility.** Keyboard-first operation, screen reader labels, and light, dark and high-contrast outdoor themes.
 - **Security.**
-  - A strict Content Security Policy: scripts only from the app's own origin, plus `wasm-unsafe-eval` so WebAssembly can run. No inline scripts, third-party scripts or CDNs.
+  - A strict Content Security Policy: scripts only from the app's own origin, plus `wasm-unsafe-eval` so WebAssembly can run. No inline scripts, third-party scripts or CDNs. Styles come only from the app's own origin, except the HTML report's one inline style, allowed by its SHA-256 hash so the page can show the report exactly as it's downloaded. The report is shown in a sandboxed frame and has no scripts.
   - Network requests go only to hosts declared in packs or added by the user, enforced in the fetch layer.
   - Untrusted files are parsed in WebAssembly inside workers, so a parser bug is contained by both WebAssembly and the browser's sandbox.
 
