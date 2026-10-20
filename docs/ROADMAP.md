@@ -156,9 +156,9 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
   - [x] GNSS baseline: a 3D vector with a 3×3 covariance.
   - [x] GNSS baseline cluster: n vectors with a full 3n×3n covariance.
   - [x] Point cluster: positions with covariance, for CORS, AUSPOS or control constraints.
-- [ ] Stochastic model:
+- [x] Stochastic model:
   - [x] Input covariances, an a priori variance factor, and group scale factors.
-  - [ ] Centring and height-measurement errors as occupation-level nuisance parameters with priors, so vectors that share a set-up are correctly correlated.
+  - [x] Centring and height-measurement errors as occupation-level nuisance parameters with priors, so vectors that share a set-up are correctly correlated.
 - [x] Datum definition:
   - [x] Minimally constrained, by fixing one station or using inner constraints.
   - [x] Constrained, with fixed or weighted control.

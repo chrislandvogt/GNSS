@@ -190,7 +190,9 @@ fn dynaml(oracle: &Oracle) -> (String, String) {
         let c = &o.covariance;
         for (p, element) in o.elements.iter().enumerate() {
             let (value, tag, covariance_tag) = match *element {
-                Element::Difference { from, to, vector } => {
+                Element::Difference {
+                    from, to, vector, ..
+                } => {
                     writeln!(
                         measurements,
                         "    <First>{}</First>\n    <Second>{}</Second>",
@@ -200,7 +202,7 @@ fn dynaml(oracle: &Oracle) -> (String, String) {
                     .unwrap();
                     (vector, "GPSBaseline", "GPSCovariance")
                 }
-                Element::Position { mark, position } => {
+                Element::Position { mark, position, .. } => {
                     writeln!(
                         measurements,
                         "    <First>{}</First>",

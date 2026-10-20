@@ -84,6 +84,9 @@ The first generator is in place (`gnss_adjust::synthetic`, M2). It scatters mark
 | A good baseline excluded, over 10,000 draws each for four baselines | Mean misclosure test 2.98 to 3.02, ± 0.025 (3 expected) |
 | The same, against its vector test with it in | Equal to 1e-7 relative, the rounding of ECEF coordinates |
 | A 10 cm blunder | First among the suspects; excluded, its misclosure shows the 10 cm and fails, and the global test then passes |
+| Set-ups against the dense adjustment, in each datum | Errors within 1e-9 m; their priors' tests within 1e-7 relative |
+| A network with 88 set-ups, their errors drawn from their priors, over 1,000 draws | σ̂₀² 1.0009 ± 0.0042; 184 false alarms in 189,000 vector w-tests and 264 in 264,000 prior w-tests (189 and 264 expected); loop statistics 3.020 ± 0.025 |
+| A set-up's height wrong by three of its MDBs | The set-up's prior is first among the suspects, with the error estimated upward |
 
 ### D4 Oracle networks (adjustment)
 

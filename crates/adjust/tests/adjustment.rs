@@ -22,9 +22,10 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 const CONSTRAINED: Datum = Datum::Constrained { fixed: Vec::new() };
 
-/// A textbook adjustment with dense matrices: x = Qₓ AᵀPl over every mark,
-/// with Qₓ the inverse of the normal matrix without the fixed marks' columns,
-/// or for inner constraints its pseudo-inverse.
+/// A textbook adjustment with dense matrices: x = Qₓ AᵀPl over every mark
+/// and set-up, with each set-up's prior as three more rows, and Qₓ the
+/// inverse of the normal matrix without the fixed marks' columns, or for
+/// inner constraints its pseudo-inverse.
 struct Dense {
     positions: Vec<Vector3<f64>>,
     cofactors: Vec<Matrix3<f64>>,
@@ -39,7 +40,27 @@ struct Dense {
     vector_test: Vec<Option<f64>>,
     /// By element: vₖ/√Qᵥᵥ,ₖₖ in ECEF.
     standardised: Vec<[Option<f64>; 3]>,
+    /// By set-up: its error, and its prior's w, MDB, redundancy, shift and
+    /// vector test.
+    setups: Vec<DenseSetup>,
     sum_of_squares: f64,
+}
+
+struct DenseSetup {
+    error: Vector3<f64>,
+    w: [Option<f64>; 3],
+    mdb: [Option<f64>; 3],
+    redundancy: [f64; 3],
+    shift: [Option<f64>; 3],
+    vector_test: Option<f64>,
+}
+
+/// The local axes at a mark's approximate position.
+fn axes_at(network: &Network, mark: usize) -> Matrix3<f64> {
+    GRS80
+        .ecef_to_geodetic(&network.marks()[mark].approximate.unwrap())
+        .unwrap()
+        .enu_rotation()
 }
 
 fn dense(network: &Network, datum: &Datum, lambda0: f64) -> Dense {
@@ -54,47 +75,81 @@ fn dense(network: &Network, datum: &Datum, lambda0: f64) -> Dense {
         .iter()
         .flat_map(|o| o.elements.iter().copied())
         .collect();
-    let rows = 3 * elements.len();
-    let mut a = DMatrix::zeros(rows, 3 * marks);
+    let setups = network.setups().len();
+    let nodes = marks + setups;
+    let rows = 3 * (elements.len() + setups);
+    let mut a = DMatrix::zeros(rows, 3 * nodes);
     let mut l = DVector::zeros(rows);
     let mut q = DMatrix::zeros(rows, rows);
     let mut owner = Vec::new();
     let mut row = 0;
+    let identity = Matrix3::<f64>::identity();
     for (index, o) in network.observations().iter().enumerate() {
         let n = 3 * o.elements.len();
         q.view_mut((row, row), (n, n)).copy_from(&o.covariance);
         for element in &o.elements {
-            match *element {
-                Element::Difference { from, to, vector } => {
-                    a.view_mut((row, 3 * from), (3, 3))
-                        .copy_from(&-Matrix3::identity());
-                    a.view_mut((row, 3 * to), (3, 3))
-                        .copy_from(&Matrix3::identity());
+            let ends = match *element {
+                Element::Difference {
+                    from,
+                    to,
+                    vector,
+                    setups,
+                } => {
+                    a.view_mut((row, 3 * from), (3, 3)).copy_from(&-identity);
+                    a.view_mut((row, 3 * to), (3, 3)).copy_from(&identity);
                     l.rows_mut(row, 3)
                         .copy_from(&(vector - (x0[to] - x0[from])));
+                    [(setups[0], -1.0), (setups[1], 1.0)]
                 }
-                Element::Position { mark, position } => {
-                    a.view_mut((row, 3 * mark), (3, 3))
-                        .copy_from(&Matrix3::identity());
+                Element::Position {
+                    mark,
+                    position,
+                    setup,
+                } => {
+                    a.view_mut((row, 3 * mark), (3, 3)).copy_from(&identity);
                     l.rows_mut(row, 3).copy_from(&(position - x0[mark]));
+                    [(setup, 1.0), (None, 0.0)]
+                }
+            };
+            for (setup, sign) in ends {
+                if let Some(s) = setup {
+                    a.view_mut((row, 3 * (marks + s)), (3, 3))
+                        .copy_from(&(identity * sign));
                 }
             }
             owner.push(index);
             row += 3;
         }
     }
+    // The priors: each set-up's error is zero, with its covariance.
+    for (s, setup) in network.setups().iter().enumerate() {
+        let r = axes_at(network, setup.mark);
+        let (h, v) = (setup.sigma_horizontal, setup.sigma_vertical);
+        let prior = r.transpose() * Matrix3::from_diagonal(&Vector3::new(h * h, h * h, v * v)) * r;
+        q.view_mut((row, row), (3, 3)).copy_from(&prior);
+        a.view_mut((row, 3 * (marks + s)), (3, 3))
+            .copy_from(&identity);
+        row += 3;
+    }
     let p = q.clone().try_inverse().unwrap();
     let normal = a.transpose() * &p * &a;
     let qx = match datum {
         Datum::Inner => {
-            let g = DMatrix::from_fn(3 * marks, 3, |r, c| if r % 3 == c { 1.0 } else { 0.0 });
+            // Translation moves the marks, not the set-up errors.
+            let g = DMatrix::from_fn(3 * nodes, 3, |r, c| {
+                if r < 3 * marks && r % 3 == c {
+                    1.0
+                } else {
+                    0.0
+                }
+            });
             let ggt = &g * g.transpose();
             (normal + &ggt).try_inverse().unwrap() - ggt / (marks * marks) as f64
         }
         Datum::FixedMark(f) => reduced_inverse(&normal, &[*f]),
         Datum::Constrained { fixed } => reduced_inverse(&normal, fixed),
     };
-    let x = &qx * a.transpose() * &p * &l;
+    let x = &qx * (a.transpose() * (&p * &l));
     let v = &a * &x - &l;
     let qvv = &q - &a * &qx * a.transpose();
     let m = &p * &qvv * &p;
@@ -116,27 +171,22 @@ fn dense(network: &Network, datum: &Datum, lambda0: f64) -> Dense {
         shift: Vec::new(),
         vector_test: Vec::new(),
         standardised: Vec::new(),
+        setups: Vec::new(),
         sum_of_squares: v.dot(&pv),
     };
-    for (e, element) in elements.iter().enumerate() {
-        let at = GRS80.ecef_to_geodetic(&x0[element.first_mark()]).unwrap();
-        let axes = at.enu_rotation();
-        let own: Vec<usize> = network.observations()[owner[e]]
-            .elements
-            .iter()
-            .flat_map(|el| match *el {
-                Element::Difference { from, to, .. } => vec![from, to],
-                Element::Position { mark, .. } => vec![mark],
-            })
-            .collect();
+    // A row block's tests along each local axis: w, MDB, redundancy, and
+    // the largest shift of `own` marks.
+    let tests = |block: usize, axes: &Matrix3<f64>, own: &[usize]| {
         let mut w = [None; 3];
         let mut mdb = [None; 3];
         let mut red = [0.0; 3];
         let mut shift = [None; 3];
+        let rp: Matrix3<f64> = redundancy
+            .fixed_view::<3, 3>(3 * block, 3 * block)
+            .into_owned();
         for k in 0..3 {
             let mut c = DVector::zeros(rows);
-            c.rows_mut(3 * e, 3).copy_from(&axes.row(k).transpose());
-            let rp: Matrix3<f64> = redundancy.fixed_view::<3, 3>(3 * e, 3 * e).into_owned();
+            c.rows_mut(3 * block, 3).copy_from(&axes.row(k).transpose());
             red[k] = (axes * rp * axes.transpose())[(k, k)];
             let cmc = c.dot(&(&m * &c));
             // Not checked by the other observations: a bridge or a spur.
@@ -146,15 +196,45 @@ fn dense(network: &Network, datum: &Datum, lambda0: f64) -> Dense {
             w[k] = Some(c.dot(&pv) / libm::sqrt(cmc));
             let bias = libm::sqrt(lambda0 / cmc);
             mdb[k] = Some(bias);
-            let moved = &qx * a.transpose() * &p * &c * bias;
+            let moved = &qx * (a.transpose() * (&p * &c)) * bias;
             shift[k] = Some(
                 own.iter()
                     .map(|&o| Vector3::from_fn(|i, _| moved[3 * o + i]).norm())
                     .fold(0.0, f64::max),
             );
         }
-        let m_ee: Matrix3<f64> = m.fixed_view::<3, 3>(3 * e, 3 * e).into_owned();
-        let pv_e: Vector3<f64> = pv.fixed_rows::<3>(3 * e).into_owned();
+        let m_ee: Matrix3<f64> = m.fixed_view::<3, 3>(3 * block, 3 * block).into_owned();
+        let pv_e: Vector3<f64> = pv.fixed_rows::<3>(3 * block).into_owned();
+        let vector_test = w
+            .iter()
+            .all(Option::is_some)
+            .then(|| pv_e.dot(&(m_ee.try_inverse().unwrap() * pv_e)));
+        (w, mdb, red, shift, vector_test)
+    };
+    for (s, setup) in network.setups().iter().enumerate() {
+        let block = elements.len() + s;
+        let (w, mdb, redundancy, shift, vector_test) =
+            tests(block, &axes_at(network, setup.mark), &[setup.mark]);
+        result.setups.push(DenseSetup {
+            error: Vector3::from_fn(|i, _| x[3 * (marks + s) + i]),
+            w,
+            mdb,
+            redundancy,
+            shift,
+            vector_test,
+        });
+    }
+    for (e, element) in elements.iter().enumerate() {
+        let own: Vec<usize> = network.observations()[owner[e]]
+            .elements
+            .iter()
+            .flat_map(|el| match *el {
+                Element::Difference { from, to, .. } => vec![from, to],
+                Element::Position { mark, .. } => vec![mark],
+            })
+            .collect();
+        let (w, mdb, red, shift, vector_test) =
+            tests(e, &axes_at(network, element.first_mark()), &own);
         result.residuals.push(v.fixed_rows::<3>(3 * e).into_owned());
         result.standardised.push(std::array::from_fn(|k| {
             let i = 3 * e + k;
@@ -164,11 +244,7 @@ fn dense(network: &Network, datum: &Datum, lambda0: f64) -> Dense {
         result.mdb.push(mdb);
         result.redundancy.push(red);
         result.shift.push(shift);
-        result.vector_test.push(
-            w.iter()
-                .all(Option::is_some)
-                .then(|| pv_e.dot(&(m_ee.try_inverse().unwrap() * pv_e))),
-        );
+        result.vector_test.push(vector_test);
     }
     result
 }
@@ -256,6 +332,17 @@ fn compare(adjustment: &Adjustment, dense: &Dense) {
             close_option(*s, dense.standardised[e][k], 1e-7);
         }
     }
+    assert_eq!(adjustment.setups().len(), dense.setups.len());
+    for (ours, theirs) in adjustment.setups().iter().zip(&dense.setups) {
+        assert!((ours.error - theirs.error).norm() < 1e-9, "{ours:?}");
+        for (k, c) in ours.components.iter().enumerate() {
+            close_option(c.w, theirs.w[k], 1e-7);
+            close_option(c.mdb, theirs.mdb[k], 1e-7);
+            close(c.redundancy, theirs.redundancy[k], 1e-7);
+            close_option(c.shift, theirs.shift[k], 1e-7);
+        }
+        close_option(ours.vector_test, theirs.vector_test, 1e-7);
+    }
 }
 
 fn clustered(control: usize) -> Synthetic {
@@ -270,16 +357,36 @@ fn clustered(control: usize) -> Synthetic {
     .unwrap()
 }
 
+/// A smaller one with every occupation a set-up: 2 mm centring, 3 mm height.
+fn with_setups(control: usize) -> Synthetic {
+    Synthetic::generate(&Spec {
+        marks: 10,
+        neighbours: 3,
+        cluster: 3,
+        control,
+        setups: Some((0.002, 0.003)),
+        seed: 7,
+        ..Spec::default()
+    })
+    .unwrap()
+}
+
 #[test]
 fn matches_a_dense_adjustment_in_every_datum() {
     let options = Options::default();
     let with_control = clustered(3).observe(1);
     let without = clustered(0).observe(1);
+    let setups_with_control = with_setups(3).observe(1);
+    let setups_without = with_setups(0).observe(1);
     for (network, datum) in [
         (&with_control, CONSTRAINED),
         (&with_control, Datum::Constrained { fixed: vec![4] }),
         (&without, Datum::FixedMark(5)),
         (&without, Datum::Inner),
+        (&setups_with_control, CONSTRAINED),
+        (&setups_with_control, Datum::Constrained { fixed: vec![4] }),
+        (&setups_without, Datum::FixedMark(5)),
+        (&setups_without, Datum::Inner),
     ] {
         let adjustment = network.adjust(&datum, &options).unwrap();
         compare(

@@ -39,6 +39,7 @@ pub struct Adjustment {
     observations: Vec<ObservationResult>,
     statistics: Statistics,
     criteria: Criteria,
+    setups: Vec<SetupResult>,
     a_priori: f64,
     edits: Vec<Edit>,
     solution: Solution,
@@ -73,17 +74,49 @@ pub struct ObservationResult {
     pub scale: f64,
 }
 
+/// The results for one set-up: its estimated centring and height errors,
+/// and the tests of its prior.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetupResult {
+    /// The mark occupied.
+    pub mark: usize,
+    /// The estimated error, in ECEF metres, which every vector measured from
+    /// the set-up shares.
+    pub error: Vector3<f64>,
+    /// East, north and up, on the mark's local axes: the error as the
+    /// residual of the prior that it's zero, and that prior's tests, which
+    /// flag a misread height or an antenna off its mark.
+    pub components: [ComponentResult; 3],
+    /// The test of the whole error against its prior, with 3 degrees of
+    /// freedom.
+    pub vector_test: Option<f64>,
+    /// The prior's share of the weighted sum of squares.
+    pub sum_of_squares: f64,
+}
+
+/// What a failed test is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Subject {
+    /// An element of an observation.
+    Element {
+        /// The observation.
+        observation: usize,
+        /// The element.
+        element: usize,
+    },
+    /// A set-up's prior.
+    Setup(usize),
+}
+
 /// A failed test, for a person to judge (ARCHITECTURE.md section 10.5).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Suspect {
-    /// The observation.
-    pub observation: usize,
-    /// The element of the observation.
-    pub element: usize,
+    /// What failed.
+    pub subject: Subject,
     /// The local component (0 east, 1 north, 2 up) whose w-test failed, or
-    /// `None` for the element's vector test.
+    /// `None` for the vector test.
     pub component: Option<usize>,
-    /// The test statistic: w for a component, T for an element.
+    /// The test statistic: w for a component, T for the whole.
     pub statistic: f64,
     /// How far the test failed, on a scale that grows in proportion to the
     /// bias: |w| over its critical value, or √(T over its critical value).
@@ -198,6 +231,11 @@ impl Adjustment {
         &self.observations
     }
 
+    /// The results for each set-up, in the network's order.
+    pub fn setups(&self) -> &[SetupResult] {
+        &self.setups
+    }
+
     /// The overall statistics.
     pub fn statistics(&self) -> &Statistics {
         &self.statistics
@@ -218,39 +256,46 @@ impl Adjustment {
     /// it is a person's [`Edit`].
     pub fn suspects(&self) -> Vec<Suspect> {
         let mut suspects = Vec::new();
-        for (o, result) in self.observations.iter().enumerate().filter(|(_, r)| r.used) {
-            for (e, element) in result.elements.iter().enumerate() {
-                for (k, c) in element.components.iter().enumerate() {
-                    if let Some(w) = c.w
-                        && w.abs() > self.criteria.w
-                    {
-                        suspects.push(Suspect {
-                            observation: o,
-                            element: e,
-                            component: Some(k),
-                            statistic: w,
-                            excess: w.abs() / self.criteria.w,
-                        });
-                    }
-                }
-                if let Some(t) = element.vector_test
-                    && t > self.criteria.vector
+        let mut add = |subject: Subject, components: &[ComponentResult; 3], test: Option<f64>| {
+            for (k, c) in components.iter().enumerate() {
+                if let Some(w) = c.w
+                    && w.abs() > self.criteria.w
                 {
                     suspects.push(Suspect {
-                        observation: o,
-                        element: e,
-                        component: None,
-                        statistic: t,
-                        excess: libm::sqrt(t / self.criteria.vector),
+                        subject,
+                        component: Some(k),
+                        statistic: w,
+                        excess: w.abs() / self.criteria.w,
                     });
                 }
             }
+            if let Some(t) = test
+                && t > self.criteria.vector
+            {
+                suspects.push(Suspect {
+                    subject,
+                    component: None,
+                    statistic: t,
+                    excess: libm::sqrt(t / self.criteria.vector),
+                });
+            }
+        };
+        for (observation, result) in self.observations.iter().enumerate().filter(|(_, r)| r.used) {
+            for (element, e) in result.elements.iter().enumerate() {
+                let subject = Subject::Element {
+                    observation,
+                    element,
+                };
+                add(subject, &e.components, e.vector_test);
+            }
+        }
+        for (s, setup) in self.setups.iter().enumerate() {
+            add(Subject::Setup(s), &setup.components, setup.vector_test);
         }
         suspects.sort_by(|a, b| {
             b.excess
                 .total_cmp(&a.excess)
-                .then(a.observation.cmp(&b.observation))
-                .then(a.element.cmp(&b.element))
+                .then(a.subject.cmp(&b.subject))
                 .then(a.component.cmp(&b.component))
         });
         suspects
@@ -326,11 +371,17 @@ impl Adjustment {
             .iter()
             .enumerate()
             .map(|(p, element)| {
+                let marks = self.marks.len();
                 let mut adjusted = Vector3::zeros();
-                let mut aqa = Block::zeros();
                 for (a, sa) in element.terms() {
                     adjusted += self.marks[a].position * sa;
-                    for (b, sb) in element.terms() {
+                }
+                for (setup, sign) in element.setup_terms() {
+                    adjusted += self.setups[setup].error * sign;
+                }
+                let mut aqa = Block::zeros();
+                for (a, sa) in element.nodes(marks) {
+                    for (b, sb) in element.nodes(marks) {
                         aqa += self.solution.datum_any(a, b) * (sa * sb);
                     }
                 }
@@ -480,12 +531,26 @@ impl Network {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        // A block of unknowns per mark not held.
+        // Each set-up's prior: its centring and height errors on its mark's
+        // local axes, in ECEF.
         let marks = self.marks().len();
-        let free: Vec<usize> = (0..marks).filter(|&m| !held[m]).collect();
-        let mut unknown = vec![None; marks];
-        for (u, &m) in free.iter().enumerate() {
-            unknown[m] = Some(u);
+        let priors: Vec<Block> = self
+            .setups()
+            .iter()
+            .map(|setup| {
+                let (h, v) = (setup.sigma_horizontal, setup.sigma_vertical);
+                let enu = Block::from_diagonal(&Vector3::new(h * h, h * h, v * v));
+                axes[setup.mark].transpose() * enu * axes[setup.mark]
+            })
+            .collect();
+
+        // A block of unknowns per mark not held, then one per set-up: the
+        // nodes, numbered with the set-ups after the marks.
+        let nodes = marks + priors.len();
+        let free: Vec<usize> = (0..nodes).filter(|&n| n >= marks || !held[n]).collect();
+        let mut unknown = vec![None; nodes];
+        for (u, &n) in free.iter().enumerate() {
+            unknown[n] = Some(u);
         }
 
         let misclosures: Vec<DVector<f64>> = self
@@ -498,15 +563,15 @@ impl Network {
         for ((o, w), l) in self.observations().iter().zip(&weights).zip(&misclosures) {
             let pl = &w.weight * l;
             for (p, ep) in o.elements.iter().enumerate() {
-                for (a, sa) in ep.terms() {
+                for (a, sa) in ep.nodes(marks) {
                     if let Some(ua) = unknown[a] {
                         rhs[ua] += pl.fixed_rows::<3>(3 * p) * sa;
                     }
                 }
                 for (q, eq) in o.elements.iter().enumerate() {
                     let block: Block = w.weight.fixed_view::<3, 3>(3 * p, 3 * q).into_owned();
-                    for (a, sa) in ep.terms() {
-                        for (b, sb) in eq.terms() {
+                    for (a, sa) in ep.nodes(marks) {
+                        for (b, sb) in eq.nodes(marks) {
                             let (Some(ua), Some(ub)) = (unknown[a], unknown[b]) else {
                                 continue;
                             };
@@ -523,8 +588,28 @@ impl Network {
             }
         }
 
-        let factor = normal.factorise().map_err(|s| AdjustError::Singular {
-            name: self.name(free[s.index]),
+        // The priors: pseudo-observations that each set-up's error is zero.
+        let prior_weights: Vec<Block> = priors
+            .iter()
+            .map(|prior| spd_inverse(prior).unwrap_or_else(Block::zeros))
+            .collect();
+        for (s, weight) in prior_weights.iter().enumerate() {
+            if let Some(u) = unknown[marks + s] {
+                normal.add_diagonal(u, weight);
+            }
+        }
+
+        let factor = normal.factorise().map_err(|s| {
+            let node = free[s.index];
+            AdjustError::Singular {
+                name: match node.checked_sub(marks) {
+                    Some(setup) => format!(
+                        "{} (its set-up {setup})",
+                        self.name(self.setups()[setup].mark)
+                    ),
+                    None => self.name(node),
+                },
+            }
         })?;
         let solution = factor.solve(&rhs);
         let inverse = factor.selected_inverse();
@@ -534,22 +619,28 @@ impl Network {
             .collect();
 
         let inner = if *datum == Datum::Inner {
-            // R = Q̃G, with G = [I I … I]ᵀ: three solves.
+            // R = Q̃G, with G an identity block for each mark and zero for
+            // each set-up, whose errors don't move with the network: three
+            // solves.
             let columns: Vec<Vec<Vector3<f64>>> = (0..3)
                 .map(|c| {
                     let mut e = Vector3::zeros();
                     e[c] = 1.0;
-                    factor.solve(&vec![e; free.len()])
+                    let b: Vec<Vector3<f64>> = free
+                        .iter()
+                        .map(|&n| if n < marks { e } else { Vector3::zeros() })
+                        .collect();
+                    factor.solve(&b)
                 })
                 .collect();
-            let mut r = vec![Block::zeros(); marks];
-            for (u, &m) in free.iter().enumerate() {
-                r[m] = Block::from_columns(&[columns[0][u], columns[1][u], columns[2][u]]);
+            let mut r = vec![Block::zeros(); nodes];
+            for (u, &n) in free.iter().enumerate() {
+                r[n] = Block::from_columns(&[columns[0][u], columns[1][u], columns[2][u]]);
             }
-            let t: Block = r.iter().sum();
+            let t: Block = r[..marks].iter().sum();
             let count = marks as f64;
-            let mean = corrections.iter().sum::<Vector3<f64>>() / count;
-            for c in &mut corrections {
+            let mean = corrections[..marks].iter().sum::<Vector3<f64>>() / count;
+            for c in &mut corrections[..marks] {
                 *c -= mean;
             }
             Some(Inner { r, t, count })
@@ -558,6 +649,7 @@ impl Network {
         };
         let solution = Solution {
             unknown,
+            marks,
             factor,
             inverse,
             inner,
@@ -575,22 +667,32 @@ impl Network {
         // Statistics.
         let components: usize = self.observations().iter().map(|o| o.elements.len()).sum();
         // Never negative once the factorisation succeeds: N = AᵀPA is then
-        // positive definite, so A has at least as many rows as columns.
-        let degrees_of_freedom = (3 * components).saturating_sub(3 * free.len());
+        // positive definite, so A has at least as many rows as columns. Each
+        // set-up's prior adds as many rows as unknowns.
+        let free_marks = free.len() - priors.len();
+        let degrees_of_freedom = (3 * components).saturating_sub(3 * free_marks);
         let sigma0 = libm::sqrt(options.variance_factor);
         let residuals: Vec<DVector<f64>> = self
             .observations()
             .iter()
             .zip(&misclosures)
-            .map(|(o, l)| residual(o, l, &corrections))
+            .map(|(o, l)| residual(o, l, &corrections, marks))
             .collect();
-        // Ω over every observation first: the tau test needs σ̂₀.
+        // Ω over every observation and prior first: the tau test needs σ̂₀.
         let shares: Vec<f64> = residuals
             .iter()
             .zip(&weights)
             .map(|(v, w)| v.dot(&(&w.weight * v)))
             .collect();
-        let sum_of_squares: f64 = shares.iter().sum();
+        let prior_shares: Vec<f64> = prior_weights
+            .iter()
+            .enumerate()
+            .map(|(s, weight)| {
+                let error = corrections[marks + s];
+                error.dot(&(weight * error))
+            })
+            .collect();
+        let sum_of_squares: f64 = shares.iter().sum::<f64>() + prior_shares.iter().sum::<f64>();
         let variance_factor =
             (degrees_of_freedom > 0).then(|| sum_of_squares / degrees_of_freedom as f64);
         let sigma0_hat = variance_factor
@@ -639,6 +741,21 @@ impl Network {
                 ..context.observation(o, w, v, share)
             })
             .collect();
+        let setups = self
+            .setups()
+            .iter()
+            .enumerate()
+            .map(|(s, setup)| {
+                context.setup(
+                    setup.mark,
+                    marks + s,
+                    &corrections[marks + s],
+                    &priors[s],
+                    &prior_weights[s],
+                    prior_shares[s],
+                )
+            })
+            .collect();
 
         Ok(Adjustment {
             datum: datum.clone(),
@@ -651,6 +768,7 @@ impl Network {
                 global_test,
             },
             criteria,
+            setups,
             a_priori: options.variance_factor,
             edits: Vec::new(),
             solution,
@@ -738,12 +856,17 @@ fn misclosure(o: &Observation, approximate: &[Vector3<f64>]) -> DVector<f64> {
     l
 }
 
-/// Adjusted minus observed, v = A x̂ − l.
-fn residual(o: &Observation, l: &DVector<f64>, corrections: &[Vector3<f64>]) -> DVector<f64> {
+/// Adjusted minus observed, v = A x̂ − l, with the corrections by node.
+fn residual(
+    o: &Observation,
+    l: &DVector<f64>,
+    corrections: &[Vector3<f64>],
+    marks: usize,
+) -> DVector<f64> {
     let mut v = -l;
     for (p, element) in o.elements.iter().enumerate() {
         let mut rows = v.fixed_rows_mut::<3>(3 * p);
-        for (a, sa) in element.terms() {
+        for (a, sa) in element.nodes(marks) {
             rows += corrections[a] * sa;
         }
     }
@@ -759,12 +882,14 @@ struct Inner {
     count: f64,
 }
 
-/// What the adjustment keeps to give the cofactor matrix of the positions,
-/// Qₓ, for any pair of marks.
+/// What the adjustment keeps to give the cofactor matrix of the unknowns,
+/// Qₓ, for any pair of nodes: marks, then set-ups.
 #[derive(Debug, Clone, PartialEq)]
 struct Solution {
-    /// Each mark's block of unknowns, or `None` for a mark held fixed.
+    /// Each node's block of unknowns, or `None` for a mark held fixed.
     unknown: Vec<Option<usize>>,
+    /// The number of marks: nodes from here on are set-ups.
+    marks: usize,
     factor: Factor,
     inverse: SelectedInverse,
     inner: Option<Inner>,
@@ -813,11 +938,20 @@ impl Solution {
         Block::from_columns(&columns)
     }
 
-    /// A block with the held marks fixed, moved to the datum.
+    /// A block with the held marks fixed, moved to the datum:
+    /// Q̃ − (g_b R_a + g_a R_bᵀ)/m + g_a g_b T/m², where g is 1 for a mark and
+    /// 0 for a set-up.
     fn to_datum(&self, held: Block, a: usize, b: usize) -> Block {
-        match &self.inner {
-            None => held,
-            Some(s) => held - (s.r[a] + s.r[b].transpose()) / s.count + s.t / (s.count * s.count),
+        let Some(s) = &self.inner else {
+            return held;
+        };
+        match (a < self.marks, b < self.marks) {
+            (true, true) => {
+                held - (s.r[a] + s.r[b].transpose()) / s.count + s.t / (s.count * s.count)
+            }
+            (true, false) => held - s.r[b].transpose() / s.count,
+            (false, true) => held - s.r[a] / s.count,
+            (false, false) => held,
         }
     }
 }
@@ -840,14 +974,15 @@ impl Context<'_> {
         sum_of_squares: f64,
     ) -> ObservationResult {
         let n = o.elements.len();
+        let marks = self.solution.marks;
         // Qᵥᵥ = Q − AQₓAᵀ, from the solution holding marks, which gives the
         // same residuals whatever the datum.
         let mut aqa = DMatrix::zeros(3 * n, 3 * n);
         for (p, ep) in o.elements.iter().enumerate() {
             for (q, eq) in o.elements.iter().enumerate() {
                 let mut block = Block::zeros();
-                for (a, sa) in ep.terms() {
-                    for (b, sb) in eq.terms() {
+                for (a, sa) in ep.nodes(marks) {
+                    for (b, sb) in eq.nodes(marks) {
                         block += self.solution.held(a, b) * (sa * sb);
                     }
                 }
@@ -858,55 +993,33 @@ impl Context<'_> {
         let pv = &w.weight * v;
         let redundancy = &qvv * &w.weight;
         let m = &w.weight * &redundancy;
-        let mut marks: Vec<usize> = o
+        let mut nodes: Vec<usize> = o
             .elements
             .iter()
-            .flat_map(|e| e.terms().map(|(a, _)| a))
+            .flat_map(|e| e.nodes(marks).map(|(a, _)| a))
             .collect();
-        marks.sort_unstable();
-        marks.dedup();
+        nodes.sort_unstable();
+        nodes.dedup();
 
         let elements = o
             .elements
             .iter()
             .enumerate()
             .map(|(a, element)| {
-                let axes = self.solution.axes[element.first_mark()];
-                let m_aa: Block = m.fixed_view::<3, 3>(3 * a, 3 * a).into_owned();
-                let m_aa = (m_aa + m_aa.transpose()) * 0.5;
-                let m_enu = axes * m_aa * axes.transpose();
-                let p_enu = axes * w.weight.fixed_view::<3, 3>(3 * a, 3 * a) * axes.transpose();
-                let r_enu = axes * redundancy.fixed_view::<3, 3>(3 * a, 3 * a) * axes.transpose();
-                let pv_a: Vector3<f64> = pv.fixed_rows::<3>(3 * a).into_owned();
-                let pv_enu = axes * pv_a;
+                let block = |matrix: &DMatrix<f64>| -> Block {
+                    matrix.fixed_view::<3, 3>(3 * a, 3 * a).into_owned()
+                };
                 let v_a: Vector3<f64> = v.fixed_rows::<3>(3 * a).into_owned();
-                let v_enu = axes * v_a;
-                let components = std::array::from_fn(|k| {
-                    let mkk = m_enu[(k, k)];
-                    let testable = mkk > MIN_REDUNDANCY * p_enu[(k, k)];
-                    let spread = libm::sqrt(mkk);
-                    let mdb = testable.then(|| self.sigma0 * libm::sqrt(self.lambda0 / mkk));
-                    ComponentResult {
-                        residual: v_enu[k],
-                        redundancy: r_enu[(k, k)],
-                        w: testable.then(|| pv_enu[k] / (self.sigma0 * spread)),
-                        tau: self
-                            .sigma0_hat
-                            .filter(|_| testable)
-                            .map(|s| pv_enu[k] / (s * spread)),
-                        mdb,
-                        shift: mdb.map(|mdb| {
-                            let direction: Vector3<f64> = axes.row(k).transpose();
-                            self.shift(o, w, &marks, a, &direction) * mdb
-                        }),
-                    }
-                });
-                let vector_test = components
-                    .iter()
-                    .all(|c: &ComponentResult| c.w.is_some())
-                    .then(|| spd_inverse(&m_aa))
-                    .flatten()
-                    .map(|m_inverse| pv_a.dot(&(m_inverse * pv_a)) / (self.sigma0 * self.sigma0));
+                let pv_a: Vector3<f64> = pv.fixed_rows::<3>(3 * a).into_owned();
+                let (components, vector_test) = self.tests(
+                    &self.solution.axes[element.first_mark()],
+                    &v_a,
+                    &pv_a,
+                    &block(&m),
+                    &block(&w.weight),
+                    &block(&redundancy),
+                    |direction| self.shift(o, w, &nodes, a, direction),
+                );
                 let standardised = std::array::from_fn(|k| {
                     let i = 3 * a + k;
                     (qvv[(i, i)] > MIN_REDUNDANCY * w.cofactor[(i, i)])
@@ -928,31 +1041,114 @@ impl Context<'_> {
         }
     }
 
+    /// Tests and reliability for a set-up's prior: the pseudo-observation
+    /// that its error is zero, with covariance `prior`.
+    fn setup(
+        &self,
+        mark: usize,
+        node: usize,
+        error: &Vector3<f64>,
+        prior: &Block,
+        weight: &Block,
+        sum_of_squares: f64,
+    ) -> SetupResult {
+        // The residual is the error itself, and Qᵥᵥ = Σ − Q_δδ.
+        let qvv = prior - self.solution.held(node, node);
+        let redundancy = qvv * weight;
+        let m = weight * redundancy;
+        let (components, vector_test) = self.tests(
+            &self.solution.axes[mark],
+            error,
+            &(weight * error),
+            &m,
+            weight,
+            &redundancy,
+            // An unused set-up shares no observation with its mark.
+            |direction| (self.solution.datum_any(mark, node) * (weight * direction)).norm(),
+        );
+        SetupResult {
+            mark,
+            error: *error,
+            components,
+            vector_test,
+            sum_of_squares,
+        }
+    }
+
+    /// The tests of one three-component part, from its residual v, Pv, and
+    /// its blocks of PQᵥᵥP, P and QᵥᵥP, on the local `axes`. `shift` gives
+    /// the largest shift of a mark per metre of bias in an ECEF direction.
+    #[allow(clippy::too_many_arguments)]
+    fn tests(
+        &self,
+        axes: &Matrix3<f64>,
+        v: &Vector3<f64>,
+        pv: &Vector3<f64>,
+        m: &Block,
+        p: &Block,
+        redundancy: &Block,
+        shift: impl Fn(&Vector3<f64>) -> f64,
+    ) -> ([ComponentResult; 3], Option<f64>) {
+        let m = (m + m.transpose()) * 0.5;
+        let m_enu = axes * m * axes.transpose();
+        let p_enu = axes * p * axes.transpose();
+        let r_enu = axes * redundancy * axes.transpose();
+        let pv_enu = axes * pv;
+        let v_enu = axes * v;
+        let components: [ComponentResult; 3] = std::array::from_fn(|k| {
+            let mkk = m_enu[(k, k)];
+            let testable = mkk > MIN_REDUNDANCY * p_enu[(k, k)];
+            let spread = libm::sqrt(mkk);
+            let mdb = testable.then(|| self.sigma0 * libm::sqrt(self.lambda0 / mkk));
+            ComponentResult {
+                residual: v_enu[k],
+                redundancy: r_enu[(k, k)],
+                w: testable.then(|| pv_enu[k] / (self.sigma0 * spread)),
+                tau: self
+                    .sigma0_hat
+                    .filter(|_| testable)
+                    .map(|s| pv_enu[k] / (s * spread)),
+                mdb,
+                shift: mdb.map(|mdb| shift(&axes.row(k).transpose()) * mdb),
+            }
+        });
+        let vector_test = components
+            .iter()
+            .all(|c| c.w.is_some())
+            .then(|| spd_inverse(&m))
+            .flatten()
+            .map(|m_inverse| pv.dot(&(m_inverse * pv)) / (self.sigma0 * self.sigma0));
+        (components, vector_test)
+    }
+
     /// The largest shift of the observation's own marks, per metre of bias
-    /// along `direction` (ECEF) in element `a`: Qₓ AᵀP c.
+    /// along `direction` (ECEF) in element `a`: Qₓ AᵀP c, over the
+    /// observation's nodes.
     fn shift(
         &self,
         o: &Observation,
         w: &Weights,
-        marks: &[usize],
+        nodes: &[usize],
         a: usize,
         direction: &Vector3<f64>,
     ) -> f64 {
+        let marks = self.solution.marks;
         let g = w.weight.columns(3 * a, 3) * direction;
-        let mut h = vec![Vector3::zeros(); marks.len()];
+        let mut h = vec![Vector3::zeros(); nodes.len()];
         for (p, element) in o.elements.iter().enumerate() {
             let g_p: Vector3<f64> = g.fixed_rows::<3>(3 * p).into_owned();
-            for (mark, sign) in element.terms() {
-                if let Ok(i) = marks.binary_search(&mark) {
+            for (node, sign) in element.nodes(marks) {
+                if let Ok(i) = nodes.binary_search(&node) {
                     h[i] += g_p * sign;
                 }
             }
         }
-        marks
+        nodes
             .iter()
+            .filter(|&&m| m < marks)
             .map(|&m| {
                 let mut moved = Vector3::zeros();
-                for (&b, h_b) in marks.iter().zip(&h) {
+                for (&b, h_b) in nodes.iter().zip(&h) {
                     moved += self.solution.datum(m, b) * h_b;
                 }
                 moved.norm()

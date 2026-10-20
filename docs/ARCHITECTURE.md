@@ -422,6 +422,8 @@ Here the vector has already been reduced to the marks using the antenna heights 
 
 For GNSS-only networks the model is linear in ECEF, so no iteration is needed. Iteration arrives with VCE and, in Phase 3, with terrestrial observations.
 
+Set-ups are optional: an element's ends can name the set-up they were measured from. Each set-up's error is a block of unknowns beside the marks', and its prior is a pseudo-observation that the error is zero, so it adds as many rows as unknowns and the degrees of freedom don't change. The prior is tested like any observation: a w-test per local axis and a 3-DoF test. A misread antenna height or an antenna off its mark shows there, on the set-up, rather than spread over its vectors. Inner constraints move the marks, not the set-up errors.
+
 ### 10.2 Stochastic model
 
 - `Σ_ll = σ₀² Q_ll`, with `Q_ll` built from the engine covariances and per-group scale factors `k_g` (from VCE or set by the user).

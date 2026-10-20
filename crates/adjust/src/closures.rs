@@ -7,7 +7,8 @@
 //! cycle basis. Repeated vectors over the same pair of marks are compared
 //! with the first instead. Each misclosure w is tested as wᵀΣ_w⁻¹w/σ₀²
 //! against χ²(3), at the vector test's critical value, with Σ_w from the
-//! vectors' covariances, including their correlations within a cluster.
+//! vectors' covariances, including their correlations within a cluster,
+//! and the priors of any set-ups whose errors don't cancel.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -86,6 +87,20 @@ struct Edge {
     from: usize,
     to: usize,
     vector: Vector3<f64>,
+    setups: [Option<usize>; 2],
+}
+
+impl Edge {
+    /// Adds the edge's set-ups to a combination's coefficients, for the edge
+    /// taken `sign` times: its end's error counts positive, its start's
+    /// negative.
+    fn add_setups(&self, sign: f64, coefficients: &mut BTreeMap<usize, f64>) {
+        for (setup, end) in self.setups.iter().zip([-1.0, 1.0]) {
+            if let Some(s) = *setup {
+                *coefficients.entry(s).or_insert(0.0) += sign * end;
+            }
+        }
+    }
 }
 
 impl Network {
@@ -111,6 +126,23 @@ impl Network {
                 })
         };
         let critical = BMethod::new(options.alpha0, options.beta0).critical(3.0).0;
+        // Each set-up's prior covariance, in ECEF.
+        let priors = self
+            .setups()
+            .iter()
+            .map(|setup| {
+                let (h, v) = (setup.sigma_horizontal, setup.sigma_vertical);
+                let enu = Matrix3::from_diagonal(&Vector3::new(h * h, h * h, v * v));
+                axes(setup.mark).map(|r| r.transpose() * enu * r)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        // The covariance a combination of set-up errors adds.
+        let setup_spread = |coefficients: &BTreeMap<usize, f64>| -> Matrix3<f64> {
+            coefficients
+                .iter()
+                .map(|(&s, &c)| priors[s] * (c * c))
+                .sum()
+        };
 
         let edges: Vec<Edge> = self
             .observations()
@@ -121,12 +153,18 @@ impl Network {
                     .iter()
                     .enumerate()
                     .filter_map(move |(element, e)| match *e {
-                        Element::Difference { from, to, vector } => Some(Edge {
+                        Element::Difference {
+                            from,
+                            to,
+                            vector,
+                            setups,
+                        } => Some(Edge {
                             observation,
                             element,
                             from,
                             to,
                             vector,
+                            setups,
                         }),
                         Element::Position { .. } => None,
                     })
@@ -165,8 +203,12 @@ impl Network {
                 let repeat = &edges[j];
                 let direction = if repeat.from == first.from { 1.0 } else { -1.0 };
                 let difference = repeat.vector * direction - first.vector;
+                let mut coefficients = BTreeMap::new();
+                repeat.add_setups(direction, &mut coefficients);
+                first.add_setups(-1.0, &mut coefficients);
                 let spread = covariance(repeat, repeat) + covariance(first, first)
-                    - (covariance(repeat, first) + covariance(first, repeat)) * direction;
+                    - (covariance(repeat, first) + covariance(first, repeat)) * direction
+                    + setup_spread(&coefficients);
                 let (statistic, passed) = test(&difference, &spread);
                 let length = first.vector.norm();
                 repeats.push(RepeatBaseline {
@@ -267,11 +309,16 @@ impl Network {
 
             let misclosure: Vector3<f64> = legs.iter().map(|&(k, s)| edges[k].vector * s).sum();
             let mut spread = Matrix3::zeros();
+            let mut coefficients = BTreeMap::new();
             for &(k, sk) in &legs {
                 for &(l, sl) in &legs {
                     spread += covariance(&edges[k], &edges[l]) * (sk * sl);
                 }
+                edges[k].add_setups(sk, &mut coefficients);
             }
+            // A set-up's error cancels around the loop when the loop arrives
+            // and leaves through it.
+            spread += setup_spread(&coefficients);
             let (statistic, passed) = test(&misclosure, &spread);
             let length: f64 = legs.iter().map(|&(k, _)| edges[k].vector.norm()).sum();
             loops.push(LoopClosure {

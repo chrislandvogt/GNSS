@@ -5,7 +5,9 @@
 #![allow(clippy::unwrap_used)]
 
 use gnss_adjust::synthetic::{Spec, Synthetic};
-use gnss_adjust::{Action, AdjustError, Datum, Edit, Element, Network, Observation, Options};
+use gnss_adjust::{
+    Action, AdjustError, Datum, Edit, Element, Network, Observation, Options, Subject,
+};
 use gnss_datum::GRS80;
 use nalgebra::{Matrix3, Vector3};
 #[cfg(target_arch = "wasm32")]
@@ -61,7 +63,14 @@ fn a_blunder_tops_the_suspects_and_excluding_it_is_recorded() {
     assert!(first.edits().is_empty());
     assert!(!first.statistics().global_test.as_ref().unwrap().passed);
     let suspects = first.suspects();
-    assert_eq!(suspects[0].observation, target, "{suspects:?}");
+    assert_eq!(
+        suspects[0].subject,
+        Subject::Element {
+            observation: target,
+            element: 0
+        },
+        "{suspects:?}"
+    );
     assert!(suspects.windows(2).all(|w| w[0].excess >= w[1].excess));
 
     let edit = exclude(&network, target);
@@ -87,7 +96,10 @@ fn a_blunder_tops_the_suspects_and_excluding_it_is_recorded() {
         first.statistics().degrees_of_freedom - 3
     );
     assert!(second.statistics().global_test.as_ref().unwrap().passed);
-    assert!(second.suspects().iter().all(|s| s.observation != target));
+    assert!(second.suspects().iter().all(|s| !matches!(
+        s.subject,
+        Subject::Element { observation, .. } if observation == target
+    )));
 }
 
 #[test]

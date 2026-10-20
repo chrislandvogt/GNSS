@@ -35,11 +35,11 @@ pub mod vce;
 
 pub use adjustment::{
     AdjustedMark, Adjustment, ComponentResult, Criteria, ElementResult, GlobalTest,
-    ObservationResult, Statistics, Suspect,
+    ObservationResult, SetupResult, Statistics, Subject, Suspect,
 };
 pub use closures::{Closures, LoopClosure, RepeatBaseline};
 pub use error::AdjustError;
-pub use network::{Action, Datum, Edit, Element, Mark, Network, Observation, Options};
+pub use network::{Action, Datum, Edit, Element, Mark, Network, Observation, Options, Setup};
 pub use uncertainty::{Ellipse, Ellipsoid, Scaling, Uncertainty};
 pub use vce::{GroupComponent, VarianceComponents, VceOptions};
 

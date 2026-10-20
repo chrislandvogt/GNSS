@@ -23,7 +23,7 @@ use wasm_bindgen_test::wasm_bindgen_test as test;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-const GOLDEN: &str = "5fa0b18e56acc6733ad01711667a51d842e56524d04543e44b2fdd06f563ef10";
+const GOLDEN: &str = "f20c67f6ff758d47154f17a117d34bd273ccdf1cd8fe27efbf75cdb2afec1f8a";
 
 fn put(hasher: &mut Sha256, value: f64) {
     hasher.update(value.to_bits().to_le_bytes());
@@ -90,6 +90,17 @@ fn put_adjustment(hasher: &mut Sha256, adjustment: &Adjustment) {
                 put_option(hasher, c.mdb);
                 put_option(hasher, c.shift);
             }
+        }
+    }
+    for setup in adjustment.setups() {
+        setup.error.iter().for_each(|&v| put(hasher, v));
+        put(hasher, setup.sum_of_squares);
+        put_option(hasher, setup.vector_test);
+        for c in &setup.components {
+            put(hasher, c.redundancy);
+            put_option(hasher, c.w);
+            put_option(hasher, c.mdb);
+            put_option(hasher, c.shift);
         }
     }
     let statistics = adjustment.statistics();
@@ -164,6 +175,29 @@ fn results_are_bit_identical_on_every_platform() {
         for s in adjustment.suspects() {
             put(&mut hasher, s.statistic);
             put(&mut hasher, s.excess);
+        }
+    }
+
+    // Set-ups as nuisance parameters, in a constrained and an inner datum.
+    for (control, datum) in [
+        (3, Datum::Constrained { fixed: Vec::new() }),
+        (0, Datum::Inner),
+    ] {
+        let network = Synthetic::generate(&Spec {
+            marks: 20,
+            neighbours: 4,
+            cluster: 3,
+            control,
+            setups: Some((0.002, 0.004)),
+            seed: 24,
+            ..Spec::default()
+        })
+        .unwrap()
+        .observe(124);
+        put_adjustment(&mut hasher, &network.adjust(&datum, &options).unwrap());
+        let closures = network.closures(&options).unwrap();
+        for l in &closures.loops {
+            put(&mut hasher, l.statistic);
         }
     }
 

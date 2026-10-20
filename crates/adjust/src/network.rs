@@ -19,6 +19,21 @@ pub struct Mark {
     pub approximate: Option<Vector3<f64>>,
 }
 
+/// An occupation of a mark: one set-up of an antenna over it. Its centring
+/// and height errors are shared by every vector measured from it, so they're
+/// estimated, with a prior from these standard deviations
+/// (ARCHITECTURE.md section 10.1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Setup {
+    /// The mark occupied.
+    pub mark: usize,
+    /// The standard deviation of the centring error in each horizontal
+    /// direction, in metres.
+    pub sigma_horizontal: f64,
+    /// The standard deviation of the height measurement's error, in metres.
+    pub sigma_vertical: f64,
+}
+
 /// One three-component part of an observation, in ECEF metres.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Element {
@@ -30,6 +45,8 @@ pub enum Element {
         to: usize,
         /// The vector.
         vector: Vector3<f64>,
+        /// The set-ups at its start and end, if their errors are estimated.
+        setups: [Option<usize>; 2],
     },
     /// A mark's position: control, a CORS, or an AUSPOS solution.
     Position {
@@ -37,6 +54,8 @@ pub enum Element {
         mark: usize,
         /// The position.
         position: Vector3<f64>,
+        /// The set-up observed, if its errors are estimated.
+        setup: Option<usize>,
     },
 }
 
@@ -48,6 +67,24 @@ impl Element {
             Element::Position { mark, .. } => ((mark, 1.0), None),
         };
         std::iter::once(first).chain(second)
+    }
+
+    /// The set-ups in the element, each with the sign of its error in it.
+    pub(crate) fn setup_terms(&self) -> impl Iterator<Item = (usize, f64)> {
+        let [first, second] = match *self {
+            Element::Difference { setups, .. } => {
+                [setups[0].map(|s| (s, -1.0)), setups[1].map(|s| (s, 1.0))]
+            }
+            Element::Position { setup, .. } => [setup.map(|s| (s, 1.0)), None],
+        };
+        first.into_iter().chain(second)
+    }
+
+    /// The unknowns in the element, marks then set-ups, numbered with the
+    /// set-ups after the network's `marks` marks.
+    pub(crate) fn nodes(&self, marks: usize) -> impl Iterator<Item = (usize, f64)> {
+        self.terms()
+            .chain(self.setup_terms().map(move |(s, sign)| (marks + s, sign)))
     }
 
     /// The mark whose local east, north and up axes the element's tests use:
@@ -103,7 +140,12 @@ impl Observation {
         Observation {
             id: id.into(),
             group: None,
-            elements: vec![Element::Difference { from, to, vector }],
+            elements: vec![Element::Difference {
+                from,
+                to,
+                vector,
+                setups: [None; 2],
+            }],
             covariance: DMatrix::from_column_slice(3, 3, covariance.as_slice()),
         }
     }
@@ -120,7 +162,12 @@ impl Observation {
             group: None,
             elements: baselines
                 .iter()
-                .map(|&(from, to, vector)| Element::Difference { from, to, vector })
+                .map(|&(from, to, vector)| Element::Difference {
+                    from,
+                    to,
+                    vector,
+                    setups: [None; 2],
+                })
                 .collect(),
             covariance,
         }
@@ -152,10 +199,26 @@ impl Observation {
             group: None,
             elements: points
                 .iter()
-                .map(|&(mark, position)| Element::Position { mark, position })
+                .map(|&(mark, position)| Element::Position {
+                    mark,
+                    position,
+                    setup: None,
+                })
                 .collect(),
             covariance,
         }
+    }
+
+    /// Puts the elements' ends on set-ups: for each element, the set-up at
+    /// its start and at its end. A position has only a start.
+    pub fn on_setups(mut self, setups: &[[Option<usize>; 2]]) -> Self {
+        for (element, ends) in self.elements.iter_mut().zip(setups) {
+            match element {
+                Element::Difference { setups, .. } => *setups = *ends,
+                Element::Position { setup, .. } => *setup = ends[0],
+            }
+        }
+        self
     }
 
     /// Puts the observation in a group, for its scale factor.
@@ -301,6 +364,7 @@ pub struct Network {
     epoch: CoordinateEpoch,
     marks: Vec<Mark>,
     names: BTreeMap<String, usize>,
+    setups: Vec<Setup>,
     observations: Vec<Observation>,
 }
 
@@ -313,6 +377,7 @@ impl Network {
             epoch: frame.resolve_epoch(epoch)?,
             marks: Vec::new(),
             names: BTreeMap::new(),
+            setups: Vec::new(),
             observations: Vec::new(),
         })
     }
@@ -369,6 +434,43 @@ impl Network {
         Ok(())
     }
 
+    /// The set-ups, by index.
+    pub fn setups(&self) -> &[Setup] {
+        &self.setups
+    }
+
+    /// Adds a set-up over a mark, with the standard deviations of its
+    /// centring (each horizontal direction) and height errors, and returns
+    /// its index.
+    pub fn add_setup(
+        &mut self,
+        mark: usize,
+        sigma_horizontal: f64,
+        sigma_vertical: f64,
+    ) -> Result<usize, AdjustError> {
+        if mark >= self.marks.len() {
+            return Err(AdjustError::NoSuchMark {
+                index: mark,
+                count: self.marks.len(),
+            });
+        }
+        for value in [sigma_horizontal, sigma_vertical] {
+            if !(value.is_finite() && value > 0.0) {
+                return Err(AdjustError::InvalidOption {
+                    name: "a set-up's standard deviation",
+                    expected: "positive",
+                    value,
+                });
+            }
+        }
+        self.setups.push(Setup {
+            mark,
+            sigma_horizontal,
+            sigma_vertical,
+        });
+        Ok(self.setups.len() - 1)
+    }
+
     /// The index of the mark with this name.
     pub fn mark(&self, name: &str) -> Option<usize> {
         self.names.get(name).copied()
@@ -393,6 +495,7 @@ impl Network {
             epoch: self.epoch,
             marks: self.marks.clone(),
             names: self.names.clone(),
+            setups: self.setups.clone(),
             observations,
         }
     }
@@ -426,6 +529,26 @@ impl Network {
                         ));
                     }
                     observed[mark] = true;
+                }
+                let marks: Vec<usize> = element.terms().map(|(m, _)| m).collect();
+                let ends = match *element {
+                    Element::Difference { setups, .. } => setups,
+                    Element::Position { setup, .. } => [setup, None],
+                };
+                for (setup, mark) in ends.iter().zip(&marks) {
+                    let Some(setup) = *setup else { continue };
+                    let Some(occupied) = self.setups.get(setup).map(|s| s.mark) else {
+                        return invalid(format!(
+                            "it refers to set-up {setup}, but the network has {} set-ups",
+                            self.setups.len()
+                        ));
+                    };
+                    if occupied != *mark {
+                        return invalid(format!(
+                            "it puts set-up {setup}, over mark {}, at mark {}",
+                            self.marks[occupied].name, self.marks[*mark].name
+                        ));
+                    }
                 }
                 if let Element::Difference { from, to, .. } = element
                     && from == to
@@ -570,11 +693,13 @@ impl Network {
         for o in &self.observations {
             for element in &o.elements {
                 match *element {
-                    Element::Difference { from, to, vector } => {
+                    Element::Difference {
+                        from, to, vector, ..
+                    } => {
                         neighbours[from].push((to, vector));
                         neighbours[to].push((from, -vector));
                     }
-                    Element::Position { mark, position } => {
+                    Element::Position { mark, position, .. } => {
                         positions[mark].get_or_insert(position);
                     }
                 }

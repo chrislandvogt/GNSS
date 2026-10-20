@@ -49,6 +49,11 @@ pub struct Spec {
     /// "group-1" and so on, for variance component estimation. 0 for none.
     /// Control is in no group.
     pub groups: usize,
+    /// If set, every base and rover occupation is a set-up, with these
+    /// standard deviations of its centring and height errors in metres, and
+    /// observed vectors include errors drawn from them. A cluster's vectors
+    /// share their base's set-up.
+    pub setups: Option<(f64, f64)>,
     /// The seed for the marks' positions and the choice of control.
     pub seed: u64,
 }
@@ -72,6 +77,7 @@ impl Default for Spec {
             control_sigma_m: 0.01,
             approximate_sigma_m: 2.0,
             groups: 0,
+            setups: None,
             seed: 1,
         }
     }
@@ -85,6 +91,8 @@ pub struct Synthetic {
     /// The marks with control.
     pub control: Vec<usize>,
     exact: Network,
+    /// Each set-up's prior covariance, in ECEF.
+    setup_priors: Vec<Matrix3<f64>>,
 }
 
 impl Synthetic {
@@ -155,6 +163,14 @@ impl Synthetic {
                 let index = network.observations().len();
                 let id = format!("{}-{}", network.marks()[from].name, index + 1);
                 let mut observation = Observation::baseline_cluster(id, &baselines, covariance);
+                if let Some((h, v)) = spec.setups {
+                    let base = network.add_setup(from, h, v)?;
+                    let mut ends = Vec::with_capacity(baselines.len());
+                    for &(_, to, _) in &baselines {
+                        ends.push([Some(base), Some(network.add_setup(to, h, v)?)]);
+                    }
+                    observation = observation.on_setups(&ends);
+                }
                 if spec.groups > 0 {
                     observation =
                         observation.with_group(format!("group-{}", index % spec.groups + 1));
@@ -177,10 +193,20 @@ impl Synthetic {
             let id = format!("control-{}", network.marks()[m].name);
             network.add_observation(Observation::point(id, m, truth[m], covariance));
         }
+        let setup_priors = network
+            .setups()
+            .iter()
+            .map(|setup| {
+                let (h, v) = (setup.sigma_horizontal, setup.sigma_vertical);
+                let r = axes[setup.mark];
+                r.transpose() * Matrix3::from_diagonal(&Vector3::new(h * h, h * h, v * v)) * r
+            })
+            .collect();
         Ok(Synthetic {
             truth,
             control,
             exact: network,
+            setup_priors,
         })
     }
 
@@ -201,6 +227,24 @@ impl Synthetic {
     pub fn observe_with(&self, seed: u64, scale: impl Fn(&Observation) -> f64) -> Network {
         let mut rng = Rng::new(seed);
         let mut network = self.exact.clone();
+        // Each set-up's error, shared by every vector measured from it.
+        let errors: Vec<Vector3<f64>> = self
+            .setup_priors
+            .iter()
+            .map(|prior| {
+                let z = Vector3::from_fn(|_, _| rng.gaussian());
+                prior.cholesky().map_or_else(Vector3::zeros, |c| c.l() * z)
+            })
+            .collect();
+        for o in network.observations_mut() {
+            for element in &mut o.elements {
+                let mut shift = Vector3::zeros();
+                for (setup, sign) in element.setup_terms() {
+                    shift += errors[setup] * sign;
+                }
+                element.perturb(&shift);
+            }
+        }
         for o in network.observations_mut() {
             let Some(cholesky) = o.covariance.clone().cholesky() else {
                 continue;
