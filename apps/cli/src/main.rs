@@ -12,7 +12,7 @@
 
 mod folder;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -91,9 +91,10 @@ enum ImportCommand {
 struct ImportArgs<F: ValueEnum + Clone + Send + Sync + 'static> {
     /// The file.
     file: PathBuf,
-    /// Its format.
+    /// Its format. Without one, it's guessed from the file's contents and
+    /// name, and the guess is shown.
     #[arg(long)]
-    format: F,
+    format: Option<F>,
     /// The frame of its contents, for formats that don't say (STAR*NET, CSV
     /// without a frame column, RTKLIB, SINEX without one in its comments).
     #[arg(long)]
@@ -211,21 +212,28 @@ fn dispatch(cli: &Cli) -> Result<u8, Failure> {
     match &cli.command {
         Command::Init(args) => init(cli, args),
         Command::Import(ImportCommand::Vectors(args)) => {
-            let format = match args.format {
+            let format = args.format.map(|f| match f {
                 VectorFormat::Dynaml => Format::Dynaml,
                 VectorFormat::Starnet => Format::Starnet,
                 VectorFormat::Rtklib => Format::Rtklib,
                 VectorFormat::Csv => Format::CsvVectors,
-            };
-            import(cli, &args.file, format, args)
+            });
+            let allowed = [
+                Format::Dynaml,
+                Format::Starnet,
+                Format::Rtklib,
+                Format::CsvVectors,
+            ];
+            import(cli, format, &allowed, args)
         }
         Command::Import(ImportCommand::Control(args)) => {
-            let format = match args.format {
+            let format = args.format.map(|f| match f {
                 ControlFormat::Dynaml => Format::Dynaml,
                 ControlFormat::Csv => Format::CsvControl,
                 ControlFormat::Sinex => Format::Sinex,
-            };
-            import(cli, &args.file, format, args)
+            });
+            let allowed = [Format::Dynaml, Format::CsvControl, Format::Sinex];
+            import(cli, format, &allowed, args)
         }
         Command::Adjust(args) => adjust(cli, args),
         Command::Report(args) => report(cli, args),
@@ -274,18 +282,38 @@ fn init(cli: &Cli, args: &InitArgs) -> Result<u8, Failure> {
     Ok(0)
 }
 
+/// Imports a file in `format`, or in the format it looks like, which must be
+/// one of `allowed`.
 fn import<F: ValueEnum + Clone + Send + Sync + 'static>(
     cli: &Cli,
-    file: &Path,
-    format: Format,
+    format: Option<Format>,
+    allowed: &[Format],
     args: &ImportArgs<F>,
 ) -> Result<u8, Failure> {
     let folder = Folder::open(&cli.project)?;
+    let file = &args.file;
     let bytes = std::fs::read(file).map_err(|e| format!("{}: {e}", file.display()))?;
     let name = file
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .ok_or_else(|| format!("{} isn't a file", file.display()))?;
+    let guessed = format.is_none();
+    let format = match format.or_else(|| project::guess_format(&name, &bytes)) {
+        Some(f) if allowed.contains(&f) => f,
+        Some(f) => {
+            return Err(format!(
+                "{name} looks like {}, which this command doesn't import; give --format",
+                f.label()
+            )
+            .into());
+        }
+        None => {
+            return Err(format!(
+                "{name}: its format isn't clear from its contents or name; give --format"
+            )
+            .into());
+        }
+    };
     let entry = Import {
         file: format!("raw/{name}"),
         format,
@@ -306,14 +334,21 @@ fn import<F: ValueEnum + Clone + Send + Sync + 'static>(
         cli,
         &serde_json::json!({
             "imported": entry.file,
+            "format": format.name(),
+            "guessed": guessed,
             "stations": survey.stations.len(),
             "measurements": survey.measurements.len(),
             "notes": notes,
         }),
         || {
             println!(
-                "Imported {name} as {}: {} station{} and {} measurement{}.",
+                "Imported {name} as {}{}: {} station{} and {} measurement{}.",
                 format.name(),
+                if guessed {
+                    " (guessed from the file; give --format to choose)"
+                } else {
+                    ""
+                },
                 survey.stations.len(),
                 if survey.stations.len() == 1 { "" } else { "s" },
                 survey.measurements.len(),

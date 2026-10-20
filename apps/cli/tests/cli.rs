@@ -55,16 +55,20 @@ fn path(p: &Path) -> &str {
 fn sample(root: &Path) -> PathBuf {
     let project = root.join("sample");
     ok(root, &["init", path(&project), "--name", "Sample"], 0);
-    ok(
+    // The format is guessed when it isn't given, and the guess is shown.
+    let o = ok(
         &project,
         &[
             "import",
             "control",
             &format!("{DATA}/dynaml/gnss-networkstn.xml"),
-            "--format",
-            "dynaml",
         ],
         0,
+    );
+    assert!(
+        stdout(&o).contains("as dynaml (guessed from the file; give --format to choose)"),
+        "{}",
+        stdout(&o)
     );
     let o = ok(
         &project,
@@ -80,6 +84,8 @@ fn sample(root: &Path) -> PathBuf {
     );
     let imported = json(&o);
     assert_eq!(imported["imported"], "raw/gnss-networkmsr.xml");
+    assert_eq!(imported["format"], "dynaml");
+    assert_eq!(imported["guessed"], false);
     assert_eq!(imported["measurements"], 131);
     project
 }
@@ -371,6 +377,21 @@ fn errors_are_plain_and_change_nothing() {
         "{}",
         stderr(&o)
     );
+
+    // A file that looks like something this command doesn't import, or like
+    // nothing, needs its format given.
+    let o = ok(&project, &["import", "control", path(&vectors)], 1);
+    assert!(
+        stderr(&o).contains(
+            "vectors.gps looks like STAR*NET GPS vectors, which this command doesn't import"
+        ),
+        "{}",
+        stderr(&o)
+    );
+    let notes = here.join("notes.docx");
+    fs::write(&notes, "x").unwrap();
+    let o = ok(&project, &["import", "vectors", path(&notes)], 1);
+    assert!(stderr(&o).contains("give --format"), "{}", stderr(&o));
     assert_eq!(
         fs::read_to_string(project.join("project.toml")).unwrap(),
         before
