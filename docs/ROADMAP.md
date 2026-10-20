@@ -205,13 +205,14 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 - [x] Import vectors:
   - [x] DynaML: GNSS baselines (type G) and baseline clusters (type X).
   - [x] STAR*NET GPS vector files.
+  - [x] TDEF (Trimble Data Exchange Format), which is what Trimble Business Center actually exports, found while writing the export recipes. It's checked on two real TBC exports.
   - [x] RTKLIB `.pos` files: the static single solution, recovering the signed covariance terms.
   - [x] A documented generic CSV vector format.
 - [x] Import control:
   - [x] DynaML stations and point clusters (type Y).
   - [x] CSV with frame, epoch and uncertainty.
   - [x] AUSPOS SINEX: coordinates with covariance.
-- [ ] Document export recipes from TBC, Infinity, MAGNET, CHC Geomatics Office and Emlid Studio: which of our formats each can produce, and how.
+- [x] Document export recipes from TBC, Infinity, MAGNET, CHC Geomatics Office and Emlid Studio: which of our formats each can produce, and how (`docs/user/export-recipes.md`). Only TBC (through TDEF) and Emlid Studio (RTKLIB) are read directly; the others go through STAR*NET, PynAdjust or CSV.
 - [x] Export:
   - [x] DynaML, for DynAdjust cross-checks and agency submission.
   - [x] STAR*NET.
@@ -238,6 +239,7 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 **Goal:** the second-opinion tool in real users' hands.
 
 - [ ] Oracle suite in CI: DynAdjust outputs stored as golden files, plus a manual job to regenerate them.
+- [ ] Readers for the vector formats the other packages actually export, each checked against real exports from pilot users: GVX (NGS's exchange format, from TBC, Infinity and MAGNET), SKI-ASCII (Infinity) and TVF (Topcon).
 - [ ] Documentation: a user guide for the second-opinion workflow in the browser and the CLI, and a worked example on public data.
 - [ ] Deploy the web page at a versioned URL, and publish its static bundle with checksums.
 - [ ] Release CLI binaries for Windows, macOS and Linux, with checksums and an SBOM. Build with cargo-dist or a plain Actions matrix, and generate the SBOM with cargo-cyclonedx.
