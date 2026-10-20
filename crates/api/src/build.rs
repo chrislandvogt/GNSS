@@ -8,6 +8,7 @@
 //! Jacobian there, which DynAdjust leaves out (it's a rotation of under a
 //! microradian).
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use gnss_adjust::{Action, Datum, Edit, Network, Observation};
@@ -142,14 +143,74 @@ pub fn build(
     let mut notes = survey.notes.clone();
     let minimal = settings.datum != DatumChoice::Constrained;
 
-    let mut measurements: Vec<&Measurement> = Vec::new();
+    let mut measurements: Vec<Cow<'_, Measurement>> = Vec::new();
     let mut left_out: Vec<&Measurement> = Vec::new();
+    // Marks the vectors reach. Observed positions of other marks, such as
+    // the CORS an AUSPOS solution includes, tell nothing about the network:
+    // they're marginalised out, which for a Gaussian is dropping their rows
+    // and columns.
+    let mut reached: BTreeSet<&str> = BTreeSet::new();
+    for m in &survey.measurements {
+        for e in &m.elements {
+            if let Element::Vector { from, to, .. } = e {
+                reached.insert(from);
+                reached.insert(to);
+            }
+        }
+    }
+    let mut unreached: Vec<&str> = Vec::new();
     for m in &survey.measurements {
         if minimal && m.kind == MeasurementKind::PointCluster {
             left_out.push(m);
-        } else {
-            measurements.push(m);
+            continue;
         }
+        let keep: Vec<usize> = m
+            .elements
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| match e {
+                Element::Position { station, .. } => {
+                    reached.is_empty() || reached.contains(station.as_str())
+                }
+                Element::Vector { .. } => true,
+            })
+            .map(|(i, _)| i)
+            .collect();
+        if keep.len() == m.elements.len() {
+            measurements.push(Cow::Borrowed(m));
+            continue;
+        }
+        for (i, e) in m.elements.iter().enumerate() {
+            if let (false, Element::Position { station, .. }) = (keep.contains(&i), e) {
+                unreached.push(station);
+            }
+        }
+        if keep.is_empty() {
+            continue;
+        }
+        let rows: Vec<usize> = keep.iter().flat_map(|&i| 3 * i..3 * i + 3).collect();
+        let mut reduced = m.clone();
+        reduced.elements = keep.iter().map(|&i| m.elements[i].clone()).collect();
+        reduced.covariance = DMatrix::from_fn(rows.len(), rows.len(), |r, c| {
+            m.covariance[(rows[r], rows[c])]
+        });
+        measurements.push(Cow::Owned(reduced));
+    }
+    if let Some(first) = survey
+        .measurements
+        .iter()
+        .find(|m| m.kind == MeasurementKind::PointCluster)
+        && !unreached.is_empty()
+    {
+        notes.push(note(
+            &first.origin,
+            format!(
+                "observed positions of {} mark{} no vector reaches were left out: {}",
+                unreached.len(),
+                if unreached.len() == 1 { "" } else { "s" },
+                some_names(unreached.iter().copied())
+            ),
+        ));
     }
     if let Some(first) = left_out.first() {
         notes.push(note(
@@ -181,28 +242,49 @@ pub fn build(
         }
     }
 
-    // One station per name. A repeat must agree with the first.
+    // One station per name. Where files repeat a station, one held fixed wins
+    // over free ones, and two held differently conflict. Free stations only
+    // give starting positions, so the first with a coordinate is used.
     let mut stations: BTreeMap<&str, &Station> = BTreeMap::new();
-    let mut ordered: Vec<&Station> = Vec::new();
+    let mut ordered: Vec<&str> = Vec::new();
     for s in &survey.stations {
+        let held = |x: &Station| x.constraint != Constraint::Free;
         match stations.get(s.name.as_str()) {
             Some(previous) => {
-                if previous.coordinate != s.coordinate || previous.constraint != s.constraint {
-                    return Err(fail(
-                        Some(&s.origin),
-                        format!(
-                            "station {} is also at {}, with a different coordinate or constraint",
-                            s.name, previous.origin
-                        ),
-                    ));
+                let replace = match (held(previous), held(s)) {
+                    (true, true) => {
+                        if previous.coordinate != s.coordinate
+                            || previous.constraint != s.constraint
+                        {
+                            return Err(fail(
+                                Some(&s.origin),
+                                format!(
+                                    "station {} is also held at {}, with a different coordinate \
+                                     or constraint",
+                                    s.name, previous.origin
+                                ),
+                            ));
+                        }
+                        false
+                    }
+                    (false, true) => true,
+                    (false, false) => previous.coordinate.is_none() && s.coordinate.is_some(),
+                    (true, false) => false,
+                };
+                if replace {
+                    stations.insert(&s.name, s);
                 }
             }
             None => {
                 stations.insert(&s.name, s);
-                ordered.push(s);
+                ordered.push(&s.name);
             }
         }
     }
+    let ordered: Vec<&Station> = ordered
+        .iter()
+        .filter_map(|n| stations.get(n).copied())
+        .collect();
     let unused: Vec<&Station> = ordered
         .iter()
         .copied()
@@ -392,6 +474,8 @@ pub fn build(
         }
         scale(&mut covariance, m.scaling, &firsts, settings.frame)
             .map_err(|e| fail(Some(&m.origin), e))?;
+        // Products like J C Jᵀ can come out asymmetric in the last bit.
+        let covariance = (&covariance + covariance.transpose()) * 0.5;
         network.add_observation(Observation {
             id: id.clone(),
             group: None,

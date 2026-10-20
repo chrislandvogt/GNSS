@@ -43,3 +43,8 @@ impl fmt::Display for FormatError {
 }
 
 impl std::error::Error for FormatError {}
+
+/// A problem writing a file: something the format can't express.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct WriteError(pub String);

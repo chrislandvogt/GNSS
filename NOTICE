@@ -30,9 +30,16 @@ for the GeoTIFF versions:
   Copyright Geoscience Australia
   Licensed under Creative Commons Attribution 4.0 International.
 
-The formats crate's tests use DynAdjust's sample GNSS network
-(crates/formats/tests/data/dynaml):
+The formats crate's tests use DynAdjust's sample GNSS network and SINEX file
+(crates/formats/tests/data/dynaml and sinex):
 
   DynAdjust (https://github.com/icsm-au/DynAdjust)
   Copyright Geoscience Australia
   Licensed under the Apache License, Version 2.0.
+
+Its RTKLIB test solutions (crates/formats/tests/data/rtklib) were computed
+from CORS observations:
+
+  CORSnet-NSW and Geoscience Australia CORS data
+  Distributed by Geoscience Australia under Creative Commons Attribution 4.0
+  International.

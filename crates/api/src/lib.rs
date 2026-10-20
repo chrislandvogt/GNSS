@@ -8,6 +8,7 @@
 //! turns imported files into a network to adjust.
 
 pub mod build;
+pub mod export;
 
 /// Version of the core.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

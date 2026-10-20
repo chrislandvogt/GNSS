@@ -100,6 +100,75 @@ pub(crate) fn dmy_epoch(field: &str, text: &str) -> Result<CoordinateEpoch, Stri
     date_epoch(year, month, day).ok_or_else(bad)
 }
 
+/// An epoch written as a decimal year (`2026.79`), an ISO date
+/// (`2026-10-14`, the start of the day) or date and time in UTC
+/// (`2026-10-14T03:00:00Z`, the `Z` optional, or a space for the `T`), or a
+/// DynaML date (`14.10.2026`).
+pub(crate) fn epoch_text(field: &str, text: &str) -> Result<CoordinateEpoch, String> {
+    let trimmed = text.trim();
+    let bad = || {
+        format!(
+            "{field} should be a decimal year, a date (2026-10-14) or a date and time \
+             (2026-10-14T03:00:00Z), not {trimmed:?}"
+        )
+    };
+    if trimmed.matches('.').count() == 2 {
+        return dmy_epoch(field, trimmed);
+    }
+    if !trimmed.contains('-') {
+        let year: f64 = trimmed.parse().map_err(|_| bad())?;
+        return CoordinateEpoch::from_decimal_year(year).map_err(|e| format!("{field}: {e}"));
+    }
+    let (date, clock) = match trimmed.split_once(['T', ' ']) {
+        Some((d, c)) => (d, Some(c.trim_end_matches('Z'))),
+        None => (trimmed, None),
+    };
+    let parts: Vec<&str> = date.split('-').collect();
+    let [year, month, day] = parts[..] else {
+        return Err(bad());
+    };
+    let (year, month, day): (i32, u8, u8) = (
+        year.parse().map_err(|_| bad())?,
+        month.parse().map_err(|_| bad())?,
+        day.parse().map_err(|_| bad())?,
+    );
+    let (hour, minute, second) = match clock {
+        None => (0, 0, 0.0),
+        Some(c) => {
+            let hms: Vec<&str> = c.split(':').collect();
+            match hms[..] {
+                [h, m] => (
+                    h.parse().map_err(|_| bad())?,
+                    m.parse().map_err(|_| bad())?,
+                    0.0,
+                ),
+                [h, m, s] => (
+                    h.parse().map_err(|_| bad())?,
+                    m.parse().map_err(|_| bad())?,
+                    s.parse::<f64>().map_err(|_| bad())?,
+                ),
+                _ => return Err(bad()),
+            }
+        }
+    };
+    if !(0.0..61.0).contains(&second) {
+        return Err(bad());
+    }
+    let whole = second.floor();
+    let nanos = ((second - whole) * 1e9).round().min(999_999_999.0) as u32;
+    // A date alone is the start of the day, as DynaML's dates are; a time of
+    // day is in UTC.
+    let scale = if clock.is_some() {
+        TimeScale::UTC
+    } else {
+        TimeScale::GPST
+    };
+    let time =
+        Epoch::maybe_from_gregorian(year, month, day, hour, minute, whole as u8, nanos, scale)
+            .map_err(|_| bad())?;
+    CoordinateEpoch::from_time(time).map_err(|e| format!("{field}: {e}"))
+}
+
 /// The coordinate epoch at the start of a day, if the date exists.
 pub(crate) fn date_epoch(year: i32, month: u8, day: u8) -> Option<CoordinateEpoch> {
     let time = Epoch::maybe_from_gregorian(year, month, day, 0, 0, 0, 0, TimeScale::GPST).ok()?;
@@ -177,6 +246,21 @@ mod tests {
         assert!(dmy_epoch("epoch", "29.02.2019").is_err());
         assert!(dmy_epoch("epoch", "2019-02-01").is_err());
         assert!(dmy_epoch("epoch", "1.1").is_err());
+    }
+
+    #[test]
+    fn reads_epochs_in_several_forms() {
+        let year = |t: &str| epoch_text("epoch", t).unwrap().decimal_year();
+        assert_eq!(year("2026.5"), 2026.5);
+        assert_eq!(year("2020-01-01"), 2020.0);
+        assert_eq!(year("01.01.2020"), 2020.0);
+        // UTC is 18 seconds behind GPST.
+        let noon = 2020.0 + (182.0 * 86_400.0 + 43_218.0) / (366.0 * 86_400.0);
+        assert!((year("2020-07-01T12:00:00Z") - noon).abs() < 1e-12);
+        assert!((year("2020-07-01 12:00") - noon).abs() < 1e-12);
+        for bad in ["soon", "2020-13-01", "2020-01-01T25:00:00", "1.2.3.4", ""] {
+            assert!(epoch_text("epoch", bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

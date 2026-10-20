@@ -26,7 +26,7 @@ use std::fmt::Write as _;
 use gnss_datum::FrameId;
 use nalgebra::{DMatrix, Vector3};
 
-use crate::error::FormatError;
+use crate::error::{FormatError, WriteError};
 use crate::survey::{
     Constraint, Coordinate, CoordinateValue, Element, HeightType, Measurement, MeasurementKind,
     Note, Origin, Reference, Scaling, Station, Survey,
@@ -488,13 +488,8 @@ fn measurement(
             ));
         }
     }
-    let mut covariance = DMatrix::zeros(3 * n, 3 * n);
+    // Check the blocks first, so the matrix's size is bounded by the file's.
     for (i, part) in parts.iter().enumerate() {
-        let [xx, xy, xz, yy, yz, zz] = part.variances;
-        let block = nalgebra::Matrix3::new(xx, xy, xz, xy, yy, yz, xz, yz, zz);
-        covariance
-            .view_mut((3 * i, 3 * i), (3, 3))
-            .copy_from(&block);
         if part.covariances.len() != n - i - 1 {
             return Err(at(
                 part.line,
@@ -507,6 +502,14 @@ fn measurement(
                 ),
             ));
         }
+    }
+    let mut covariance = DMatrix::zeros(3 * n, 3 * n);
+    for (i, part) in parts.iter().enumerate() {
+        let [xx, xy, xz, yy, yz, zz] = part.variances;
+        let block = nalgebra::Matrix3::new(xx, xy, xz, xy, yy, yz, xz, yz, zz);
+        covariance
+            .view_mut((3 * i, 3 * i), (3, 3))
+            .copy_from(&block);
         for (k, m) in part.covariances.iter().enumerate() {
             let j = i + 1 + k;
             for r in 0..3 {
@@ -538,11 +541,6 @@ fn measurement(
         },
     })
 }
-
-/// A problem writing a file.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{0}")]
-pub struct WriteError(pub String);
 
 /// The root element's attributes for a frame and epoch.
 fn root_attributes(reference: Reference) -> String {

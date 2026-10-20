@@ -9,13 +9,17 @@
 //! back into a format. Nothing here touches the file system: callers pass text
 //! and get text back, so the same code runs natively and in the browser.
 
+pub mod csv;
 pub mod dynaml;
 pub mod error;
+pub mod rtklib;
+pub mod sinex;
+pub mod starnet;
 pub mod survey;
 mod text;
 mod xml;
 
-pub use error::FormatError;
+pub use error::{FormatError, WriteError};
 pub use survey::{
     Constraint, Coordinate, CoordinateValue, Element, HeightType, Measurement, MeasurementKind,
     Note, Origin, Reference, Scaling, Station, Survey,

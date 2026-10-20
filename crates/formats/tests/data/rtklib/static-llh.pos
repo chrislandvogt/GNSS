@@ -1,0 +1,26 @@
+% program   : RTKLIB ver.EX 2.5.1
+% inp file  : rover.obs
+% inp file  : base.obs
+% inp file  : nav.rnx
+% obs start : 2025/06/15 02:00:00.0 GPST (week2371   7200.0s)
+% obs end   : 2025/06/15 04:00:00.0 GPST (week2371  14400.0s)
+% pos mode  : Static
+% freqs     : L1+L2/E5b
+% solution  : Combined-Phase Reset
+% elev mask : 15.0 deg
+% dynamics  : off
+% tidecorr  :
+% ionos opt : Broadcast
+% tropo opt : Saastamoinen
+% ephemeris : Broadcast
+% navi sys  : GPS Galileo BDS
+% amb res   : Continuous
+% amb bds   : on
+% val thres : 3.0
+% antenna1  : LEIAR10         NONE  ( 0.0000  0.0000  0.0000)
+% antenna2  : TRM57971.00     NONE  ( 0.0000  0.0000  0.0000)
+% ref pos   : -32.615428702  151.099111730    96.0279
+%
+% (lat/lon/height=WGS84/ellipsoidal,Q=1:fix,2:float,3:sbas,4:dgps,5:single,6:ppp,ns=# of satellites)
+%  GPST                  latitude(deg) longitude(deg)  height(m)   Q  ns   sdn(m)   sde(m)   sdu(m)  sdne(m)  sdeu(m)  sdun(m) age(s)  ratio
+2025/06/15 02:00:00.000  -32.558227483  151.175752724    75.1724   1  22   0.0005   0.0004   0.0013  -0.0001   0.0001   0.0006   0.00   17.8
