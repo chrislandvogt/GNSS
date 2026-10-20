@@ -63,6 +63,20 @@ Baselines formed between continuously operating reference stations whose coordin
 - **Injected blunders** of known size, type and location, which test detection power against MDB theory.
 - **The generator itself** is versioned and seeded, so every network can be regenerated exactly.
 
+The first generator is in place (`gnss_adjust::synthetic`, M2). It scatters marks over a disc, joins each to its nearest neighbours by vectors, measures some vectors together from a common base so they're correlated, and adds weighted control. Noise is drawn from each observation's own covariance, so the statistics should follow theory exactly. Geometry types and covariance realism from D1 come later. The tests in `crates/adjust/tests` found:
+
+| Check | Result |
+|---|---|
+| Against a textbook dense adjustment, in each datum (weighted control, weighted plus fixed control, one fixed mark, inner constraints) | Positions within 1e-8 m. w, MDB, redundancy, vector test and external reliability within 1e-7 relative |
+| Invariance between two fixed marks and inner constraints | Residuals within 1e-10 m, test statistics within 1e-8 relative, and positions that differ only by a translation |
+| σ̂₀² over 200 noise draws (r = 138) | Mean 1.013, with a standard error of 0.0085 |
+| Global test at 5% | Passed 194 of 200 times (190 expected) |
+| 45,600 w-tests without blunders | Mean 0.002, variance 1.013, and 47 false alarms at α₀ = 0.1% (45.6 expected) |
+| 15,200 vector tests without blunders | 87 false alarms at the B-method's 0.55% (83.6 expected) |
+| A bias of one MDB, over 400 draws (G-POW) | Detected by the w-test 79.8% of the time and by the vector test 80.3% (β₀ = 80%) |
+| Coordinate errors against their cofactors, over 4,000 draws | Mean dᵀQ⁻¹d of 2.980 ± 0.024 (3 expected) |
+| Critical values against SciPy | Within 1e-12 relative (B-method critical values within 1e-10) |
+
 ### D4 Oracle networks (adjustment)
 
 - D3 networks and real (anonymised) networks run through DynAdjust.

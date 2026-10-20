@@ -91,7 +91,7 @@ Every crate except `engine-host` compiles to both native code and WebAssembly. C
 |---|---|---|
 | `model` | Domain entities, IDs, serialisation, schema versions | serde, toml, schemars |
 | `datum` | Frames, epochs, Helmert transformations, plate motion, grids, geoid, projections | hifitime, nalgebra, libm, tiff |
-| `adjust` | Least squares, statistics, reliability, VCE, uncertainty, loops | faer (sparse), nalgebra, statrs |
+| `adjust` | Least squares, statistics, reliability, VCE, uncertainty, loops | nalgebra, libm; its own block-sparse solver and distributions (D-025) |
 | `formats` | Parsers and writers for exchange formats | quick-xml, csv, rusqlite (GeoPackage; needs a SQLite build for WebAssembly, checked in M3) |
 | `rinex-io` | RINEX parsing (wrapped), header extraction, QC | rinex (nav-solutions, MPL-2.0) |
 | `fetch` | Source registry, download, cache, data packs | reqwest (uses the browser's fetch in the web app), sha2 |
@@ -439,21 +439,23 @@ For GNSS-only networks the model is linear in ECEF, so no iteration is needed. I
 GNSS vectors carry scale and orientation from the orbits, so a vector-only network has a 3-parameter translation defect.
 
 - **Minimally constrained.** Fix one mark, or apply inner constraints on translation. The residuals and test statistics are invariant to which choice is made, and this invariance is a property test.
+  - A fixed mark is held at its approximate position.
+  - Inner constraints keep the centroid of the approximate positions. They're solved by holding one mark, then moving the solution to the centroid with an S-transformation, which costs three extra solves.
 - **Constrained.** Control marks enter as weighted constraints with their covariance (point clusters), or as hard constraints if the user asks. Comparing constrained and minimally constrained solutions tests the consistency of the control: `ΔΩ = Ω_c − Ω_mc` is tested against χ² with (constraints − 3) degrees of freedom, and inconsistent control is reported by mark.
 
 ### 10.4 Solution
 
-- Normal equations `N = AᵀPA` and `u = AᵀPl`, solved by sparse Cholesky factorisation with AMD ordering (faer). The matrix has a natural 3×3 block structure.
-- Parameter covariance `Q_x̂ = N⁻¹`:
-  - **Up to about 2,000 marks:** compute the full inverse densely.
-  - **Larger networks:** compute only the blocks that are needed, using a selected inverse (Takahashi equations). These are the mark diagonals, the pairs required for RU, and the blocks needed for `Q_v̂v̂`.
-- Residuals `v̂ = A x̂ − l`, and `Q_v̂v̂ = Q_ll − A Q_x̂ Aᵀ`. Only the per-observation blocks are needed.
-- The weighted sum of squares is `Ω = v̂ᵀPv̂`, with *r* degrees of freedom.
+- **Normal equations.** `N = AᵀPA` and `u = AᵀPl` are built in 3×3 blocks, a block row per mark. Their pattern has a block wherever two marks share an observation.
+- **Factorisation.** `N = L D Lᵀ` with block pivots, eliminating marks in minimum-degree order, with ties going to the lowest mark. This is our own code (D-025): every step is plain arithmetic in a fixed order, so results are the same bits natively and in the browser.
+- **Parameter covariance `Q_x̂ = N⁻¹`.** The selected inverse (Takahashi recurrence) gives every block on the factor's pattern: each mark's own block and every pair of marks that share an observation. That's everything the statistics need, at about the cost of the factorisation, for networks of any size. Any other pair, such as RU between distant marks, costs three solves.
+- **Residuals.** `v̂ = A x̂ − l`, adjusted minus observed, and `Q_v̂v̂ = Q_ll − A Q_x̂ Aᵀ`, of which only the per-observation blocks are needed.
+- **Fit.** The weighted sum of squares is `Ω = v̂ᵀPv̂`, with *r* degrees of freedom.
+- **Speed.** 1,000 marks and 3,000 vectors adjust, with all statistics, in 17 ms natively and 38 ms in Chromium. 10,000 marks and 30,000 vectors take 0.3 s natively.
 
 ### 10.5 Statistical testing
 
-- **Global test.** `Ω/σ₀² ~ χ²(r)`, two-tailed.
-- **w-test (data snooping, σ₀ known).** For each alternative vector *c* (one per vector component, expressed in local ENU so results read as horizontal or vertical):
+- **Global test.** `Ω/σ₀² ~ χ²(r)`, two-tailed, at its own level: 5% by default, as in the ICSM guideline and DynAdjust. It doesn't take its level from λ₀. The B-method would put it near 40% for a network with 100 degrees of freedom, so correct networks would fail routinely.
+- **w-test (data snooping, σ₀ known).** For each alternative vector *c* (one per vector component, expressed in local ENU at the vector's first mark so results read as horizontal or vertical):
 
   ```math
   w = \frac{c^T P \hat v}{\sigma_0 \sqrt{c^T P Q_{\hat v \hat v} P c}} \sim N(0,1)
@@ -465,8 +467,9 @@ GNSS vectors carry scale and orientation from the orbits, so a vector-only netwo
   T_i = \frac{\hat v^T P C_i \,(C_i^T P Q_{\hat v \hat v} P C_i)^{-1}\, C_i^T P \hat v}{\sigma_0^2} \sim \chi^2_3
   ```
 
-- **Tau test (Pope)** is available when the a posteriori variance factor is used.
-- **Critical values** follow Baarda's B-method. Choose α₀ (default 0.1%) and β₀ (default 80%), giving λ₀ ≈ 17.07. The levels for the 3-DoF test and the global test are derived from the same λ₀ and β₀, so all tests are equally sensitive.
+- **Tau test (Pope)** is the w-test with the a posteriori variance factor, against Pope's critical value at α₀. It needs at least 2 degrees of freedom.
+- **Critical values** follow Baarda's B-method. Choose α₀ (default 0.1%) and β₀ (default 80%), giving λ₀ ≈ 17.07. The 3-DoF test's level is derived from the same λ₀ and β₀ (0.55% for the defaults), so it's as sensitive as the w-test.
+- **Untestable components.** A component that the other observations check less than 1e-8 of, such as a spur or bridge vector's, gets no w-test and no MDB: its residual is rounding error over rounding error, and the bias it could hide is unbounded.
 - **Outlier handling.** Suspects are ranked by test statistic and shown with evidence. Excluding or re-weighting an observation is a recorded user action, and the tool never iterates silently.
 
 ### 10.6 Reliability
@@ -479,7 +482,7 @@ GNSS vectors carry scale and orientation from the orbits, so a vector-only netwo
   ```
 
   For uncorrelated observations this reduces to `σ_i·sqrt(λ₀/r_i)`.
-- **External reliability:** `∇x̂ = Q_x̂ AᵀP c ∇_c`, the largest coordinate shift that an undetectable blunder could cause.
+- **External reliability:** `∇x̂ = Q_x̂ AᵀP c ∇_c`, the largest coordinate shift that an undetectable blunder could cause. It's computed for the observation's own marks, relative to the datum: those blocks of `Q_x̂` are on the selected inverse's pattern, while shifts elsewhere would cost a solve per component.
 - MDBs and external reliability are drawn on the map, so weak parts of the network are visible before anyone looks at a table.
 
 ### 10.7 Variance component estimation
@@ -858,7 +861,9 @@ gnss serve [--bundle <zip>]     # serve the web app on localhost, with a private
 
 These are for an 8-core laptop. Web targets are for current Chrome or Edge, with the core's maths single-threaded (section 14.1).
 
-The engine targets come from the M0 spike's measurements ([report](spikes/m0-engine.md)). With trimmed inputs, RTKLIB-EX took 1.2 to 2.3 s per 2-hour baseline in Chromium, 1.1 to 1.5 times native. The core's own speed in WebAssembly isn't measured yet, so the adjustment and ingest targets stay provisional until M2 and M6.
+The engine targets come from the M0 spike's measurements ([report](spikes/m0-engine.md)). With trimmed inputs, RTKLIB-EX took 1.2 to 2.3 s per 2-hour baseline in Chromium, 1.1 to 1.5 times native.
+
+The adjustment targets are met with a wide margin (section 10.4). A synthetic network of 1,000 marks and 3,000 vectors adjusts in 17 ms natively and 38 ms in Chromium, about 2.2 times native. 10,000 marks and 30,000 vectors take 0.3 s natively. CI checks the first target natively and in headless Chrome on every change. The ingest target stays provisional until M6.
 
 | Operation | Native CLI | Web app |
 |---|---|---|

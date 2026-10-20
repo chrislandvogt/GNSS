@@ -152,28 +152,28 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 
 **Goal:** a rigorous, explainable 3D least squares adjustment of GNSS observations.
 
-- [ ] Observation types:
-  - [ ] GNSS baseline: a 3D vector with a 3×3 covariance.
-  - [ ] GNSS baseline cluster: n vectors with a full 3n×3n covariance.
-  - [ ] Point cluster: positions with covariance, for CORS, AUSPOS or control constraints.
+- [x] Observation types:
+  - [x] GNSS baseline: a 3D vector with a 3×3 covariance.
+  - [x] GNSS baseline cluster: n vectors with a full 3n×3n covariance.
+  - [x] Point cluster: positions with covariance, for CORS, AUSPOS or control constraints.
 - [ ] Stochastic model:
-  - [ ] Input covariances, an a priori variance factor, and group scale factors.
+  - [x] Input covariances, an a priori variance factor, and group scale factors.
   - [ ] Centring and height-measurement errors as occupation-level nuisance parameters with priors, so vectors that share a set-up are correctly correlated.
-- [ ] Datum definition:
-  - [ ] Minimally constrained, by fixing one station or using inner constraints.
-  - [ ] Constrained, with fixed or weighted control.
-  - [ ] An explicit frame and epoch for the adjustment.
-- [ ] Solver:
-  - [ ] Sparse normal equations with fill-reducing ordering and Cholesky factorisation (faer), plus a dense path for small networks.
-  - [ ] Parameter covariance: a full inverse up to about 2,000 marks, and a selected inverse beyond that.
-- [ ] Diagnostics: detect disconnected sub-networks, an undefined datum and near-singular geometry, with errors that name the marks involved.
-- [ ] Statistics:
-  - [ ] Residuals, the a posteriori variance factor and the global test (two-tailed χ²).
-  - [ ] Redundancy numbers and standardised residuals.
-  - [ ] w-tests in local ENU per component, plus a 3-DoF test per vector, with the tau test as an option.
-- [ ] Reliability:
-  - [ ] Minimal detectable bias (MDB) per observation, using Baarda's B-method with configurable α₀ and β₀.
-  - [ ] External reliability: the effect of an undetected MDB on coordinates.
+- [x] Datum definition:
+  - [x] Minimally constrained, by fixing one station or using inner constraints.
+  - [x] Constrained, with fixed or weighted control.
+  - [x] An explicit frame and epoch for the adjustment.
+- [x] Solver:
+  - [x] Sparse normal equations in 3×3 blocks with a fill-reducing (minimum-degree) ordering and our own block `L D Lᵀ` factorisation, which gives the same bits on every platform (D-025). It's fast enough at every size, so there's no separate dense path.
+  - [x] Parameter covariance by selected inverse (Takahashi) at every size: each mark's block and every pair that shares an observation. Other pairs, for RU, cost three solves each.
+- [x] Diagnostics: detect disconnected sub-networks, an undefined datum and near-singular geometry, with errors that name the marks involved.
+- [x] Statistics:
+  - [x] Residuals, the a posteriori variance factor and the global test (two-tailed χ²).
+  - [x] Redundancy numbers and standardised residuals.
+  - [x] w-tests in local ENU per component, plus a 3-DoF test per vector, with the tau test as an option.
+- [x] Reliability:
+  - [x] Minimal detectable bias (MDB) per observation, using Baarda's B-method with configurable α₀ and β₀.
+  - [x] External reliability: the effect of an undetected MDB on coordinates (the observation's own marks).
 - [ ] Variance component estimation by group (session, engine, receiver type), iterated, with convergence reporting.
 - [ ] Uncertainties:
   - [ ] Standard and 95% error ellipses and ellipsoids.
@@ -185,9 +185,10 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
   - [ ] Nothing happens automatically without a record.
 - [ ] Results model: adjusted coordinates with covariance, residuals and statistics, ready for reporting.
 - [ ] Tests:
-  - [ ] Synthetic networks with known truth.
-  - [ ] Blunder injection, measuring detection power against MDB theory.
-  - [ ] Invariance: test statistics must not depend on which minimal constraint is chosen.
+  - [x] Synthetic networks with known truth (`gnss_adjust::synthetic`), and a textbook dense adjustment as an oracle in every datum.
+  - [x] Blunder injection, measuring detection power against MDB theory.
+  - [x] Invariance: test statistics must not depend on which minimal constraint is chosen.
+  - [x] A golden hash of results, checked natively on every OS and in the browser (D-024).
   - [ ] DynAdjust oracle comparisons.
 
 **Exit criteria:**
