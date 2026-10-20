@@ -102,8 +102,8 @@ Every crate except `engine-host` compiles to both native code and WebAssembly. C
 | `checks` | Rule framework and built-in checks | none of note |
 | `pipeline` | DAG execution, hashing, cache, provenance. The executor is supplied by the host. | blake3; natively tokio and rayon |
 | `store` | One interface for project, cache and download storage | natively std::fs; in the browser web-sys (File System Access API, OPFS) |
-| `report` | SP1 evaluation, HTML/PDF reports | minijinja; PDF per D-012 |
-| `api` | Request/response types, jobs, events | serde, specta; wasm-bindgen for the web app |
+| `report` | SP1 evaluation, HTML/PDF reports | none yet: the M3 HTML report is one self-contained page written directly. minijinja templates and PDF (D-012) come with M12 |
+| `api` | Request/response types, jobs, events. So far: building networks from imported files, exports, and M3's second-opinion projects | serde, toml, specta; wasm-bindgen for the web app |
 
 Dependencies are pinned and reviewed. cargo-deny enforces the licence policy (D-005): no GPL, AGPL or LGPL code is linked into our binaries. Copyleft tools may only run as separate processes, or as separately built engine modules that talk to our code only through files and arguments (D-023). The web app's JavaScript dependencies follow the same policy, checked in CI.
 
@@ -226,6 +226,35 @@ to = "ARP"
 value = 1.5320           # metres
 measured_by = "CL"
 photos = ["fieldlogs/2026-10-14-PM12345-A-tape.jpg"]
+```
+
+Until the occupation model arrives (M5), a second-opinion project (M3) is `project.toml`, `raw/`, `raw.lock` and `results/`. The vectors and control it adjusts are files imported as they are, and the person's edits sit next to them with their reasons:
+
+```toml
+schema = 1
+name = "Bright control survey"
+
+[adjustment]
+frame = "GDA2020"
+datum = "constrained"        # or "minimal", or "fixed:MARK"
+uncertainty = "a-priori"     # the variance factor PU and RU use, or "a-posteriori"
+alpha0 = 0.001
+beta0 = 0.8
+global_alpha = 0.05
+
+[[import]]
+file = "raw/vectors.xml"
+format = "dynaml"            # starnet, rtklib, csv-vectors, csv-control or sinex
+
+[[import]]
+file = "raw/control.csv"
+format = "csv-control"
+frame = "GDA2020"            # for formats that don't say
+
+[[edit]]
+observation = "vectors.xml:435"
+action = "exclude"           # or "reweight", with a factor
+reason = "Vector test 28.4; re-observed on day 2"
 ```
 
 The rules:
@@ -785,6 +814,7 @@ gnss fetch                      # CORS data, products and ANTEX for all occupati
 gnss check                      # run blunder checks
 gnss process                    # baselines
 gnss adjust [--minimal|--constrained]
+gnss exclude <observation> --reason <text>   # the outlier workflow, recorded in project.toml
 gnss report --format html|pdf
 gnss export --format dynaml|starnet|landxml|gpkg|csv
 gnss verify                     # re-run from scratch and compare output hashes
@@ -793,7 +823,7 @@ gnss serve [--bundle <zip>]     # serve the web app on localhost, with a private
 ```
 
 - The binary name follows the project name (D-014).
-- Every command supports `--json`.
+- Every command supports `--json`, and takes the project folder as `--project` (the current folder by default).
 - **`serve`** serves the web app that ships with the CLI, or a given release bundle. A web app served this way can also hand native-only jobs, such as Ginan, to the CLI. It listens on localhost only, checks the `Origin` and `Host` headers, and requires a per-session token, so other websites can't use it.
 - Exit codes:
 
@@ -801,7 +831,7 @@ gnss serve [--bundle <zip>]     # serve the web app on localhost, with a private
   |---|---|
   | 0 | Success |
   | 1 | Error |
-  | 2 | A statistical test failed |
+  | 2 | The adjustment ran, but a statistical test failed or there was no redundancy to test with |
   | 3 | Blocking issues present |
 
 ## 16. Python and ArcGIS Pro (Phase 2)

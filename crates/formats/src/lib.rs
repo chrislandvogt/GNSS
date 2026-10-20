@@ -28,3 +28,10 @@ pub use survey::{
     Note, Origin, Reference, Scaling, Station, Survey,
 };
 pub use text::decode;
+
+/// An epoch written as a decimal year (`2026.79`), an ISO date (`2026-10-14`)
+/// or date and time in UTC (`2026-10-14T03:00:00Z`), or a DynaML date
+/// (`14.10.2026`). `field` names it in the message if it isn't one.
+pub fn parse_epoch(field: &str, text: &str) -> Result<gnss_datum::CoordinateEpoch, String> {
+    text::epoch_text(field, text)
+}

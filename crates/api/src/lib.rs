@@ -9,6 +9,7 @@
 
 pub mod build;
 pub mod export;
+pub mod project;
 
 /// Version of the core.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

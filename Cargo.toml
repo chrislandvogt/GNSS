@@ -16,6 +16,7 @@ gnss-adjust = { path = "crates/adjust" }
 gnss-api = { path = "crates/api" }
 gnss-datum = { path = "crates/datum" }
 gnss-formats = { path = "crates/formats" }
+gnss-report = { path = "crates/report" }
 gnss-store = { path = "crates/store" }
 hifitime = "4.3"
 js-sys = "0.3"
@@ -25,6 +26,8 @@ libm = "0.2.16"
 # picks SIMD and FMA kernels by CPU at run time, so results would differ
 # between machines (D-024). Its own loops are the same everywhere.
 nalgebra = { version = "0.35", default-features = false, features = ["alloc", "libm-force"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 sha2 = "0.10"
 thiserror = "2"
 # Reading jurisdiction packs (ARCHITECTURE.md section 11.6).
