@@ -169,7 +169,7 @@
         }}
       /></label
     >
-    <span class="muted">or drop them here. DynaML, STAR*NET, RTKLIB .pos, SINEX or CSV.</span>
+    <span class="muted">or drop them here. DynaML, STAR*NET, TDEF from TBC, RTKLIB .pos, SINEX or CSV.</span>
   </div>
 
   {#if entries.length}

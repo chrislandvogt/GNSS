@@ -386,7 +386,7 @@ mod tests {
                 .iter()
                 .any(|f| f.name == "ITRF2014" && !f.is_static)
         );
-        assert_eq!(c.formats.len(), 6);
+        assert_eq!(c.formats.len(), 7);
         assert_eq!(c.exports[0].name, "gpkg");
         let json = serde_json::to_string(&c).unwrap();
         assert!(json.contains("\"static\":true"));

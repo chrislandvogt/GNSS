@@ -81,7 +81,7 @@ struct InitArgs {
 
 #[derive(Subcommand)]
 enum ImportCommand {
-    /// GNSS vectors: DynaML, STAR*NET, RTKLIB or CSV.
+    /// GNSS vectors: DynaML, STAR*NET, TDEF, RTKLIB or CSV.
     Vectors(ImportArgs<VectorFormat>),
     /// Control: DynaML stations, CSV or SINEX.
     Control(ImportArgs<ControlFormat>),
@@ -95,8 +95,8 @@ struct ImportArgs<F: ValueEnum + Clone + Send + Sync + 'static> {
     /// name, and the guess is shown.
     #[arg(long)]
     format: Option<F>,
-    /// The frame of its contents, for formats that don't say (STAR*NET, CSV
-    /// without a frame column, RTKLIB, SINEX without one in its comments).
+    /// The frame of its contents, for formats that don't say (STAR*NET, TDEF,
+    /// CSV without a frame column, RTKLIB, SINEX without one in its comments).
     #[arg(long)]
     frame: Option<String>,
     /// The epoch of its contents, as a decimal year or date, for a dynamic frame.
@@ -114,6 +114,7 @@ struct ImportArgs<F: ValueEnum + Clone + Send + Sync + 'static> {
 enum VectorFormat {
     Dynaml,
     Starnet,
+    Tdef,
     Rtklib,
     Csv,
 }
@@ -215,12 +216,14 @@ fn dispatch(cli: &Cli) -> Result<u8, Failure> {
             let format = args.format.map(|f| match f {
                 VectorFormat::Dynaml => Format::Dynaml,
                 VectorFormat::Starnet => Format::Starnet,
+                VectorFormat::Tdef => Format::Tdef,
                 VectorFormat::Rtklib => Format::Rtklib,
                 VectorFormat::Csv => Format::CsvVectors,
             });
             let allowed = [
                 Format::Dynaml,
                 Format::Starnet,
+                Format::Tdef,
                 Format::Rtklib,
                 Format::CsvVectors,
             ];

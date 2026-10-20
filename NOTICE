@@ -37,6 +37,13 @@ The formats crate's tests use DynAdjust's sample GNSS network and SINEX file
   Copyright Geoscience Australia
   Licensed under the Apache License, Version 2.0.
 
+Its TDEF test files (crates/formats/tests/data/tdef) are Trimble Business
+Center exports from PynAdjust's test resources:
+
+  PynAdjust (https://github.com/icsm-au/PynAdjust)
+  Intergovernmental Committee on Surveying and Mapping (ICSM)
+  Licensed under the Apache License, Version 2.0.
+
 Its RTKLIB test solutions (crates/formats/tests/data/rtklib) were computed
 from CORS observations:
 

@@ -1,4 +1,4 @@
-//! Import and export of exchange formats: DynaML, STAR*NET, RTKLIB .pos, SINEX, LandXML, CSV and GeoPackage.
+//! Import and export of exchange formats: DynaML, STAR*NET, Trimble's TDEF, RTKLIB .pos, SINEX, LandXML, CSV and GeoPackage.
 //!
 //! See `docs/ARCHITECTURE.md` for this crate's place in the design.
 //!
@@ -19,6 +19,7 @@ pub mod sinex;
 mod sqlite;
 pub mod starnet;
 pub mod survey;
+pub mod tdef;
 mod text;
 mod xml;
 

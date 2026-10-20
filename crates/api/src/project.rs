@@ -9,7 +9,9 @@
 use gnss_adjust::closures::Closures;
 use gnss_adjust::{Action, Adjustment, Edit, Options, Scaling, Subject};
 use gnss_datum::{CoordinateEpoch, FrameId, TransformationGraph};
-use gnss_formats::{FormatError, Reference, Survey, csv, decode, dynaml, rtklib, sinex, starnet};
+use gnss_formats::{
+    FormatError, Reference, Survey, csv, decode, dynaml, rtklib, sinex, starnet, tdef,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::build::{BuildError, Built, DatumChoice, Settings, build};
@@ -103,6 +105,8 @@ pub enum Format {
     Dynaml,
     /// STAR*NET GPS vectors.
     Starnet,
+    /// Trimble Data Exchange Format, from Trimble Business Center.
+    Tdef,
     /// An RTKLIB solution.
     Rtklib,
     /// The CSV vector format.
@@ -115,9 +119,10 @@ pub enum Format {
 
 impl Format {
     /// Every format, with its name.
-    pub const ALL: [(Format, &'static str); 6] = [
+    pub const ALL: [(Format, &'static str); 7] = [
         (Format::Dynaml, "dynaml"),
         (Format::Starnet, "starnet"),
+        (Format::Tdef, "tdef"),
         (Format::Rtklib, "rtklib"),
         (Format::CsvVectors, "csv-vectors"),
         (Format::CsvControl, "csv-control"),
@@ -145,6 +150,7 @@ impl Format {
         match self {
             Format::Dynaml => "DynaML stations or measurements",
             Format::Starnet => "STAR*NET GPS vectors",
+            Format::Tdef => "Trimble Data Exchange Format (TBC)",
             Format::Rtklib => "RTKLIB static solution (.pos)",
             Format::CsvVectors => "CSV vectors",
             Format::CsvControl => "CSV control",
@@ -173,6 +179,13 @@ pub fn guess_format(name: &str, bytes: &[u8]) -> Option<Format> {
     }
     if head.starts_with('%') && head.lines().any(|l| l.contains("RTKLIB")) {
         return Some(Format::Rtklib);
+    }
+    if head.trim_start().starts_with("[General]")
+        && head
+            .lines()
+            .any(|l| l.starts_with("GPSVectors=") || l.trim() == "[GPS]")
+    {
+        return Some(Format::Tdef);
     }
     let name = name.to_ascii_lowercase();
     match name.rsplit_once('.').map_or("", |(_, extension)| extension) {
@@ -396,6 +409,21 @@ pub fn read_import(import: &Import, bytes: &[u8]) -> Result<Survey, ProjectError
                 )));
             }
             starnet::read(name, &text, reference)?
+        }
+        Format::Tdef => {
+            let frame = frame.ok_or_else(|| {
+                ProjectError::Import(format!(
+                    "{name}: TDEF files don't say which frame their vectors are in; give the \
+                     import a frame (TBC sets it under Project Settings, Computations, GNSS \
+                     Vector)"
+                ))
+            })?;
+            tdef::read(
+                name,
+                &text,
+                frame,
+                if frame.is_static() { None } else { epoch },
+            )?
         }
         Format::Rtklib => rtklib::read(
             name,

@@ -57,3 +57,10 @@ path = "fuzz_targets/csv.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "tdef"
+path = "fuzz_targets/tdef.rs"
+test = false
+doc = false
+bench = false

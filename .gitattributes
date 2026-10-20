@@ -2,3 +2,4 @@
 crates/formats/tests/data/dynaml/*.xml -text
 crates/formats/tests/data/rtklib/*.pos -text
 crates/formats/tests/data/sinex/*.SNX -text
+crates/formats/tests/data/tdef/*.asc -text

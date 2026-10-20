@@ -106,13 +106,14 @@ jobs:
       - name: Fuzz each format reader for 30 seconds, starting from the test files
         working-directory: crates/formats/fuzz
         run: |
-          for target in dynaml starnet rtklib sinex csv; do mkdir -p "corpus/$target"; done
+          for target in dynaml starnet tdef rtklib sinex csv; do mkdir -p "corpus/$target"; done
           cp ../tests/data/dynaml/*.xml corpus/dynaml/
+          cp ../tests/data/tdef/*.asc corpus/tdef/
           cp ../tests/data/rtklib/*.pos corpus/rtklib/
           cp ../tests/data/sinex/*.SNX corpus/sinex/
           printf 'G1 A-B 1 2 3\nG2 1e-6 1e-6 1e-6\nG3 0 0 0\n' > corpus/starnet/vector.gps
           printf 'from,to,dx,dy,dz,sd_x,sd_y,sd_z\nA,B,1,2,3,0.001,0.001,0.001\n' > corpus/csv/vectors.csv
-          for target in dynaml starnet rtklib sinex csv; do
+          for target in dynaml starnet tdef rtklib sinex csv; do
             cargo +nightly fuzz run "$target" "corpus/$target" -- -max_total_time=30 -max_len=65536 -rss_limit_mb=2048
           done
       - name: Keep the input that failed

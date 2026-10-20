@@ -8,6 +8,7 @@ Which files the tool reads and writes, and what it does with each. For getting v
 |---|---|---|---|
 | DynaML (DynAdjust XML) | Vectors, clusters, stations and point clusters | The network as adjusted | Yes |
 | STAR*NET GPS vectors | Vectors | The network's vectors | No: give the import a frame |
+| TDEF (Trimble Data Exchange Format) | Vectors, with marks as starting positions | | No: give the import a frame |
 | RTKLIB `.pos` | One baseline | | No: WGS 84 is assumed unless you give one |
 | SINEX (such as AUSPOS) | Weighted control with full covariance | | Usually, in its comments |
 | CSV vectors | Vectors | | Optional `frame` and `epoch` columns |
@@ -50,6 +51,15 @@ G3 -2.1E-07  3.4E-07  -1.2E-07
 - `.GPS FACTOR` scales the standard errors, horizontally and vertically.
 - `G4` records and antenna heights on `G1` lines are refused, since ignoring them would change the vectors. Other records (terrestrial observations, coordinates) are skipped with a note.
 - **The files don't say which frame or epoch the vectors are in**, so the import needs both: for example GDA2020, or ITRF2014 at 2026.5.
+
+### TDEF (Trimble Business Center)
+
+The Trimble Data Exchange Format, written by Trimble Business Center's TDEF exporter, and reportedly by CHC Geomatics Office's "TGO baseline result" export. Trimble doesn't publish a specification, so the reader follows real TBC exports and ICSM's PynAdjust converter.
+
+- `[GPS]` `Vector` records give the two marks, ΔX, ΔY and ΔZ in metres, and the covariance in m² (XX, XY, XZ, YY, YZ, ZZ), then the antenna heights and the observation's start and end. A covariance that isn't positive definite is refused, which also catches a misread order of its terms.
+- The vectors must be mark to mark (`GPSVectors=MarkToMark`, as TBC writes them), in metres. Anything else is refused rather than guessed at.
+- `[Stations]` and `[Keyed In Coordinates]` (latitude, longitude and ellipsoidal height in the project's coordinate system, such as `Australia/GDA2020`) become free marks: starting positions only. Keyed-in coordinates are used where both are given. To hold control, import it separately; the CORS coordinates keyed into TBC can go in a CSV control file.
+- **The file doesn't say which frame the vectors are in**, so the import needs one. Since version 2024.10, TBC sets it under *Project Settings → Computations → GNSS Vector*: the global datum at its reference epoch, or ITRS at the measurement epoch. Give the import the matching frame. For a dynamic frame, each vector's epoch is the middle of its observation unless the import gives one. In Australia, ITRF2014 at the survey's epoch and GDA2020 differ for vectors only by the plate's rotation since 2020.0: about 0.01 ppm a year, or half a millimetre over 50 km for each year.
 
 ### RTKLIB `.pos`
 

@@ -46,7 +46,7 @@ gnss adjust
 gnss export --format gpkg   # results/results.gpkg
 ```
 
-- `gnss import vectors` takes `--format dynaml`, `starnet`, `rtklib` or `csv`; `gnss import control` takes `dynaml`, `csv` or `sinex`. Without `--format`, the format is guessed from the file's contents and name, and the guess is shown. Give `--frame` (and `--epoch`) for files that don't say, and `--base` and `--rover` for an RTKLIB solution.
+- `gnss import vectors` takes `--format dynaml`, `starnet`, `tdef`, `rtklib` or `csv`; `gnss import control` takes `dynaml`, `csv` or `sinex`. Without `--format`, the format is guessed from the file's contents and name, and the guess is shown. Give `--frame` (and `--epoch`) for files that don't say, and `--base` and `--rover` for an RTKLIB solution.
 - `gnss adjust --minimal` adjusts minimally constrained for one run, without changing the project.
 - `gnss export --format` takes `gpkg`, `csv`, `landxml`, `dynaml` or `starnet`. `--output` writes elsewhere.
 - Every command takes `--project <folder>` (the current folder by default) and `--json`, for scripts.
@@ -64,7 +64,7 @@ To include an excluded observation again, remove its `[[edit]]` from `project.to
 - **Tests.** The global test checks the variance factor against χ² at 5%. Each vector's components are w-tested on local east, north and up axes at the level α₀ (0.1% by default), and each vector as a whole by its 3-degree-of-freedom test, with the B-method tying the levels together at power β₀ (80%). The minimal detectable bias (MDB) is the smallest error each test would catch.
 - **Suspects** are ranked by how far each test failed. A failed test is evidence, not a verdict. Look at the vector's processing, its session and its set-up before excluding it, and record why.
 - **Coordinates** come with their standard deviations and SP1's positional uncertainty (PU) at 95%. The relative uncertainty (RU) table covers each pair of marks joined by an observation. Both follow the ICSM *Guideline for Adjustment and Evaluation of Survey Control*.
-- **Loop closures and repeated vectors** are tested on their own, so a blunder can be found before it's spread through the adjustment.
+- **Loop closures and repeated vectors** are tested on their own, so a blunder can be found before it's spread through the adjustment. They screen every vector, including those you've excluded, so a loop through an excluded vector still shows why it was left out.
 - **Provenance** lists every input file with its SHA-256 hash, every transformation applied, and every assumption the readers made, such as orthometric heights used as starting values.
 
 The adjustment is checked against DynAdjust on DynAdjust's own sample network: transformed vectors agree within 0.5 µm, coordinates within 0.7 µm, and the same outliers are flagged ([VALIDATION.md](../VALIDATION.md)).

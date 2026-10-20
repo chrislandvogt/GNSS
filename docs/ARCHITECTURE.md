@@ -809,7 +809,7 @@ The CLI is the same core compiled natively. It's used for scripting and CI, the 
 gnss init <dir> --pack au
 gnss import rinex <files...>
 gnss import fieldlog <files...>
-gnss import vectors <file> [--format dynaml|starnet|rtklib|csv]   # guessed if not given
+gnss import vectors <file> [--format dynaml|starnet|tdef|rtklib|csv]   # guessed if not given
 gnss import control <file> [--format dynaml|csv|sinex]
 gnss fetch                      # CORS data, products and ANTEX for all occupations
 gnss check                      # run blunder checks
