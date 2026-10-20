@@ -9,7 +9,9 @@
 #![allow(clippy::unwrap_used)]
 
 use gnss_adjust::synthetic::{Spec, Synthetic};
-use gnss_adjust::{AdjustError, Adjustment, Datum, Element, Network, Observation, Options};
+use gnss_adjust::{
+    AdjustError, Adjustment, Datum, Element, Network, Observation, Options, Scaling,
+};
 use gnss_datum::{CoordinateEpoch, FrameId, GRS80};
 use nalgebra::{DMatrix, DVector, Matrix3, Vector3};
 #[cfg(target_arch = "wasm32")]
@@ -26,6 +28,8 @@ const CONSTRAINED: Datum = Datum::Constrained { fixed: Vec::new() };
 struct Dense {
     positions: Vec<Vector3<f64>>,
     cofactors: Vec<Matrix3<f64>>,
+    /// The whole cofactor matrix of the positions.
+    qx: DMatrix<f64>,
     /// By element: residual (ECEF), then by ENU component: w, MDB, redundancy, shift.
     residuals: Vec<Vector3<f64>>,
     w: Vec<[Option<f64>; 3]>,
@@ -102,6 +106,7 @@ fn dense(network: &Network, datum: &Datum, lambda0: f64) -> Dense {
         cofactors: (0..marks)
             .map(|k| qx.fixed_view::<3, 3>(3 * k, 3 * k).into_owned())
             .collect(),
+        qx: qx.clone(),
         residuals: Vec::new(),
         w: Vec::new(),
         mdb: Vec::new(),
@@ -214,6 +219,18 @@ fn compare(adjustment: &Adjustment, dense: &Dense) {
             mark.cofactor
         );
     }
+    // Every block of Qₓ, whether or not the two marks share an observation.
+    let marks = adjustment.marks().len();
+    for a in 0..marks {
+        for b in 0..marks {
+            let block = adjustment.cross_covariance(a, b, Scaling::APriori).unwrap();
+            let expected = dense.qx.fixed_view::<3, 3>(3 * a, 3 * b);
+            assert!(
+                (block - expected).abs().max() < 1e-14,
+                "({a}, {b}): {block} vs {expected}"
+            );
+        }
+    }
     close(
         adjustment.statistics().sum_of_squares,
         dense.sum_of_squares,
@@ -310,6 +327,22 @@ fn statistics_do_not_depend_on_the_minimal_datum() {
             let difference = (b.position - a.position - shift).norm();
             assert!(difference < 1e-8, "{difference}");
         }
+        // Relative uncertainty leaves the datum out.
+        for a in 0..network.marks().len() {
+            for b in 0..network.marks().len() {
+                let ru = |adjustment: &Adjustment| {
+                    adjustment
+                        .relative_uncertainty(a, b, Scaling::APriori)
+                        .unwrap()
+                        .enu
+                };
+                let (x, y) = (ru(&first), ru(&other));
+                assert!(
+                    (x - y).abs().max() < 1e-9 * x.abs().max().max(1e-12),
+                    "({a}, {b})"
+                );
+            }
+        }
         if datum == Datum::Inner {
             let adjusted = centroid(&mut other.marks().iter().map(|m| m.position));
             let approximate = centroid(&mut network.marks().iter().map(|m| m.approximate.unwrap()));
@@ -325,35 +358,117 @@ fn statistics_do_not_depend_on_the_minimal_datum() {
 #[test]
 fn errors_are_consistent_with_the_cofactors() {
     let synthetic = clustered(3);
-    // Each mark's error against the truth, d, makes dᵀQ⁻¹d a χ²(3) with mean
-    // 3. Marks in one draw share the control's errors, so the draws, not the
-    // marks, are the independent samples.
-    let draws: Vec<f64> = (0..400)
-        .map(|seed| {
-            let adjustment = synthetic
-                .observe(1000 + seed)
-                .adjust(&CONSTRAINED, &Options::default())
-                .unwrap();
-            let total: f64 = adjustment
-                .marks()
-                .iter()
-                .zip(&synthetic.truth)
-                .map(|(mark, truth)| {
-                    let error = mark.position - truth;
-                    error.dot(&(mark.cofactor.try_inverse().unwrap() * error))
-                })
-                .sum();
-            total / synthetic.truth.len() as f64
+    let options = Options::default();
+    let marks = synthetic.truth.len();
+    // Each mark's error against the truth, d, makes dᵀΣ⁻¹d a χ²(3) with mean
+    // 3, with Σ the mark's covariance (PU). So does each pair's relative
+    // error, with the relative covariance (RU), including pairs that share
+    // no observation. The covariances don't depend on the noise, so they
+    // come from one adjustment.
+    let exact = synthetic.exact().adjust(&CONSTRAINED, &options).unwrap();
+    let inverse = |c: Matrix3<f64>| c.try_inverse().unwrap();
+    let absolute: Vec<Matrix3<f64>> = (0..marks)
+        .map(|m| inverse(exact.covariance(m, Scaling::APriori).unwrap()))
+        .collect();
+    let pairs: Vec<(usize, usize, Matrix3<f64>)> = (0..marks)
+        .flat_map(|a| (a + 1..marks).map(move |b| (a, b)))
+        .map(|(a, b)| {
+            let u = exact.relative_uncertainty(a, b, Scaling::APriori).unwrap();
+            // The relative covariance in ECEF, from a's local axes.
+            let axes = GRS80
+                .ecef_to_geodetic(&synthetic.exact().marks()[a].approximate.unwrap())
+                .unwrap()
+                .enu_rotation();
+            (a, b, inverse(axes.transpose() * u.enu * axes))
         })
         .collect();
-    let n = draws.len() as f64;
-    let mean = draws.iter().sum::<f64>() / n;
-    let variance = draws.iter().map(|d| (d - mean) * (d - mean)).sum::<f64>() / (n - 1.0);
-    let standard_error = libm::sqrt(variance / n);
-    assert!(
-        (mean - 3.0).abs() < 4.0 * standard_error,
-        "mean {mean}, standard error {standard_error}"
+
+    // Marks in one draw share the control's errors, so the draws, not the
+    // marks, are the independent samples.
+    let (mut positions, mut relatives) = (Vec::new(), Vec::new());
+    for seed in 0..400 {
+        let adjustment = synthetic
+            .observe(1000 + seed)
+            .adjust(&CONSTRAINED, &options)
+            .unwrap();
+        let error = |m: usize| adjustment.marks()[m].position - synthetic.truth[m];
+        let distance = |d: Vector3<f64>, w: &Matrix3<f64>| d.dot(&(w * d));
+        positions.push(
+            (0..marks)
+                .map(|m| distance(error(m), &absolute[m]))
+                .sum::<f64>()
+                / marks as f64,
+        );
+        relatives.push(
+            pairs
+                .iter()
+                .map(|(a, b, w)| distance(error(*b) - error(*a), w))
+                .sum::<f64>()
+                / pairs.len() as f64,
+        );
+    }
+    for (what, draws) in [("positions", positions), ("relative positions", relatives)] {
+        let n = draws.len() as f64;
+        let mean = draws.iter().sum::<f64>() / n;
+        let variance = draws.iter().map(|d| (d - mean) * (d - mean)).sum::<f64>() / (n - 1.0);
+        let standard_error = libm::sqrt(variance / n);
+        assert!(
+            (mean - 3.0).abs() < 4.0 * standard_error,
+            "{what}: mean {mean}, standard error {standard_error}"
+        );
+    }
+}
+
+#[test]
+fn uncertainties_need_a_mark_and_a_variance_factor() {
+    let network = clustered(3).observe(4);
+    let adjustment = network.adjust(&CONSTRAINED, &Options::default()).unwrap();
+    assert_eq!(
+        adjustment.positional_uncertainty(14, Scaling::APriori),
+        Err(AdjustError::NoSuchMark {
+            index: 14,
+            count: 14
+        })
     );
+    // A posteriori scaling multiplies by σ̂₀².
+    let factor = adjustment.statistics().variance_factor.unwrap();
+    let prior = adjustment.covariance(3, Scaling::APriori).unwrap();
+    let posterior = adjustment.covariance(3, Scaling::APosteriori).unwrap();
+    assert!((posterior - prior * factor).abs().max() < 1e-20);
+    // Positional uncertainty includes the control's; relative doesn't, so
+    // it's smaller between the ends of a vector.
+    let Element::Difference { from, to, .. } = network.observations()[0].elements[0] else {
+        panic!("not a vector");
+    };
+    let pu = adjustment
+        .positional_uncertainty(to, Scaling::APriori)
+        .unwrap();
+    let ru = adjustment
+        .relative_uncertainty(from, to, Scaling::APriori)
+        .unwrap();
+    assert!(pu.horizontal_95 > ru.horizontal_95, "{pu:?} vs {ru:?}");
+    assert_eq!(pu.vertical_95, 1.96 * pu.sigma_up);
+
+    // One vector and one control point: no redundancy.
+    let mut network = Network::new(FrameId::Gda2020, None).unwrap();
+    let base = Vector3::new(-4_474_000.0, 2_680_000.0, -3_667_000.0);
+    let vector = Vector3::new(1000.0, 0.0, 0.0);
+    let covariance = Matrix3::from_diagonal(&Vector3::new(1e-5, 1e-5, 4e-5));
+    let a = network.add_mark("A", Some(base)).unwrap();
+    let b = network.add_mark("B", None).unwrap();
+    network.add_observation(Observation::baseline("A-B", a, b, vector, covariance));
+    network.add_observation(Observation::point("A", a, base, covariance));
+    let adjustment = network.adjust(&CONSTRAINED, &Options::default()).unwrap();
+    assert_eq!(adjustment.statistics().degrees_of_freedom, 0);
+    assert_eq!(
+        adjustment.variance_factor(Scaling::APosteriori),
+        Err(AdjustError::NoRedundancy)
+    );
+    let u = adjustment
+        .positional_uncertainty(b, Scaling::APriori)
+        .unwrap();
+    // B is A plus the vector: their variances add.
+    assert!((u.enu.trace() - 2.0 * covariance.trace()).abs() < 1e-18);
 }
 
 #[test]

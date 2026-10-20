@@ -15,7 +15,7 @@
 
 use gnss_adjust::stats::{self, BMethod};
 use gnss_adjust::synthetic::{Spec, Synthetic};
-use gnss_adjust::{Adjustment, Datum, Options};
+use gnss_adjust::{Adjustment, Datum, Options, Scaling, Uncertainty};
 use sha2::{Digest, Sha256};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_test::wasm_bindgen_test as test;
@@ -23,7 +23,7 @@ use wasm_bindgen_test::wasm_bindgen_test as test;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-const GOLDEN: &str = "249da2663d35bc0dd649d10a6714ad5f5b0f45fe955c688bc38407a43600e7b3";
+const GOLDEN: &str = "b6acc40d239f5bcd2809a10c42c716f672403cdd1a41f19a22b122c0e7714e98";
 
 fn put(hasher: &mut Sha256, value: f64) {
     hasher.update(value.to_bits().to_le_bytes());
@@ -39,7 +39,36 @@ fn put_option(hasher: &mut Sha256, value: Option<f64>) {
     }
 }
 
+fn put_uncertainty(hasher: &mut Sha256, u: &Uncertainty) {
+    u.enu.iter().for_each(|&v| put(hasher, v));
+    for v in [
+        u.ellipse.semi_major,
+        u.ellipse.semi_minor,
+        u.ellipse.azimuth,
+    ] {
+        put(hasher, v);
+    }
+    u.ellipsoid.semi_axes.iter().for_each(|&v| put(hasher, v));
+    u.ellipsoid.axes.iter().for_each(|&v| put(hasher, v));
+    for v in [u.sigma_up, u.horizontal_95, u.vertical_95] {
+        put(hasher, v);
+    }
+}
+
 fn put_adjustment(hasher: &mut Sha256, adjustment: &Adjustment) {
+    // PU for every mark, and RU from the first mark to every other: most of
+    // those pairs share no observation, so they come from solves.
+    let marks = adjustment.marks().len();
+    for m in 0..marks {
+        let pu = adjustment
+            .positional_uncertainty(m, Scaling::APosteriori)
+            .unwrap();
+        put_uncertainty(hasher, &pu);
+        let ru = adjustment
+            .relative_uncertainty(0, m, Scaling::APriori)
+            .unwrap();
+        put_uncertainty(hasher, &ru);
+    }
     for mark in adjustment.marks() {
         mark.position.iter().for_each(|&v| put(hasher, v));
         mark.cofactor.iter().for_each(|&v| put(hasher, v));

@@ -14,8 +14,9 @@ use nalgebra::{DMatrix, DVector, Matrix3, Vector3};
 
 use crate::error::AdjustError;
 use crate::network::{Datum, Network, Observation, Options};
-use crate::sparse::{Block, BlockMatrix, SelectedInverse, spd_inverse};
+use crate::sparse::{Block, BlockMatrix, Factor, SelectedInverse, spd_inverse};
 use crate::stats::{self, BMethod};
+use crate::uncertainty::{Scaling, Uncertainty};
 
 /// A component is tested only if the other observations check at least this
 /// share of it. Below this, its residual is rounding error divided by
@@ -38,6 +39,8 @@ pub struct Adjustment {
     observations: Vec<ObservationResult>,
     statistics: Statistics,
     criteria: Criteria,
+    a_priori: f64,
+    solution: Solution,
 }
 
 /// A mark's adjusted position.
@@ -175,6 +178,77 @@ impl Adjustment {
     pub fn criteria(&self) -> &Criteria {
         &self.criteria
     }
+
+    /// The variance factor that `scaling` uses. The a posteriori factor
+    /// needs redundancy.
+    pub fn variance_factor(&self, scaling: Scaling) -> Result<f64, AdjustError> {
+        match scaling {
+            Scaling::APriori => Ok(self.a_priori),
+            Scaling::APosteriori => self
+                .statistics
+                .variance_factor
+                .ok_or(AdjustError::NoRedundancy),
+        }
+    }
+
+    /// The covariance of a mark's position, in ECEF m². Zero for a mark held
+    /// fixed.
+    pub fn covariance(&self, mark: usize, scaling: Scaling) -> Result<Matrix3<f64>, AdjustError> {
+        self.cross_covariance(mark, mark, scaling)
+    }
+
+    /// The covariance between two marks' positions, block (a, b), in ECEF
+    /// m². Pairs that share an observation come from the selected inverse;
+    /// others cost three solves.
+    pub fn cross_covariance(
+        &self,
+        a: usize,
+        b: usize,
+        scaling: Scaling,
+    ) -> Result<Matrix3<f64>, AdjustError> {
+        self.check_mark(a)?;
+        self.check_mark(b)?;
+        Ok(self.solution.datum_any(a, b) * self.variance_factor(scaling)?)
+    }
+
+    /// A mark's positional uncertainty, relative to the datum, on its local
+    /// axes: SP1's PU, with control uncertainty included.
+    pub fn positional_uncertainty(
+        &self,
+        mark: usize,
+        scaling: Scaling,
+    ) -> Result<Uncertainty, AdjustError> {
+        let covariance = self.covariance(mark, scaling)?;
+        let axes = self.solution.axes[mark];
+        Ok(Uncertainty::from_enu(axes * covariance * axes.transpose()))
+    }
+
+    /// The uncertainty of mark `b`'s position relative to mark `a`'s, on
+    /// `a`'s local axes: SP1's RU, which leaves out what the two share,
+    /// such as the datum's own uncertainty.
+    pub fn relative_uncertainty(
+        &self,
+        a: usize,
+        b: usize,
+        scaling: Scaling,
+    ) -> Result<Uncertainty, AdjustError> {
+        let ab = self.cross_covariance(a, b, scaling)?;
+        let relative =
+            self.covariance(a, scaling)? + self.covariance(b, scaling)? - ab - ab.transpose();
+        let axes = self.solution.axes[a];
+        Ok(Uncertainty::from_enu(axes * relative * axes.transpose()))
+    }
+
+    fn check_mark(&self, index: usize) -> Result<(), AdjustError> {
+        if index < self.marks.len() {
+            Ok(())
+        } else {
+            Err(AdjustError::NoSuchMark {
+                index,
+                count: self.marks.len(),
+            })
+        }
+    }
 }
 
 impl Network {
@@ -282,16 +356,18 @@ impl Network {
         } else {
             None
         };
-        let cofactors = Cofactors {
-            unknown: &unknown,
-            inverse: &inverse,
+        let solution = Solution {
+            unknown,
+            factor,
+            inverse,
             inner,
+            axes,
         };
 
         let adjusted_marks = (0..marks)
             .map(|m| AdjustedMark {
                 position: approximate[m] + corrections[m],
-                cofactor: cofactors.datum(m, m),
+                cofactor: solution.datum(m, m),
                 fixed: held[m] && *datum != Datum::Inner,
             })
             .collect();
@@ -347,8 +423,7 @@ impl Network {
         });
 
         let context = Context {
-            cofactors: &cofactors,
-            axes: &axes,
+            solution: &solution,
             sigma0,
             sigma0_hat,
             lambda0: b_method.lambda0(),
@@ -373,6 +448,8 @@ impl Network {
                 global_test,
             },
             criteria,
+            a_priori: options.variance_factor,
+            solution,
         })
     }
 }
@@ -466,20 +543,27 @@ fn residual(o: &Observation, l: &DVector<f64>, corrections: &[Vector3<f64>]) -> 
 
 /// The S-transformation to inner constraints from a solution holding one
 /// mark: Q = Q̃ − (R_a + R_bᵀ)/m + T/m², with R = Q̃G and T = GᵀQ̃G.
+#[derive(Debug, Clone, PartialEq)]
 struct Inner {
     r: Vec<Block>,
     t: Block,
     count: f64,
 }
 
-/// Blocks of the cofactor matrix of the positions.
-struct Cofactors<'a> {
-    unknown: &'a [Option<usize>],
-    inverse: &'a SelectedInverse,
+/// What the adjustment keeps to give the cofactor matrix of the positions,
+/// Qₓ, for any pair of marks.
+#[derive(Debug, Clone, PartialEq)]
+struct Solution {
+    /// Each mark's block of unknowns, or `None` for a mark held fixed.
+    unknown: Vec<Option<usize>>,
+    factor: Factor,
+    inverse: SelectedInverse,
     inner: Option<Inner>,
+    /// Local east, north and up axes at each mark's approximate position.
+    axes: Vec<Matrix3<f64>>,
 }
 
-impl Cofactors<'_> {
+impl Solution {
     /// Block (a, b) with the held marks fixed, for marks that share an
     /// observation, which puts the block on the selected inverse's pattern.
     fn held(&self, a: usize, b: usize) -> Block {
@@ -493,20 +577,45 @@ impl Cofactors<'_> {
         }
     }
 
-    /// Block (a, b) in the datum.
+    /// Block (a, b) in the datum, for marks that share an observation.
     fn datum(&self, a: usize, b: usize) -> Block {
-        let q = self.held(a, b);
+        self.to_datum(self.held(a, b), a, b)
+    }
+
+    /// Block (a, b) in the datum, for any pair of marks.
+    fn datum_any(&self, a: usize, b: usize) -> Block {
+        let held = match (self.unknown[a], self.unknown[b]) {
+            (Some(i), Some(j)) => self
+                .inverse
+                .block(i, j)
+                .unwrap_or_else(|| self.solve_block(i, j)),
+            _ => Block::zeros(),
+        };
+        self.to_datum(held, a, b)
+    }
+
+    /// Block (i, j) of N⁻¹, by solving for its column block j.
+    fn solve_block(&self, i: usize, j: usize) -> Block {
+        let columns: [Vector3<f64>; 3] = std::array::from_fn(|c| {
+            let mut unit = vec![Vector3::zeros(); self.factor.size()];
+            unit[j][c] = 1.0;
+            self.factor.solve(&unit)[i]
+        });
+        Block::from_columns(&columns)
+    }
+
+    /// A block with the held marks fixed, moved to the datum.
+    fn to_datum(&self, held: Block, a: usize, b: usize) -> Block {
         match &self.inner {
-            None => q,
-            Some(s) => q - (s.r[a] + s.r[b].transpose()) / s.count + s.t / (s.count * s.count),
+            None => held,
+            Some(s) => held - (s.r[a] + s.r[b].transpose()) / s.count + s.t / (s.count * s.count),
         }
     }
 }
 
 /// What every observation's tests need.
 struct Context<'a> {
-    cofactors: &'a Cofactors<'a>,
-    axes: &'a [Matrix3<f64>],
+    solution: &'a Solution,
     sigma0: f64,
     sigma0_hat: Option<f64>,
     lambda0: f64,
@@ -530,7 +639,7 @@ impl Context<'_> {
                 let mut block = Block::zeros();
                 for (a, sa) in ep.terms() {
                     for (b, sb) in eq.terms() {
-                        block += self.cofactors.held(a, b) * (sa * sb);
+                        block += self.solution.held(a, b) * (sa * sb);
                     }
                 }
                 aqa.fixed_view_mut::<3, 3>(3 * p, 3 * q).copy_from(&block);
@@ -553,7 +662,7 @@ impl Context<'_> {
             .iter()
             .enumerate()
             .map(|(a, element)| {
-                let axes = self.axes[element.first_mark()];
+                let axes = self.solution.axes[element.first_mark()];
                 let m_aa: Block = m.fixed_view::<3, 3>(3 * a, 3 * a).into_owned();
                 let m_aa = (m_aa + m_aa.transpose()) * 0.5;
                 let m_enu = axes * m_aa * axes.transpose();
@@ -627,7 +736,7 @@ impl Context<'_> {
             .map(|&m| {
                 let mut moved = Vector3::zeros();
                 for (&b, h_b) in marks.iter().zip(&h) {
-                    moved += self.cofactors.datum(m, b) * h_b;
+                    moved += self.solution.datum(m, b) * h_b;
                 }
                 moved.norm()
             })

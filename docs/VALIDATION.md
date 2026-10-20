@@ -74,7 +74,10 @@ The first generator is in place (`gnss_adjust::synthetic`, M2). It scatters mark
 | 45,600 w-tests without blunders | Mean 0.002, variance 1.013, and 47 false alarms at α₀ = 0.1% (45.6 expected) |
 | 15,200 vector tests without blunders | 87 false alarms at the B-method's 0.55% (83.6 expected) |
 | A bias of one MDB, over 400 draws (G-POW) | Detected by the w-test 79.8% of the time and by the vector test 80.3% (β₀ = 80%) |
-| Coordinate errors against their cofactors, over 4,000 draws | Mean dᵀQ⁻¹d of 2.980 ± 0.024 (3 expected) |
+| Coordinate errors against their covariances (PU), over 4,000 draws | Mean dᵀΣ⁻¹d of 2.981 ± 0.024 (3 expected) |
+| Relative errors of all 91 pairs against their covariances (RU), over 4,000 draws | Mean 2.989 ± 0.015 (3 expected) |
+| Horizontal errors inside the 95% PU circle (ICSM's formula), over 4,000 draws | 95.06% |
+| Every block of Qₓ, including pairs that share no observation, against the dense adjustment | Within 1e-14 m² in each datum |
 | Critical values against SciPy | Within 1e-12 relative (B-method critical values within 1e-10) |
 
 ### D4 Oracle networks (adjustment)

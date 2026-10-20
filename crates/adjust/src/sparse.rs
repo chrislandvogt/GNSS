@@ -160,6 +160,11 @@ pub struct Factor {
 }
 
 impl Factor {
+    /// The number of block rows.
+    pub fn size(&self) -> usize {
+        self.d_inverse.len()
+    }
+
     /// The elimination order.
     pub fn order(&self) -> &[usize] {
         &self.order

@@ -175,9 +175,9 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
   - [x] Minimal detectable bias (MDB) per observation, using Baarda's B-method with configurable α₀ and β₀.
   - [x] External reliability: the effect of an undetected MDB on coordinates (the observation's own marks).
 - [ ] Variance component estimation by group (session, engine, receiver type), iterated, with convergence reporting.
-- [ ] Uncertainties:
-  - [ ] Standard and 95% error ellipses and ellipsoids.
-  - [ ] SP1 v2.2 positional uncertainty (PU) and relative uncertainty (RU) between any pair, following the ICSM *Guideline for Adjustment and Evaluation of Survey Control*.
+- [x] Uncertainties:
+  - [x] Standard and 95% error ellipses and ellipsoids.
+  - [x] SP1 v2.2 positional uncertainty (PU) and relative uncertainty (RU) between any pair, following the ICSM *Guideline for Adjustment and Evaluation of Survey Control*, scaled by the a priori or a posteriori variance factor as the project chooses.
 - [ ] Loop closures (fundamental cycles from a spanning tree) and repeat-baseline comparisons, with misclosure tests and ppm.
 - [ ] Outlier workflow:
   - [ ] Rank the suspects.

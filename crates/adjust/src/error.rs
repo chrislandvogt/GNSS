@@ -93,6 +93,22 @@ pub enum AdjustError {
         source: DatumError,
     },
 
+    /// A mark index past the end of the network.
+    #[error("there's no mark {index}: the network has {count} marks")]
+    NoSuchMark {
+        /// The index given.
+        index: usize,
+        /// The number of marks.
+        count: usize,
+    },
+
+    /// The a posteriori variance factor of an adjustment without redundancy.
+    #[error(
+        "the adjustment has no redundancy, so there's no a posteriori variance factor: use the \
+         a priori one"
+    )]
+    NoRedundancy,
+
     /// An option out of range.
     #[error("{name} must be {expected}, got {value}")]
     InvalidOption {
