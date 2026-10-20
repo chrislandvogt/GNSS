@@ -685,7 +685,7 @@ impl Network {
 
     /// Approximate positions for every mark: those given, then observed
     /// positions, then the rest along the observed vectors, breadth first.
-    pub(crate) fn approximate_positions(&self) -> Result<Vec<Vector3<f64>>, AdjustError> {
+    pub fn approximate_positions(&self) -> Result<Vec<Vector3<f64>>, AdjustError> {
         let n = self.marks.len();
         let mut positions: Vec<Option<Vector3<f64>>> =
             self.marks.iter().map(|m| m.approximate).collect();

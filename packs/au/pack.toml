@@ -24,6 +24,8 @@ supported = [
     "ITRF2020",
     "IGS20",
     "ITRF2014",
+    "ITRF2008",
+    "ITRF2005",
     "ATRF2014",
     "GDA2020",
     "GDA94",
@@ -37,6 +39,18 @@ supported = [
 [[transformations]]
 name = "ITRF2014 to ITRF2020 (1)"
 epsg = 9991
+
+[[transformations]]
+name = "ITRF2008 to ITRF2014 (1)"
+epsg = 7790
+
+[[transformations]]
+name = "ITRF2008 to ITRF2020 (1)"
+epsg = 9992
+
+[[transformations]]
+name = "ITRF2005 to ITRF2008 (2)"
+epsg = 6389
 
 [[transformations]]
 name = "IGS20 = ITRF2020"
@@ -53,6 +67,18 @@ epsg = 9459
 [[transformations]]
 name = "ITRF2014 to GDA2020 (1)"
 epsg = 8049
+
+[[transformations]]
+name = "ITRF2008 to GDA2020 (GA)"
+# Geoscience Australia's direct transformation, as DynAdjust uses. EPSG has none.
+use = """\
+Preferred for ITRF2008 coordinates and vectors in Australia: it's fitted to \
+Australian sites, where the chain through ITRF2014 and the plate motion model \
+differs by up to 0.3 mas and 2 ppb."""
+
+[[transformations]]
+name = "ITRF2005 to GDA2020 (GA)"
+# Geoscience Australia's direct transformation, as DynAdjust uses. EPSG has none.
 
 [[transformations]]
 name = "GDA94 to GDA2020 (1)"

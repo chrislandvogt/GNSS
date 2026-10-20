@@ -4,8 +4,10 @@
 //! Python, server) calls the core only through this crate, so anything a user
 //! can do in one front end can be done in all of them.
 //!
-//! So far it holds only build information and file hashing, which the web
-//! skeleton uses to prove the core loads and runs in a worker.
+//! So far it holds build information, file hashing, and [`build`], which
+//! turns imported files into a network to adjust.
+
+pub mod build;
 
 /// Version of the core.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

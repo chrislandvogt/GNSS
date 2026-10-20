@@ -29,3 +29,10 @@ for the GeoTIFF versions:
   AUSGeoid2020 and its uncertainty grid
   Copyright Geoscience Australia
   Licensed under Creative Commons Attribution 4.0 International.
+
+The formats crate's tests use DynAdjust's sample GNSS network
+(crates/formats/tests/data/dynaml):
+
+  DynAdjust (https://github.com/icsm-au/DynAdjust)
+  Copyright Geoscience Australia
+  Licensed under the Apache License, Version 2.0.

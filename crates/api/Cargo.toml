@@ -9,7 +9,12 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+gnss-adjust.workspace = true
+gnss-datum.workspace = true
+gnss-formats.workspace = true
 gnss-store.workspace = true
+nalgebra.workspace = true
+thiserror.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true

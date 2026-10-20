@@ -12,8 +12,10 @@ repository = "https://github.com/chrislandvogt/GNSS"
 publish = false
 
 [workspace.dependencies]
+gnss-adjust = { path = "crates/adjust" }
 gnss-api = { path = "crates/api" }
 gnss-datum = { path = "crates/datum" }
+gnss-formats = { path = "crates/formats" }
 gnss-store = { path = "crates/store" }
 hifitime = "4.3"
 js-sys = "0.3"

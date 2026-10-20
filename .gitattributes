@@ -1,0 +1,2 @@
+# Test data copied from other projects stays byte for byte as published.
+crates/formats/tests/data/dynaml/*.xml -text

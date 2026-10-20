@@ -189,7 +189,12 @@ dependencies = [
 name = "gnss-api"
 version = "0.0.0"
 dependencies = [
+ "gnss-adjust",
+ "gnss-datum",
+ "gnss-formats",
  "gnss-store",
+ "nalgebra",
+ "thiserror",
  "wasm-bindgen-test",
 ]
 
@@ -241,6 +246,13 @@ version = "0.0.0"
 [[package]]
 name = "gnss-formats"
 version = "0.0.0"
+dependencies = [
+ "gnss-datum",
+ "nalgebra",
+ "quick-xml",
+ "thiserror",
+ "wasm-bindgen-test",
+]
 
 [[package]]
 name = "gnss-model"
@@ -513,6 +525,15 @@ name = "quick-error"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a993555f31e5a609f617c12db6250dedcac1b0a85076912c436e6fc9b2c8e6a3"
+
+[[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "quote"

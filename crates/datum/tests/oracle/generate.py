@@ -128,6 +128,9 @@ def main():
     itrf14_gda20 = transformer("EPSG:7789", "EPSG:7842", "ITRF2014 to GDA2020 (1)")
     gda20_atrf14 = transformer("EPSG:7842", "EPSG:9307", "ATRF2014 to GDA2020 (1)")
     itrf20_itrf14 = transformer("EPSG:9988", "EPSG:7789", "ITRF2014 to ITRF2020 (1)")
+    itrf08_itrf14 = transformer("EPSG:5332", "EPSG:7789", "ITRF2008 to ITRF2014 (1)")
+    itrf20_itrf08 = transformer("EPSG:9988", "EPSG:5332", "ITRF2008 to ITRF2020 (1)")
+    itrf05_itrf08 = transformer("EPSG:4896", "EPSG:5332", "ITRF2005 to ITRF2008 (2)")
     rows = []
     for x, y, z in ecef[::3]:
         rows.append(fmt("gda94_gda2020", 0.0, x, y, z, *gda94.transform(x, y, z)))
@@ -135,6 +138,9 @@ def main():
             rows.append(fmt("itrf2014_gda2020", t, x, y, z, *itrf14_gda20.transform(x, y, z, t)[:3]))
             rows.append(fmt("gda2020_atrf2014", t, x, y, z, *gda20_atrf14.transform(x, y, z, t)[:3]))
             rows.append(fmt("itrf2020_itrf2014", t, x, y, z, *itrf20_itrf14.transform(x, y, z, t)[:3]))
+            rows.append(fmt("itrf2008_itrf2014", t, x, y, z, *itrf08_itrf14.transform(x, y, z, t)[:3]))
+            rows.append(fmt("itrf2020_itrf2008", t, x, y, z, *itrf20_itrf08.transform(x, y, z, t)[:3]))
+            rows.append(fmt("itrf2005_itrf2008", t, x, y, z, *itrf05_itrf08.transform(x, y, z, t)[:3]))
     write("helmert_proj.csv", "case,epoch,x_m,y_m,z_m,x_out_m,y_out_m,z_out_m", rows)
 
     # GeodePy's 7- and 14-parameter transformations with covariance propagation.
