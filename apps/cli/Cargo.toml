@@ -14,7 +14,17 @@ name = "gnss"
 path = "src/main.rs"
 
 [dependencies]
+clap = { version = "4.6", features = ["derive"] }
 gnss-api.workspace = true
+gnss-datum.workspace = true
+gnss-store.workspace = true
+hifitime.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
 
 [lints]
 workspace = true

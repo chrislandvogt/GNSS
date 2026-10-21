@@ -29,3 +29,24 @@ for the GeoTIFF versions:
   AUSGeoid2020 and its uncertainty grid
   Copyright Geoscience Australia
   Licensed under Creative Commons Attribution 4.0 International.
+
+The formats crate's tests use DynAdjust's sample GNSS network and SINEX file
+(crates/formats/tests/data/dynaml and sinex):
+
+  DynAdjust (https://github.com/icsm-au/DynAdjust)
+  Copyright Geoscience Australia
+  Licensed under the Apache License, Version 2.0.
+
+Its TDEF test files (crates/formats/tests/data/tdef) are Trimble Business
+Center exports from PynAdjust's test resources:
+
+  PynAdjust (https://github.com/icsm-au/PynAdjust)
+  Intergovernmental Committee on Surveying and Mapping (ICSM)
+  Licensed under the Apache License, Version 2.0.
+
+Its RTKLIB test solutions (crates/formats/tests/data/rtklib) were computed
+from CORS observations:
+
+  CORSnet-NSW and Geoscience Australia CORS data
+  Distributed by Geoscience Australia under Creative Commons Attribution 4.0
+  International.

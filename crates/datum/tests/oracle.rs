@@ -141,6 +141,24 @@ fn case(
             FrameId::Itrf2014,
             Some(epoch(t)),
         ),
+        "itrf2008_itrf2014" => (
+            FrameId::Itrf2008,
+            Some(epoch(t)),
+            FrameId::Itrf2014,
+            Some(epoch(t)),
+        ),
+        "itrf2020_itrf2008" => (
+            FrameId::Itrf2020,
+            Some(epoch(t)),
+            FrameId::Itrf2008,
+            Some(epoch(t)),
+        ),
+        "itrf2005_itrf2008" => (
+            FrameId::Itrf2005,
+            Some(epoch(t)),
+            FrameId::Itrf2008,
+            Some(epoch(t)),
+        ),
         other => panic!("unknown case {other}"),
     }
 }

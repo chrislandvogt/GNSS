@@ -92,7 +92,7 @@ Every crate except `engine-host` compiles to both native code and WebAssembly. C
 | `model` | Domain entities, IDs, serialisation, schema versions | serde, toml, schemars |
 | `datum` | Frames, epochs, Helmert transformations, plate motion, grids, geoid, projections | hifitime, nalgebra, libm, tiff |
 | `adjust` | Least squares, statistics, reliability, VCE, uncertainty, loops | nalgebra, libm; its own block-sparse solver and distributions (D-025) |
-| `formats` | Parsers and writers for exchange formats | quick-xml, csv, rusqlite (GeoPackage; needs a SQLite build for WebAssembly, checked in M3) |
+| `formats` | Parsers and writers for exchange formats | quick-xml, csv; its own SQLite file writer for GeoPackage (D-026) |
 | `rinex-io` | RINEX parsing (wrapped), header extraction, QC | rinex (nav-solutions, MPL-2.0) |
 | `fetch` | Source registry, download, cache, data packs | reqwest (uses the browser's fetch in the web app), sha2 |
 | `engine` | Engine and module host traits, job and result types | none of note |
@@ -102,8 +102,8 @@ Every crate except `engine-host` compiles to both native code and WebAssembly. C
 | `checks` | Rule framework and built-in checks | none of note |
 | `pipeline` | DAG execution, hashing, cache, provenance. The executor is supplied by the host. | blake3; natively tokio and rayon |
 | `store` | One interface for project, cache and download storage | natively std::fs; in the browser web-sys (File System Access API, OPFS) |
-| `report` | SP1 evaluation, HTML/PDF reports | minijinja; PDF per D-012 |
-| `api` | Request/response types, jobs, events | serde, specta; wasm-bindgen for the web app |
+| `report` | SP1 evaluation, HTML/PDF reports | none yet: the M3 HTML report is one self-contained page written directly. minijinja templates and PDF (D-012) come with M12 |
+| `api` | Request/response types, jobs, events. So far: building networks from imported files, exports, and M3's second-opinion projects | serde, toml, specta; wasm-bindgen for the web app |
 
 Dependencies are pinned and reviewed. cargo-deny enforces the licence policy (D-005): no GPL, AGPL or LGPL code is linked into our binaries. Copyleft tools may only run as separate processes, or as separately built engine modules that talk to our code only through files and arguments (D-023). The web app's JavaScript dependencies follow the same policy, checked in CI.
 
@@ -226,6 +226,35 @@ to = "ARP"
 value = 1.5320           # metres
 measured_by = "CL"
 photos = ["fieldlogs/2026-10-14-PM12345-A-tape.jpg"]
+```
+
+Until the occupation model arrives (M5), a second-opinion project (M3) is `project.toml`, `raw/`, `raw.lock` and `results/`. The vectors and control it adjusts are files imported as they are, and the person's edits sit next to them with their reasons:
+
+```toml
+schema = 1
+name = "Bright control survey"
+
+[adjustment]
+frame = "GDA2020"
+datum = "constrained"        # or "minimal", or "fixed:MARK"
+uncertainty = "a-priori"     # the variance factor PU and RU use, or "a-posteriori"
+alpha0 = 0.001
+beta0 = 0.8
+global_alpha = 0.05
+
+[[import]]
+file = "raw/vectors.xml"
+format = "dynaml"            # starnet, rtklib, csv-vectors, csv-control or sinex
+
+[[import]]
+file = "raw/control.csv"
+format = "csv-control"
+frame = "GDA2020"            # for formats that don't say
+
+[[edit]]
+observation = "vectors.xml:435"
+action = "exclude"           # or "reweight", with a factor
+reason = "Vector test 28.4; re-observed on day 2"
 ```
 
 The rules:
@@ -763,11 +792,12 @@ flowchart LR
   | Datum | Step-by-step transformation working |
   | Report | Preview |
 
+- **M3's page** is a single page for the second-opinion adjustment: files in, settings, adjust, suspects with exclusions and reasons, the report and the downloads. The core worker keeps the loaded files and the last adjustment, so exports don't adjust again. The views above arrive with the full app (M11).
 - **Basemaps.** Providers are user-configurable, including ArcGIS basemap services with the user's own key. The app ships a small low-zoom world basemap as PMTiles, and supports offline PMTiles files. In offline mode, no tiles are fetched. Defaults respect provider usage policies (no bulk use of openstreetmap.org tiles).
 - **State.** The UI holds view state only. Domain state lives in the core, is read through the API and is updated by events.
 - **Accessibility.** Keyboard-first operation, screen reader labels, and light, dark and high-contrast outdoor themes.
 - **Security.**
-  - A strict Content Security Policy: scripts only from the app's own origin, plus `wasm-unsafe-eval` so WebAssembly can run. No inline scripts, third-party scripts or CDNs.
+  - A strict Content Security Policy: scripts only from the app's own origin, plus `wasm-unsafe-eval` so WebAssembly can run. No inline scripts, third-party scripts or CDNs. Styles come only from the app's own origin, except the HTML report's one inline style, allowed by its SHA-256 hash so the page can show the report exactly as it's downloaded. The report is shown in a sandboxed frame and has no scripts.
   - Network requests go only to hosts declared in packs or added by the user, enforced in the fetch layer.
   - Untrusted files are parsed in WebAssembly inside workers, so a parser bug is contained by both WebAssembly and the browser's sandbox.
 
@@ -779,12 +809,13 @@ The CLI is the same core compiled natively. It's used for scripting and CI, the 
 gnss init <dir> --pack au
 gnss import rinex <files...>
 gnss import fieldlog <files...>
-gnss import vectors <file> --format dynaml|starnet|rtklib|csv
-gnss import control <file> --format dynaml|csv|sinex
+gnss import vectors <file> [--format dynaml|starnet|tdef|rtklib|csv]   # guessed if not given
+gnss import control <file> [--format dynaml|csv|sinex]
 gnss fetch                      # CORS data, products and ANTEX for all occupations
 gnss check                      # run blunder checks
 gnss process                    # baselines
 gnss adjust [--minimal|--constrained]
+gnss exclude <observation> --reason <text>   # the outlier workflow, recorded in project.toml
 gnss report --format html|pdf
 gnss export --format dynaml|starnet|landxml|gpkg|csv
 gnss verify                     # re-run from scratch and compare output hashes
@@ -793,7 +824,7 @@ gnss serve [--bundle <zip>]     # serve the web app on localhost, with a private
 ```
 
 - The binary name follows the project name (D-014).
-- Every command supports `--json`.
+- Every command supports `--json`, and takes the project folder as `--project` (the current folder by default).
 - **`serve`** serves the web app that ships with the CLI, or a given release bundle. A web app served this way can also hand native-only jobs, such as Ginan, to the CLI. It listens on localhost only, checks the `Origin` and `Host` headers, and requires a per-session token, so other websites can't use it.
 - Exit codes:
 
@@ -801,7 +832,7 @@ gnss serve [--bundle <zip>]     # serve the web app on localhost, with a private
   |---|---|
   | 0 | Success |
   | 1 | Error |
-  | 2 | A statistical test failed |
+  | 2 | The adjustment ran, but a statistical test failed or there was no redundancy to test with |
   | 3 | Blocking issues present |
 
 ## 16. Python and ArcGIS Pro (Phase 2)

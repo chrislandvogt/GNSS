@@ -2,7 +2,7 @@
 
 Free and open-source GNSS static survey processing: from field log to adjusted, defensible coordinates.
 
-> **Status: the datum core (milestone M1) and the adjustment engine (M2) are done; formats and the CLI (M3) are next.** The foundations are in place: the Rust workspace, CI on Windows, macOS, Linux and in the browser, the web app skeleton, and RTKLIB-EX running as a WebAssembly module ([engine spike results](docs/spikes/m0-engine.md)). Frames, epochs, transformations, the GDA94 to GDA2020 grid, AUSGeoid2020 and MGA are done and checked against PROJ, GeodePy and DynAdjust ([how they work](docs/user/datums-and-epochs.md)). The adjustment handles baselines, clusters, control and set-ups in any datum, with the global test, w-tests, reliability, PU and RU, variance components, loop closures and a recorded outlier workflow. It's checked against theory on synthetic networks and matches DynAdjust. There's no end-to-end surveying workflow yet. Start with [docs/PLAN.md](docs/PLAN.md), then work from [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status: the second-opinion adjustment (milestone M3) works, in the browser and from the command line.** Load GNSS vectors and control exported from a commercial package (Trimble's TDEF, DynaML, STAR*NET, RTKLIB, SINEX or CSV), adjust them in GDA2020 or any other frame, and get a report with the tests, suspects, SP1 uncertainties, loop closures and provenance, plus GeoPackage, CSV, LandXML, DynaML and STAR*NET exports ([how](docs/user/second-opinion.md)). Underneath are the datum core (M1), checked against PROJ, GeodePy and DynAdjust ([how it works](docs/user/datums-and-epochs.md)), and the adjustment engine (M2): baselines, clusters, control and set-ups in any datum, with the global test, w-tests, reliability, PU and RU, variance components, loop closures and a recorded outlier workflow. On DynAdjust's own sample network the whole path agrees with DynAdjust within a micrometre and flags the same outliers. Baseline processing from RINEX and the full app come next. Start with [docs/PLAN.md](docs/PLAN.md), then work from [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## The problem
 
@@ -52,6 +52,9 @@ The core is in Rust, which gives memory-safe parsing and plenty of speed, and co
 | [DECISIONS.md](docs/DECISIONS.md) | Decision log, including open decisions |
 | [CONVENTIONS.md](docs/CONVENTIONS.md) | Coding conventions: units, frames, time, errors, numerics and host access |
 | [spikes/m0-engine.md](docs/spikes/m0-engine.md) | The M0 engine spike: RTKLIB-EX as a WebAssembly module, compared with native builds |
+| [user/second-opinion.md](docs/user/second-opinion.md) | For users: a second-opinion adjustment in the browser or with the CLI, and reading the report |
+| [user/formats.md](docs/user/formats.md) | For users: the file formats read and written, with the CSV formats in full |
+| [user/export-recipes.md](docs/user/export-recipes.md) | For users: getting vectors out of TBC, Infinity, MAGNET, CHC Geomatics Office and Emlid Studio |
 | [user/datums-and-epochs.md](docs/user/datums-and-epochs.md) | For users: how frames, epochs, transformations and MGA work in the tool |
 | [LANDSCAPE.md](docs/LANDSCAPE.md) | Existing commercial and open-source tools, and how this project relates to them |
 

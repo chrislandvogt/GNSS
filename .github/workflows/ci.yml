@@ -37,6 +37,13 @@ jobs:
       - name: Time the adjustment
         if: matrix.os == 'ubuntu-latest'
         run: cargo test --release -p gnss-adjust --test performance --locked -- --nocapture
+      # GeoPackage exports, checked by SQLite and by GDAL.
+      - name: Check GeoPackage exports with SQLite and GDAL
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/gpkg"
+          "$RUNNER_TEMP/gpkg/bin/pip" install --quiet pyogrio
+          "$RUNNER_TEMP/gpkg/bin/python" -I crates/formats/tests/oracle/check_gpkg.py
       # The grid readers on the grids PROJ publishes, beyond the test windows.
       - name: Fetch PROJ's published grids
         if: matrix.os == 'ubuntu-latest'
@@ -77,7 +84,7 @@ jobs:
           cargo test --release --target wasm32-unknown-unknown -p gnss-adjust --test performance --locked -- --nocapture
 
   fuzz:
-    name: Fuzz the grid readers
+    name: Fuzz the file readers
     # Every parser of external data is fuzzed (CONVENTIONS.md section 6).
     runs-on: ubuntu-latest
     steps:
@@ -86,7 +93,9 @@ jobs:
       # Restores cargo-fuzz and the fuzz target's build, so both are quick after the first run.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: crates/datum/fuzz
+          workspaces: |
+            crates/datum/fuzz
+            crates/formats/fuzz
       - run: cargo +nightly install cargo-fuzz --locked
       - name: Fuzz for two minutes, starting from the test grids
         working-directory: crates/datum/fuzz
@@ -94,12 +103,27 @@ jobs:
           mkdir -p corpus/grid
           cp ../tests/data/grids/*.gsb ../tests/data/grids/*.tif corpus/grid/
           cargo +nightly fuzz run grid corpus/grid -- -max_total_time=120 -max_len=262144 -rss_limit_mb=2048
+      - name: Fuzz each format reader for 30 seconds, starting from the test files
+        working-directory: crates/formats/fuzz
+        run: |
+          for target in dynaml starnet tdef rtklib sinex csv; do mkdir -p "corpus/$target"; done
+          cp ../tests/data/dynaml/*.xml corpus/dynaml/
+          cp ../tests/data/tdef/*.asc corpus/tdef/
+          cp ../tests/data/rtklib/*.pos corpus/rtklib/
+          cp ../tests/data/sinex/*.SNX corpus/sinex/
+          printf 'G1 A-B 1 2 3\nG2 1e-6 1e-6 1e-6\nG3 0 0 0\n' > corpus/starnet/vector.gps
+          printf 'from,to,dx,dy,dz,sd_x,sd_y,sd_z\nA,B,1,2,3,0.001,0.001,0.001\n' > corpus/csv/vectors.csv
+          for target in dynaml starnet tdef rtklib sinex csv; do
+            cargo +nightly fuzz run "$target" "corpus/$target" -- -max_total_time=30 -max_len=65536 -rss_limit_mb=2048
+          done
       - name: Keep the input that failed
         if: failure()
         uses: actions/upload-artifact@v6
         with:
           name: fuzz-artifacts
-          path: crates/datum/fuzz/artifacts/
+          path: |
+            crates/datum/fuzz/artifacts/
+            crates/formats/fuzz/artifacts/
 
   deny:
     name: Licences and advisories (cargo-deny)
@@ -184,7 +208,7 @@ jobs:
         run: BROWSER=firefox npm run test:e2e -- ../../../engine-modules/rtklib-ex/dist/testdata
       - name: End-to-end engine test in WebKit
         run: BROWSER=webkit npm run test:e2e -- ../../../engine-modules/rtklib-ex/dist/testdata
-      - name: End-to-end app test in Chromium (storage, hashing, offline)
+      - name: End-to-end app test in Chromium (adjustment, report, downloads, storage, offline)
         run: npm run test:app
       - name: Upload the deployable site
         uses: actions/upload-artifact@v6

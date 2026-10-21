@@ -8,5 +8,15 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[dependencies]
+csv = "1.4"
+gnss-datum.workspace = true
+nalgebra.workspace = true
+quick-xml = "0.42"
+thiserror.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true
+
 [lints]
 workspace = true

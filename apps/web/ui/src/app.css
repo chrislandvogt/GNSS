@@ -5,6 +5,9 @@
   --line: #d7dce1;
   --accent: #0b5cad;
   --bad: #b3261e;
+  --bad-bg: #fbe9ea;
+  --good: #1f7a3a;
+  --good-bg: #e6f4ea;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   line-height: 1.45;
   color: var(--fg);
@@ -19,6 +22,9 @@
     --line: #2f363d;
     --accent: #6cb0ff;
     --bad: #ff8a80;
+    --bad-bg: #3b1d20;
+    --good: #7fd39a;
+    --good-bg: #18331f;
   }
 }
 
@@ -27,7 +33,7 @@ body {
 }
 
 main {
-  max-width: 64rem;
+  max-width: 72rem;
   margin: 0 auto;
   padding: 1rem;
 }
@@ -125,4 +131,113 @@ pre {
   font-size: 0.8rem;
   border: 1px solid var(--line);
   padding: 0.5rem;
+}
+
+h3 {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+h4 {
+  margin: 1rem 0 0.4rem;
+}
+
+input {
+  font: inherit;
+}
+
+button.primary {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+button.link {
+  border: none;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.drop {
+  border: 2px dashed var(--line);
+  border-radius: 6px;
+  padding: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+}
+
+.drop.dragging {
+  border-color: var(--accent);
+}
+
+.files,
+.suspects {
+  margin-top: 0.75rem;
+}
+
+.inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  align-items: center;
+  margin-top: 0.25rem;
+}
+
+input.epoch {
+  width: 7rem;
+}
+
+.verdict {
+  padding: 0.6rem 0.9rem;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.verdict.pass {
+  color: var(--good);
+  background: var(--good-bg);
+}
+
+.verdict.fail {
+  color: var(--bad);
+  background: var(--bad-bg);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.2rem 1.5rem;
+}
+
+.facts dt {
+  color: var(--muted);
+}
+
+.facts dd {
+  margin: 0;
+}
+
+.notes,
+.edits {
+  padding-left: 1.2rem;
+}
+
+iframe.report {
+  width: 100%;
+  height: 80vh;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+details.diagnostics {
+  margin-top: 2rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.5rem;
+}
+
+details.diagnostics > summary {
+  cursor: pointer;
+  color: var(--muted);
 }

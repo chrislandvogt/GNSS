@@ -13,8 +13,12 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 gnss-api.workspace = true
+gnss-datum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys.workspace = true
 wasm-bindgen.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]

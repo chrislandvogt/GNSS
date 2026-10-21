@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import Adjustment from './Adjustment.svelte'
   import { detectCapabilities } from './lib/capabilities'
   import { core } from './lib/core'
   import { rtklibPool } from './lib/engine'
@@ -116,10 +117,15 @@
   <header>
     <h1>GNSS survey processing</h1>
     <p class="muted">
-      Working title. M0 skeleton —
+      Working title. A second opinion on GNSS networks —
       {#if info}core {info.version} ({info.build} build){:else}starting the core…{/if}
     </p>
   </header>
+
+  <Adjustment />
+
+  <details class="diagnostics">
+  <summary>Diagnostics: browser features, project storage and the baseline engine</summary>
 
   {#if message}<p class="error" role="alert">{message}</p>{/if}
 
@@ -203,4 +209,5 @@
       {#if solution}<pre>{solution}</pre>{/if}
     </section>
   {/if}
+  </details>
 </main>

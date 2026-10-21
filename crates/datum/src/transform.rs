@@ -658,6 +658,75 @@ pub fn builtin_transformations() -> Vec<Transformation> {
             area: None,
         },
         Transformation {
+            from: FrameId::Itrf2008,
+            to: FrameId::Itrf2014,
+            method: Method::Helmert14(Helmert14 {
+                parameters: HelmertParameters::from_mm_mas_ppb([-1.6, -1.9, -2.4], [0.0; 3], 0.02),
+                rates: HelmertParameters::from_mm_mas_ppb([0.0, 0.0, 0.1], [0.0; 3], -0.03),
+                reference_epoch: CoordinateEpoch::from_const(2010.0),
+                sigmas: Some(HelmertParameters::from_mm_mas_ppb(
+                    [0.2, 0.1, 0.1],
+                    [0.006, 0.006, 0.006],
+                    0.02,
+                )),
+                rate_sigmas: Some(HelmertParameters::from_mm_mas_ppb(
+                    [0.2, 0.1, 0.1],
+                    [0.006, 0.006, 0.006],
+                    0.02,
+                )),
+                convention: RotationConvention::PositionVector,
+            }),
+            name: "ITRF2008 to ITRF2014 (1)",
+            source: "EPSG:7790, IERS ITRF2014 parameters",
+            area: None,
+        },
+        Transformation {
+            from: FrameId::Itrf2008,
+            to: FrameId::Itrf2020,
+            method: Method::Helmert14(Helmert14 {
+                parameters: HelmertParameters::from_mm_mas_ppb([-0.2, -1.0, -3.3], [0.0; 3], 0.29),
+                rates: HelmertParameters::from_mm_mas_ppb([0.0, 0.1, -0.1], [0.0; 3], -0.03),
+                reference_epoch: CoordinateEpoch::from_const(2015.0),
+                sigmas: Some(HelmertParameters::from_mm_mas_ppb(
+                    [0.2, 0.2, 0.2],
+                    [0.007, 0.006, 0.007],
+                    0.03,
+                )),
+                rate_sigmas: Some(HelmertParameters::from_mm_mas_ppb(
+                    [0.2, 0.2, 0.2],
+                    [0.007, 0.006, 0.007],
+                    0.03,
+                )),
+                convention: RotationConvention::PositionVector,
+            }),
+            name: "ITRF2008 to ITRF2020 (1)",
+            source: "EPSG:9992, IERS ITRF2020 parameters",
+            area: None,
+        },
+        Transformation {
+            from: FrameId::Itrf2005,
+            to: FrameId::Itrf2008,
+            method: Method::Helmert14(Helmert14 {
+                parameters: HelmertParameters::from_mm_mas_ppb([2.0, 0.9, 4.7], [0.0; 3], -0.94),
+                rates: HelmertParameters::from_mm_mas_ppb([-0.3, 0.0, 0.0], [0.0; 3], 0.0),
+                reference_epoch: CoordinateEpoch::from_const(2000.0),
+                sigmas: Some(HelmertParameters::from_mm_mas_ppb(
+                    [0.2, 0.2, 0.2],
+                    [0.008, 0.008, 0.008],
+                    0.03,
+                )),
+                rate_sigmas: Some(HelmertParameters::from_mm_mas_ppb(
+                    [0.2, 0.2, 0.2],
+                    [0.008, 0.008, 0.008],
+                    0.03,
+                )),
+                convention: RotationConvention::PositionVector,
+            }),
+            name: "ITRF2005 to ITRF2008 (2)",
+            source: "EPSG:6389, IERS ITRF2008 parameters",
+            area: None,
+        },
+        Transformation {
             from: FrameId::Igs20,
             to: FrameId::Itrf2020,
             method: Method::Identity { sigma_m: 0.0 },
@@ -687,6 +756,58 @@ pub fn builtin_transformations() -> Vec<Transformation> {
             method: Method::Helmert14(plate_motion),
             name: "ITRF2014 to GDA2020 (1)",
             source: "EPSG:8049, Australian Plate Motion Model (GDA2020 Technical Manual v1.2)",
+            area: Some(AUSTRALIA),
+        },
+        // Geoscience Australia's transformations from earlier ITRF
+        // realisations straight to GDA2020, fitted to Australian sites, which
+        // DynAdjust and GA's guidance use. Being one step, they're preferred
+        // over the IERS chain through ITRF2014 and the plate motion model,
+        // which differs by up to 0.3 mas and 2 ppb. No uncertainties are
+        // published for them.
+        Transformation {
+            from: FrameId::Itrf2008,
+            to: FrameId::Gda2020,
+            method: Method::Helmert14(Helmert14 {
+                parameters: HelmertParameters::from_mm_mas_ppb(
+                    [13.79, 4.55, 15.22],
+                    [0.2808, 0.2677, -0.4638],
+                    2.55,
+                ),
+                rates: HelmertParameters::from_mm_mas_ppb(
+                    [1.42, 1.34, 0.90],
+                    [1.5461, 1.1820, 1.1551],
+                    0.109,
+                ),
+                reference_epoch: CoordinateEpoch::from_const(2020.0),
+                sigmas: None,
+                rate_sigmas: None,
+                convention: RotationConvention::CoordinateFrame,
+            }),
+            name: "ITRF2008 to GDA2020 (GA)",
+            source: "Geoscience Australia (Dawson and Fraser), as in DynAdjust 1.4.1",
+            area: Some(AUSTRALIA),
+        },
+        Transformation {
+            from: FrameId::Itrf2005,
+            to: FrameId::Gda2020,
+            method: Method::Helmert14(Helmert14 {
+                parameters: HelmertParameters::from_mm_mas_ppb(
+                    [40.32, -33.85, -16.72],
+                    [-1.2893, -0.8492, -0.3342],
+                    4.286,
+                ),
+                rates: HelmertParameters::from_mm_mas_ppb(
+                    [2.25, -0.62, -0.56],
+                    [1.4707, 1.1443, 1.1701],
+                    0.294,
+                ),
+                reference_epoch: CoordinateEpoch::from_const(2020.0),
+                sigmas: None,
+                rate_sigmas: None,
+                convention: RotationConvention::CoordinateFrame,
+            }),
+            name: "ITRF2005 to GDA2020 (GA)",
+            source: "Geoscience Australia (Dawson and Fraser), as in DynAdjust 1.4.1",
             area: Some(AUSTRALIA),
         },
         Transformation {

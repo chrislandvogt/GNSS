@@ -1,0 +1,66 @@
+# Fuzz targets for the formats crate's readers, which take files from anyone
+# (CONVENTIONS.md section 6). Fuzzing needs a nightly toolchain and cargo-fuzz,
+# so this is its own workspace, outside the main build:
+#
+#     cargo +nightly fuzz run dynaml
+#
+# CI runs each target briefly, starting from the test files.
+
+[package]
+name = "gnss-formats-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+gnss-datum = { path = "../../datum" }
+gnss-formats = { path = ".." }
+libfuzzer-sys = "0.4"
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "dynaml"
+path = "fuzz_targets/dynaml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "starnet"
+path = "fuzz_targets/starnet.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rtklib"
+path = "fuzz_targets/rtklib.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sinex"
+path = "fuzz_targets/sinex.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "csv"
+path = "fuzz_targets/csv.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tdef"
+path = "fuzz_targets/tdef.rs"
+test = false
+doc = false
+bench = false

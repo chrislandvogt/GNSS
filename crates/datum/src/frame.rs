@@ -22,6 +22,10 @@ pub enum FrameId {
     Igs20,
     /// International Terrestrial Reference Frame 2014 (EPSG:7789).
     Itrf2014,
+    /// International Terrestrial Reference Frame 2008 (EPSG:5332).
+    Itrf2008,
+    /// International Terrestrial Reference Frame 2005 (EPSG:4896).
+    Itrf2005,
     /// Australian Terrestrial Reference Frame 2014 (EPSG:9307), aligned with ITRF2014.
     Atrf2014,
     /// Geocentric Datum of Australia 2020 (EPSG:7842), static at 2020.0.
@@ -50,10 +54,12 @@ pub enum FrameKind {
 
 impl FrameId {
     /// Every frame, in a fixed order.
-    pub const ALL: [FrameId; 9] = [
+    pub const ALL: [FrameId; 11] = [
         FrameId::Itrf2020,
         FrameId::Igs20,
         FrameId::Itrf2014,
+        FrameId::Itrf2008,
+        FrameId::Itrf2005,
         FrameId::Atrf2014,
         FrameId::Gda2020,
         FrameId::Gda94,
@@ -68,6 +74,8 @@ impl FrameId {
             FrameId::Itrf2020 => "ITRF2020",
             FrameId::Igs20 => "IGS20",
             FrameId::Itrf2014 => "ITRF2014",
+            FrameId::Itrf2008 => "ITRF2008",
+            FrameId::Itrf2005 => "ITRF2005",
             FrameId::Atrf2014 => "ATRF2014",
             FrameId::Gda2020 => "GDA2020",
             FrameId::Gda94 => "GDA94",
@@ -83,12 +91,48 @@ impl FrameId {
             FrameId::Itrf2020 => 9988,
             FrameId::Igs20 => 10176,
             FrameId::Itrf2014 => 7789,
+            FrameId::Itrf2008 => 5332,
+            FrameId::Itrf2005 => 4896,
             FrameId::Atrf2014 => 9307,
             FrameId::Gda2020 => 7842,
             FrameId::Gda94 => 4938,
             FrameId::Wgs84G2296 => 10604,
             FrameId::Wgs84G2139 => 9753,
             FrameId::Wgs84 => 4978,
+        }
+    }
+
+    /// The EPSG code of the frame's geographic 2D CRS: latitude and longitude.
+    pub const fn geographic_epsg_code(self) -> u32 {
+        match self {
+            FrameId::Itrf2020 => 9990,
+            FrameId::Igs20 => 10178,
+            FrameId::Itrf2014 => 9000,
+            FrameId::Itrf2008 => 8999,
+            FrameId::Itrf2005 => 8998,
+            FrameId::Atrf2014 => 9309,
+            FrameId::Gda2020 => 7844,
+            FrameId::Gda94 => 4283,
+            FrameId::Wgs84G2296 => 10606,
+            FrameId::Wgs84G2139 => 9755,
+            FrameId::Wgs84 => 4326,
+        }
+    }
+
+    /// The name of the frame's datum, as EPSG gives it.
+    pub const fn datum_name(self) -> &'static str {
+        match self {
+            FrameId::Itrf2020 => "International Terrestrial Reference Frame 2020",
+            FrameId::Igs20 => "IGS20",
+            FrameId::Itrf2014 => "International Terrestrial Reference Frame 2014",
+            FrameId::Itrf2008 => "International Terrestrial Reference Frame 2008",
+            FrameId::Itrf2005 => "International Terrestrial Reference Frame 2005",
+            FrameId::Atrf2014 => "Australian Terrestrial Reference Frame 2014",
+            FrameId::Gda2020 => "Geocentric Datum of Australia 2020",
+            FrameId::Gda94 => "Geocentric Datum of Australia 1994",
+            FrameId::Wgs84G2296 => "World Geodetic System 1984 (G2296)",
+            FrameId::Wgs84G2139 => "World Geodetic System 1984 (G2139)",
+            FrameId::Wgs84 => "World Geodetic System 1984 ensemble",
         }
     }
 

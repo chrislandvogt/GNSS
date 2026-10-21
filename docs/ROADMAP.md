@@ -202,32 +202,33 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 
 **Goal:** get vectors in and results out, in the browser and the CLI, before the full app exists.
 
-- [ ] Import vectors:
-  - [ ] DynaML: GNSS baselines (type G) and baseline clusters (type X).
-  - [ ] STAR*NET GPS vector files.
-  - [ ] RTKLIB `.pos` files: the static single solution, recovering the signed covariance terms.
-  - [ ] A documented generic CSV vector format.
-- [ ] Import control:
-  - [ ] DynaML stations and point clusters (type Y).
-  - [ ] CSV with frame, epoch and uncertainty.
-  - [ ] AUSPOS SINEX: coordinates with covariance.
-- [ ] Document export recipes from TBC, Infinity, MAGNET, CHC Geomatics Office and Emlid Studio: which of our formats each can produce, and how.
-- [ ] Export:
-  - [ ] DynaML, for DynAdjust cross-checks and agency submission.
-  - [ ] STAR*NET.
-  - [ ] CSV.
-  - [ ] GeoPackage: marks, vectors and error ellipses.
-  - [ ] LandXML control points.
-- [ ] CLI commands: `init`, `import`, `adjust`, `report`, `export`.
-  - [ ] A `--json` output mode.
-  - [ ] A non-zero exit code when statistical tests fail, so the CLI can be used in scripts and CI.
-- [ ] A minimal web page: load vectors and control, run the adjustment and view the report, all in the browser. It builds on the M0 web skeleton; the full app comes in M11.
-- [ ] Check that GeoPackage export works in the browser (SQLite built for WebAssembly).
-- [ ] HTML report v0:
-  - [ ] Network summary, statistics and outlier table.
-  - [ ] Coordinates with PU, the RU table and loop closures.
-  - [ ] Provenance.
-- [ ] Round-trip tests for every format, and fuzz targets for every parser.
+- [x] Import vectors:
+  - [x] DynaML: GNSS baselines (type G) and baseline clusters (type X).
+  - [x] STAR*NET GPS vector files.
+  - [x] TDEF (Trimble Data Exchange Format), which is what Trimble Business Center actually exports, found while writing the export recipes. It's checked on two real TBC exports.
+  - [x] RTKLIB `.pos` files: the static single solution, recovering the signed covariance terms.
+  - [x] A documented generic CSV vector format.
+- [x] Import control:
+  - [x] DynaML stations and point clusters (type Y).
+  - [x] CSV with frame, epoch and uncertainty.
+  - [x] AUSPOS SINEX: coordinates with covariance.
+- [x] Document export recipes from TBC, Infinity, MAGNET, CHC Geomatics Office and Emlid Studio: which of our formats each can produce, and how (`docs/user/export-recipes.md`). Only TBC (through TDEF) and Emlid Studio (RTKLIB) are read directly; the others go through STAR*NET, PynAdjust or CSV.
+- [x] Export:
+  - [x] DynaML, for DynAdjust cross-checks and agency submission.
+  - [x] STAR*NET.
+  - [x] CSV.
+  - [x] GeoPackage: marks, vectors and error ellipses.
+  - [x] LandXML control points.
+- [x] CLI commands: `init`, `import`, `adjust`, `report`, `export`, and `exclude` for the outlier workflow.
+  - [x] A `--json` output mode.
+  - [x] A non-zero exit code when statistical tests fail, so the CLI can be used in scripts and CI.
+- [x] A minimal web page: load vectors and control, run the adjustment and view the report, all in the browser. It builds on the M0 web skeleton; the full app comes in M11.
+- [x] Check that GeoPackage export works in the browser. The writer writes the SQLite file format itself (D-026), so it needs no SQLite build, and the export tests run in headless Chromium.
+- [x] HTML report v0:
+  - [x] Network summary, statistics and outlier table.
+  - [x] Coordinates with PU, the RU table and loop closures.
+  - [x] Provenance.
+- [x] Round-trip tests for every format, and fuzz targets for every parser.
 
 **Exit criteria:** someone with vectors from a commercial package (exported in a supported format or CSV) can run a second-opinion adjustment and get a report, in the browser or with the CLI.
 
@@ -238,6 +239,7 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 **Goal:** the second-opinion tool in real users' hands.
 
 - [ ] Oracle suite in CI: DynAdjust outputs stored as golden files, plus a manual job to regenerate them.
+- [ ] Readers for the vector formats the other packages actually export, each checked against real exports from pilot users: GVX (NGS's exchange format, from TBC, Infinity and MAGNET), SKI-ASCII (Infinity) and TVF (Topcon).
 - [ ] Documentation: a user guide for the second-opinion workflow in the browser and the CLI, and a worked example on public data.
 - [ ] Deploy the web page at a versioned URL, and publish its static bundle with checksums.
 - [ ] Release CLI binaries for Windows, macOS and Linux, with checksums and an SBOM. Build with cargo-dist or a plain Actions matrix, and generate the SBOM with cargo-cyclonedx.

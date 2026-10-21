@@ -1,6 +1,15 @@
 // Client for the core worker. Domain logic lives in the core, never here
 // (ARCHITECTURE.md section 8).
-import type { CoreInfo, CoreRequest, CoreResponse } from '../workers/protocol'
+import type {
+  Adjusted,
+  Catalogue,
+  CoreInfo,
+  CoreRequest,
+  CoreResponse,
+  ExportedFile,
+  LoadedFile,
+  ProjectSpec,
+} from '../workers/protocol'
 
 type Pending = { resolve: (value: unknown) => void; reject: (reason: Error) => void }
 // Omit that applies to each member of a union separately.
@@ -36,6 +45,35 @@ class CoreClient {
   /** SHA-256 of a file's contents, as recorded in raw.lock. */
   hash(data: ArrayBuffer): Promise<string> {
     return this.call<string>({ type: 'hash', data }, [data])
+  }
+
+  /** The frames, import formats and export formats on offer. */
+  catalogue(): Promise<Catalogue> {
+    return this.call<Catalogue>({ type: 'catalogue' })
+  }
+
+  /** Loads a file into the core, replacing one of the same name. */
+  addFile(name: string, data: ArrayBuffer): Promise<LoadedFile> {
+    return this.call<LoadedFile>({ type: 'add-file', name, data }, [data])
+  }
+
+  removeFile(name: string): Promise<void> {
+    return this.call<void>({ type: 'remove-file', name })
+  }
+
+  /** Adjusts the project; `generated` is the time to show in the report. */
+  adjust(project: ProjectSpec, generated: string): Promise<Adjusted> {
+    return this.call<Adjusted>({ type: 'adjust', project, generated })
+  }
+
+  /** The last adjustment's results in a format, as one or two files. */
+  exportResults(format: string, ellipseScale: number, now: string): Promise<ExportedFile[]> {
+    return this.call<ExportedFile[]>({ type: 'export', format, ellipseScale, now })
+  }
+
+  /** The project as project.toml's text, for the CLI. */
+  projectToml(project: ProjectSpec): Promise<string> {
+    return this.call<string>({ type: 'project-toml', project })
   }
 }
 
