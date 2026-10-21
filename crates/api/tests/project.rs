@@ -225,24 +225,39 @@ fn the_report_is_one_page_with_everything_escaped() {
 /// (D-024), so the web page's downloads match the CLI's. A deliberate change
 /// to a format or the adjustment changes the hash: check the other tests,
 /// then update it.
-const EXPORTS_GOLDEN: &str = "43ecb34398df9dbae3bf0caa75ae80eb175200e63c53676ab32819a2de6d98b5";
+const EXPORTS_GOLDEN: &str = "fbd81dce4bafffdf56e8c909bef57d479fb9fb447d402adece0aab7869d7854c";
 
 #[test]
 fn exports_are_the_same_bytes_everywhere() {
     let project = sample();
     let run = project::run(&project, &mut files).unwrap();
+    // LandXML and the report name the version that wrote them, and the
+    // report the build; they're left out, so the hash holds across releases.
+    let landxml_version = format!(
+        "<Application name=\"GNSS\" version=\"{}\"/>",
+        gnss_api::VERSION
+    );
     let mut all = Vec::new();
     for (format, _) in ExportFormat::ALL {
         for file in project::export(&run, format, 1000.0, "2026-10-20T08:00:00.000Z").unwrap() {
             all.extend_from_slice(file.name.as_bytes());
-            all.extend_from_slice(&file.bytes);
+            if format == ExportFormat::Landxml {
+                let text = String::from_utf8(file.bytes).unwrap();
+                assert!(text.contains(&landxml_version));
+                all.extend_from_slice(text.replace(&landxml_version, "").as_bytes());
+            } else {
+                all.extend_from_slice(&file.bytes);
+            }
         }
     }
-    // The report names the build it came from; nothing else differs.
     let report = project::report(&project, &run, "2026-10-20 08:00:00 UTC");
-    let build = format!(" ({})", gnss_api::BuildTarget::current().as_str());
-    assert!(report.contains(&build));
-    all.extend_from_slice(report.replace(&build, "").as_bytes());
+    let software = format!(
+        "gnss {} ({})",
+        gnss_api::VERSION,
+        gnss_api::BuildTarget::current().as_str()
+    );
+    assert!(report.contains(&software));
+    all.extend_from_slice(report.replace(&software, "").as_bytes());
     assert_eq!(
         gnss_store::sha256_hex(&all),
         EXPORTS_GOLDEN,

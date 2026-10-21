@@ -324,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "gnss-adjust"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "gnss-datum",
  "js-sys",
@@ -337,7 +337,7 @@ dependencies = [
 
 [[package]]
 name = "gnss-api"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "gnss-adjust",
  "gnss-datum",
@@ -354,11 +354,11 @@ dependencies = [
 
 [[package]]
 name = "gnss-checks"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "gnss-cli"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "clap",
  "gnss-api",
@@ -373,7 +373,7 @@ dependencies = [
 
 [[package]]
 name = "gnss-datum"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "hifitime",
  "libm",
@@ -387,27 +387,27 @@ dependencies = [
 
 [[package]]
 name = "gnss-engine"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "gnss-engine-ginan"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "gnss-engine-host"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "gnss-engine-rtklib"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "gnss-fetch"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "gnss-formats"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "csv",
  "gnss-datum",
@@ -419,19 +419,19 @@ dependencies = [
 
 [[package]]
 name = "gnss-model"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "gnss-pipeline"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "gnss-relay"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "gnss-report"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "gnss-adjust",
  "gnss-datum",
@@ -442,11 +442,11 @@ dependencies = [
 
 [[package]]
 name = "gnss-rinex-io"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "gnss-store"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "sha2",
  "wasm-bindgen-test",
@@ -454,7 +454,7 @@ dependencies = [
 
 [[package]]
 name = "gnss-web-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "gnss-api",
  "gnss-datum",
