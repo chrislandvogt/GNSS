@@ -216,6 +216,56 @@ jobs:
           name: web-app
           path: apps/web/ui/dist/
 
+  deploy:
+    name: Deploy main to Cloudflare Pages
+    # Only the site CI has just built and tested goes out, once everything
+    # else has passed. Main is the development version, at the Pages
+    # project's "main" branch address; releases deploy the site root and
+    # /v/<version>/ (docs/DEPLOYING.md).
+    needs: [native, wasm, fuzz, deny, web]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Cloudflare is set up
+        id: cloudflare
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$TOKEN" ] && [ -n "$ACCOUNT" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Nothing deployed: the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets aren't set (docs/DEPLOYING.md)."
+          fi
+      - uses: actions/download-artifact@v7
+        if: steps.cloudflare.outputs.ready == 'true'
+        with:
+          name: web-app
+          path: dist
+      - uses: actions/setup-node@v5
+        if: steps.cloudflare.outputs.ready == 'true'
+        with:
+          node-version: 22
+      - name: Deploy
+        if: steps.cloudflare.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'gnss' }}
+          WRANGLER: wrangler@4.148.0
+        run: |
+          # The first deploy creates the project, with releases as its
+          # production branch.
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PROJECT"
+          status="$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$api")"
+          case "$status" in
+            200) ;;
+            404) npx --yes "$WRANGLER" pages project create "$PROJECT" --production-branch production ;;
+            *) echo "::error::Cloudflare answered $status for the Pages project $PROJECT; check the token's permissions (docs/DEPLOYING.md)."; exit 1 ;;
+          esac
+          npx --yes "$WRANGLER" pages deploy dist --project-name "$PROJECT" --branch main \
+            --commit-hash "$GITHUB_SHA" --commit-dirty=false
+
   dco:
     name: Developer Certificate of Origin
     # Contributions from forks must be signed off (CONTRIBUTING.md).

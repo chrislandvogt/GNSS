@@ -859,7 +859,7 @@ gnss serve [--bundle <zip>]     # serve the web app on localhost, with a private
 
 ## 18. Distribution, versions and updates
 
-- **Web app.** Vite builds the UI, and the core and engine modules are compiled to WebAssembly. The result is static files. The host must let us set response headers, for the Content Security Policy now, and for cross-origin isolation if shared-memory threads are adopted later. Cloudflare Pages and Netlify allow this; GitHub Pages doesn't.
+- **Web app.** Vite builds the UI, and the core and engine modules are compiled to WebAssembly. The result is static files. The host must let us set response headers, for the Content Security Policy now, and for cross-origin isolation if shared-memory threads are adopted later. Cloudflare Pages and Netlify allow this; GitHub Pages doesn't. It's served by Cloudflare Pages, uploaded by CI: the bundle CI built and tested is what's deployed, and Cloudflare never builds it (`docs/DEPLOYING.md`).
 - **Versions.**
   - Each release is deployed at its own permanent URL (`/v/<version>/`) and never changed or removed. The site root serves the latest release.
   - Every release is also published as a bundle: the static site as a zip, with checksums, an SBOM and a signature (Sigstore, from CI).
