@@ -54,6 +54,7 @@ The core is in Rust, which gives memory-safe parsing and plenty of speed, and co
 | [CONVENTIONS.md](docs/CONVENTIONS.md) | Coding conventions: units, frames, time, errors, numerics and host access |
 | [spikes/m0-engine.md](docs/spikes/m0-engine.md) | The M0 engine spike: RTKLIB-EX as a WebAssembly module, compared with native builds |
 | [user/second-opinion.md](docs/user/second-opinion.md) | For users: a second-opinion adjustment in the browser or with the CLI, and reading the report |
+| [user/worked-example.md](docs/user/worked-example.md) | For users: a second opinion on a real Trimble Business Center network, step by step |
 | [user/formats.md](docs/user/formats.md) | For users: the file formats read and written, with the CSV formats in full |
 | [user/export-recipes.md](docs/user/export-recipes.md) | For users: getting vectors out of TBC, Infinity, MAGNET, CHC Geomatics Office and Emlid Studio |
 | [user/datums-and-epochs.md](docs/user/datums-and-epochs.md) | For users: how frames, epochs, transformations and MGA work in the tool |

@@ -239,7 +239,7 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 **Goal:** the second-opinion tool in real users' hands.
 
 - [ ] Oracle suite in CI: DynAdjust outputs stored as golden files, plus a manual job to regenerate them.
-- [ ] Documentation: a user guide for the second-opinion workflow in the browser and the CLI, and a worked example on public data.
+- [x] Documentation: a user guide for the second-opinion workflow in the browser and the CLI (`docs/user/second-opinion.md`), and a worked example on public data (`docs/user/worked-example.md`: a real TBC network from ICSM's PynAdjust).
 - [ ] Deploy the web page at a versioned URL, and publish its static bundle with checksums.
 - [ ] Release CLI binaries for Windows, macOS and Linux, with checksums and an SBOM. Build with cargo-dist or a plain Actions matrix, and generate the SBOM with cargo-cyclonedx.
 - [ ] Announce to pilot users and partners, and collect feedback as issues.
