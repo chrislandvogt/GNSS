@@ -51,6 +51,7 @@ The core is in Rust, which gives memory-safe parsing and plenty of speed, and co
 | [VALIDATION.md](docs/VALIDATION.md) | Benchmark datasets, metrics and release gates |
 | [DECISIONS.md](docs/DECISIONS.md) | Decision log, including open decisions |
 | [DEPLOYING.md](docs/DEPLOYING.md) | How the web app reaches Cloudflare Pages, and setting that up |
+| [RELEASING.md](docs/RELEASING.md) | Making a release, and what each one publishes |
 | [CONVENTIONS.md](docs/CONVENTIONS.md) | Coding conventions: units, frames, time, errors, numerics and host access |
 | [spikes/m0-engine.md](docs/spikes/m0-engine.md) | The M0 engine spike: RTKLIB-EX as a WebAssembly module, compared with native builds |
 | [user/second-opinion.md](docs/user/second-opinion.md) | For users: a second-opinion adjustment in the browser or with the CLI, and reading the report |

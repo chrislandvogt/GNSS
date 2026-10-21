@@ -1,0 +1,224 @@
+name: Release
+
+# A tag v<version> runs all of CI, builds the CLI for each platform and the
+# web bundle, publishes them as a GitHub release with checksums, SBOMs and
+# build provenance, then deploys the site: the latest release at the root and
+# every release under /v/<version>/ (docs/RELEASING.md). Run by hand, it's a
+# dry run that builds everything and publishes nothing.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Check the version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: The tag, the crates and the web app agree
+        id: version
+        run: |
+          version="$(cargo metadata --format-version 1 --no-deps --locked \
+            | jq -r '.packages[] | select(.name == "gnss-cli") | .version')"
+          web="$(jq -r .version apps/web/ui/package.json)"
+          if [ "$web" != "$version" ]; then
+            echo "::error::The crates are version $version but apps/web/ui/package.json is $web."
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::The tag $GITHUB_REF_NAME doesn't match the crates' version $version."
+            exit 1
+          fi
+          case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+  ci:
+    name: CI
+    needs: version
+    uses: ./.github/workflows/ci.yml
+
+  cli:
+    name: CLI (${{ matrix.target }})
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+          - { target: aarch64-apple-darwin, os: macos-latest }
+          # Cross-compiled on Apple silicon, so not run here.
+          - { target: x86_64-apple-darwin, os: macos-latest, cross: true }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      NAME: gnss-${{ needs.version.outputs.version }}-${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup target add ${{ matrix.target }}
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build
+        run: cargo build --release --locked -p gnss-cli --target ${{ matrix.target }}
+      - name: Package
+        run: |
+          mkdir -p "pkg/$NAME"
+          cp LICENSE NOTICE README.md "pkg/$NAME/"
+          if [ "${{ runner.os }}" = Windows ]; then
+            cp "target/${{ matrix.target }}/release/gnss.exe" "pkg/$NAME/"
+            (cd pkg && 7z a -tzip "$NAME.zip" "$NAME" > /dev/null)
+          else
+            cp "target/${{ matrix.target }}/release/gnss" "pkg/$NAME/"
+            tar -C pkg -czf "pkg/$NAME.tar.gz" "$NAME"
+          fi
+      - name: The binary runs and reports its version
+        if: ${{ !matrix.cross }}
+        run: |
+          out="$("pkg/$NAME/gnss" --version)"
+          echo "$out"
+          case "$out" in "gnss ${{ needs.version.outputs.version }} "*) ;; *) echo "::error::Unexpected version: $out"; exit 1 ;; esac
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-cli-${{ matrix.target }}
+          path: pkg/${{ env.NAME }}.*
+          if-no-files-found: error
+
+  bundle:
+    name: Web bundle and SBOMs
+    needs: [version, ci]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show active-toolchain
+      # The site exactly as CI built and tested it.
+      - uses: actions/download-artifact@v7
+        with:
+          name: web-app
+          path: gnss-web-${{ needs.version.outputs.version }}
+      - name: Zip the web bundle
+        run: |
+          mkdir out
+          cp LICENSE NOTICE "gnss-web-$VERSION/"
+          zip -qrX "out/gnss-web-$VERSION.zip" "gnss-web-$VERSION"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: SBOMs (CycloneDX)
+        run: |
+          cargo install cargo-cyclonedx --version 0.5.9 --locked
+          # It writes one per workspace crate; two are released.
+          cargo cyclonedx --format json --no-build-deps
+          cp apps/cli/gnss-cli.cdx.json "out/gnss-$VERSION-cli.cdx.json"
+          cargo cyclonedx --format json --no-build-deps --target wasm32-unknown-unknown
+          cp apps/web/core/gnss-web-core.cdx.json "out/gnss-web-$VERSION-core.cdx.json"
+          (cd apps/web/ui && npx --yes @cyclonedx/cyclonedx-npm@6.0.1 --omit dev --package-lock-only \
+            --output-format JSON --output-file "$GITHUB_WORKSPACE/out/gnss-web-$VERSION-npm.cdx.json")
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-bundle
+          path: out/
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs: [version, ci, cli, bundle]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Build provenance (Sigstore)
+        if: github.ref_type == 'tag'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/*
+      - name: Dry run
+        if: github.ref_type != 'tag'
+        run: |
+          echo "::notice::Dry run of $VERSION: everything built, nothing published."
+          ls -l dist
+      - name: Publish the GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          if [ "${{ needs.version.outputs.prerelease }}" = true ]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes \
+            --title "v$VERSION" "${flags[@]}"
+
+  deploy:
+    name: Deploy the site to Cloudflare Pages
+    # Prereleases are published, but not deployed.
+    needs: [version, publish]
+    if: github.ref_type == 'tag' && needs.version.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Every release's web bundle, checked against its checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p releases
+          gh release list --exclude-drafts --exclude-pre-releases --limit 1000 --json tagName --jq '.[].tagName' |
+          while read -r tag; do
+            version="${tag#v}"
+            dir="$RUNNER_TEMP/zips/$version"
+            mkdir -p "$dir"
+            gh release download "$tag" --dir "$dir" --pattern "gnss-web-$version.zip" --pattern SHA256SUMS
+            (cd "$dir" && sha256sum --check --ignore-missing --strict SHA256SUMS)
+            unzip -q "$dir/gnss-web-$version.zip" -d "$dir"
+            mv "$dir/gnss-web-$version" "releases/$version"
+          done
+      - name: Assemble the site
+        run: node apps/web/ui/scripts/assemble-site.mjs releases site
+      - name: Check Cloudflare is set up
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$ACCOUNT" ]; then
+            echo "::error::The release is published but not deployed: the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets aren't set (docs/DEPLOYING.md)."
+            exit 1
+          fi
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'gnss' }}
+        run: .github/scripts/deploy-pages.sh site production

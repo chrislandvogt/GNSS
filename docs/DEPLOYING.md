@@ -5,7 +5,7 @@ The web app is static files, served by Cloudflare Pages (ARCHITECTURE.md section
 | What | Where | When |
 |---|---|---|
 | The development version: main as it stands | `https://main.<project>.pages.dev` | Every push to main, once all of CI has passed |
-| Releases (from M4) | `https://<project>.pages.dev/` (the latest release) and `/v/<version>/` (every release, never changed) | Each release tag |
+| Releases | `https://<project>.pages.dev/` (the latest release) and `/v/<version>/` (every release, never changed) | Each release tag, by the release workflow ([RELEASING.md](RELEASING.md)) |
 
 The production address stays empty until the first release.
 
@@ -22,7 +22,7 @@ Once, by a maintainer with access to the Cloudflare account and the repository's
 
 The next push to main deploys. If the Pages project doesn't exist, the first deploy creates it, with `production` as its production branch, so releases and main never overwrite each other. Cloudflare picks the address: `gnss.pages.dev` if it's free, or a variant if not. The deploy job's log shows it.
 
-Until the secrets are set, the deploy job does nothing and says so; CI stays green.
+Until the secrets are set, main's deploy job does nothing and says so; CI stays green. A release fails its deploy job instead, since a release that isn't deployed should be noticed; the GitHub release itself is still published.
 
 **Don't connect the Pages project to Git.** A Git-connected project rebuilds the site from source on Cloudflare, which needs the whole Rust and WASI toolchain there, and serves a build CI never tested. If one already exists under the same name, delete it, or set `CLOUDFLARE_PAGES_PROJECT` to a new name.
 
@@ -30,6 +30,7 @@ Until the secrets are set, the deploy job does nothing and says so; CI stays gre
 
 - **Apply `_headers`.** The Content Security Policy, `nosniff`, `no-referrer` and `same-origin` opener policy come from `apps/web/ui/public/_headers`, which Pages applies. The policy allows one inline style by its hash: the HTML report's (the report crate's tests check the hash).
 - **Serve `sw.js` uncached**, as `_headers` asks, so a new version is found on the next visit.
+- **One `_headers` for every version.** Pages reads only the site root's `_headers`, so the assembled site's allows every release's report style (by hash) and serves each `/v/<version>/sw.js` uncached. Each version's service worker names its caches by its scope, so versions on one origin don't clear each other's offline copies.
 - **HTTPS.** Pages always serves it; the app needs a secure context for workers and browser storage.
 
 ## A custom domain

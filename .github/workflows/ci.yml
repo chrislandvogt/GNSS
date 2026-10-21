@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The release workflow runs all of CI first (docs/RELEASING.md).
+  workflow_call:
 
 permissions:
   contents: read
@@ -210,6 +212,8 @@ jobs:
         run: BROWSER=webkit npm run test:e2e -- ../../../engine-modules/rtklib-ex/dist/testdata
       - name: End-to-end app test in Chromium (adjustment, report, downloads, storage, offline)
         run: npm run test:app
+      - name: Test assembling the released site
+        run: node --test tests/assemble-site.test.mjs
       - name: Upload the deployable site
         uses: actions/upload-artifact@v6
         with:
@@ -237,6 +241,8 @@ jobs:
           else
             echo "::notice::Nothing deployed: the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets aren't set (docs/DEPLOYING.md)."
           fi
+      - uses: actions/checkout@v5
+        if: steps.cloudflare.outputs.ready == 'true'
       - uses: actions/download-artifact@v7
         if: steps.cloudflare.outputs.ready == 'true'
         with:
@@ -252,19 +258,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'gnss' }}
-          WRANGLER: wrangler@4.148.0
-        run: |
-          # The first deploy creates the project, with releases as its
-          # production branch.
-          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PROJECT"
-          status="$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$api")"
-          case "$status" in
-            200) ;;
-            404) npx --yes "$WRANGLER" pages project create "$PROJECT" --production-branch production ;;
-            *) echo "::error::Cloudflare answered $status for the Pages project $PROJECT; check the token's permissions (docs/DEPLOYING.md)."; exit 1 ;;
-          esac
-          npx --yes "$WRANGLER" pages deploy dist --project-name "$PROJECT" --branch main \
-            --commit-hash "$GITHUB_SHA" --commit-dirty=false
+        run: .github/scripts/deploy-pages.sh dist main
 
   dco:
     name: Developer Certificate of Origin

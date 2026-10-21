@@ -2,7 +2,11 @@
 // (ARCHITECTURE.md section 14.3). The build replaces the placeholder below
 // with the list of files and a content-derived version.
 const MANIFEST = "__PRECACHE_MANIFEST__"
-const CACHE = `gnss-app-${MANIFEST.version}`
+// Releases share an origin (the latest at the root, each one under
+// /v/<version>/), so caches are named by scope, and each version's worker
+// clears only its own scope's old caches.
+const PREFIX = `gnss-app-${self.registration.scope}-`
+const CACHE = `${PREFIX}${MANIFEST.version}`
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -18,7 +22,7 @@ self.addEventListener('activate', (event) => {
       .keys()
       .then((keys) =>
         Promise.all(
-          keys.filter((k) => k.startsWith('gnss-app-') && k !== CACHE).map((k) => caches.delete(k)),
+          keys.filter((k) => k.startsWith(PREFIX) && k !== CACHE).map((k) => caches.delete(k)),
         ),
       ),
   )

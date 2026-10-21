@@ -240,8 +240,8 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 
 - [ ] Oracle suite in CI: DynAdjust outputs stored as golden files, plus a manual job to regenerate them.
 - [x] Documentation: a user guide for the second-opinion workflow in the browser and the CLI (`docs/user/second-opinion.md`), and a worked example on public data (`docs/user/worked-example.md`: a real TBC network from ICSM's PynAdjust).
-- [ ] Deploy the web page at a versioned URL, and publish its static bundle with checksums.
-- [ ] Release CLI binaries for Windows, macOS and Linux, with checksums and an SBOM. Build with cargo-dist or a plain Actions matrix, and generate the SBOM with cargo-cyclonedx.
+- [ ] Deploy the web page at a versioned URL, and publish its static bundle with checksums. The release workflow does this (`docs/RELEASING.md`), and main deploys to Cloudflare Pages from CI (`docs/DEPLOYING.md`); ticked once v0.1.0 has gone out.
+- [ ] Release CLI binaries for Windows, macOS and Linux, with checksums and an SBOM. Build with cargo-dist or a plain Actions matrix, and generate the SBOM with cargo-cyclonedx. The release workflow does this with a plain matrix, plus build provenance; ticked once v0.1.0 has gone out.
 - [ ] Announce to pilot users and partners, and collect feedback as issues.
 
 **Exit criteria:** v0.1 is tagged, and at least three external users have run it on real data.
