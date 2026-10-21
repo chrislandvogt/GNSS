@@ -1,6 +1,6 @@
 # A second-opinion adjustment
 
-You've processed GNSS baselines in a commercial package and adjusted them there. This tool adjusts the same vectors independently, tests them, and reports on them, so you can check the result before you rely on it. It's open source, it shows its working, and it runs in a browser or from the command line, with the same results either way.
+You've processed GNSS baselines in a commercial package and adjusted them there. This tool adjusts the same vectors independently, tests them, and reports on them, so you can check the result before you rely on it. It's open source, it shows its working, and it runs in a browser or from the command line, with the same results either way. [worked-example.md](worked-example.md) goes through a real network from Trimble Business Center, step by step.
 
 What you need:
 

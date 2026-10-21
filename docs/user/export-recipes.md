@@ -45,11 +45,9 @@ Two routes, neither checked yet:
 - **STAR*NET.** Infinity 5.0's export has an output type *MicroSurvey STAR\*NET DAT* that includes post-processed GNSS vectors; versions 4.3.1 to 5.0 need a module from Leica [5]. Whether it writes the vectors' covariances (`G2` and `G3` records) isn't documented. Import it as `starnet` with the frame: the tool refuses vectors without weights rather than guessing them.
 - **SKI-ASCII, converted to DynaML.** Export with *Home → Export → All*, format *SKI ASCII - ASC*, coordinate type *WGS84 Cartesian*, with covariance, antenna heights and offsets, and epoch information turned on [6]. ICSM's PynAdjust converts the file to DynaML (`ski-ascii.py`) [7], which the tool reads. Note that the converter scales the covariances by the file's a posteriori σ₀² and sets `Vscale` to 100, which multiplies them by 100 again. Check that's what you want; the tool applies `Vscale` as DynaML says.
 
-A direct SKI-ASCII reader is planned, once a real export is available to test it against.
-
 ### Topcon MAGNET Tools and Topcon Tools
 
-Topcon's vector export is **TVF**, a comma-separated file with each vector's marks, ΔX, ΔY and ΔZ, standard errors and correlations [8]. The tool doesn't read it directly yet. Two routes:
+Topcon's vector export is **TVF**, a comma-separated file with each vector's marks, ΔX, ΔY and ΔZ, standard errors and correlations [8]. The tool doesn't read it directly. Two routes:
 
 - STAR*NET's *Topcon Tools TVF* importer turns it into STAR*NET `G` records, which the tool reads [8].
 - Or rearrange its columns into the CSV vector format (`from`, `to`, `dx`, `dy`, `dz`, `sd_x`, `sd_y`, `sd_z`, `corr_xy`, `corr_xz`, `corr_yz`).
@@ -64,10 +62,6 @@ Emlid Studio is built on RTKLIB and writes its results in RTKLIB's `.pos` format
 2. Import the `.pos` file as `rtklib`, giving the base and rover mark names.
 
 Studio writes latitude, longitude and height with the full covariance on local axes, which the tool reads. The header always says WGS84 [11]. The vector is in the frame of the orbits used, which for broadcast orbits is WGS 84, as the tool assumes. Its covariances are the processor's formal values, which users report as optimistic [12], so expect a variance factor above 1.
-
-### Coming later
-
-NGS's **GVX** (GNSS Vector Exchange) format is exported with full covariances by TBC, Infinity and MAGNET [13]. A reader for it would give one route from all three; it's planned, as are direct readers for SKI-ASCII and TVF.
 
 ## Sources
 
@@ -85,4 +79,3 @@ Checked on 20 October 2026. Several vendor sites couldn't be reached directly, s
 10. Emlid, *Static processing workflow*: https://docs.emlid.com/emlid-studio/static-processing-workflow/
 11. Emlid Community, *Consider adding .pos file formatting options*: https://community.emlid.com/t/consider-adding-pos-file-formatting-options-in-the-processing-settings-dialog/34343
 12. Emlid Community, *Constructing a realistic a posteriori covariance matrix from an RTKLIB .pos static baseline*: https://community.emlid.com/t/constructing-realistic-a-posteriori-covariance-matrix-from-rtklib-pos-static-baseline/44261
-13. NGS, *GVX format*: https://geodesy.noaa.gov/data/formats/GVX/
