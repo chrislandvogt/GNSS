@@ -249,7 +249,8 @@ jobs:
         if: steps.cloudflare.outputs.ready == 'true'
         with:
           name: web-app
-          path: dist
+          # Outside the checkout, so Wrangler sees a clean working tree.
+          path: ${{ runner.temp }}/site
       - uses: actions/setup-node@v5
         if: steps.cloudflare.outputs.ready == 'true'
         with:
@@ -260,7 +261,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'gnss' }}
-        run: .github/scripts/deploy-pages.sh dist main
+        run: .github/scripts/deploy-pages.sh "$RUNNER_TEMP/site" main
 
   dco:
     name: Developer Certificate of Origin

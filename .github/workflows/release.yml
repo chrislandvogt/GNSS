@@ -195,7 +195,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p releases
+          mkdir -p "$RUNNER_TEMP/releases"
           gh release list --exclude-drafts --exclude-pre-releases --limit 1000 --json tagName --jq '.[].tagName' |
           while read -r tag; do
             version="${tag#v}"
@@ -204,10 +204,10 @@ jobs:
             gh release download "$tag" --dir "$dir" --pattern "gnss-web-$version.zip" --pattern SHA256SUMS
             (cd "$dir" && sha256sum --check --ignore-missing --strict SHA256SUMS)
             unzip -q "$dir/gnss-web-$version.zip" -d "$dir"
-            mv "$dir/gnss-web-$version" "releases/$version"
+            mv "$dir/gnss-web-$version" "$RUNNER_TEMP/releases/$version"
           done
       - name: Assemble the site
-        run: node apps/web/ui/scripts/assemble-site.mjs releases site
+        run: node apps/web/ui/scripts/assemble-site.mjs "$RUNNER_TEMP/releases" "$RUNNER_TEMP/site"
       - name: Check Cloudflare is set up
         env:
           TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -222,4 +222,4 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'gnss' }}
-        run: .github/scripts/deploy-pages.sh site production
+        run: .github/scripts/deploy-pages.sh "$RUNNER_TEMP/site" production
