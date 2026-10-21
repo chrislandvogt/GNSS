@@ -228,6 +228,8 @@ jobs:
     # /v/<version>/ (docs/DEPLOYING.md).
     needs: [native, wasm, fuzz, deny, web]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # The Cloudflare secrets live in this GitHub environment.
+    environment: Env
     runs-on: ubuntu-latest
     steps:
       - name: Check Cloudflare is set up

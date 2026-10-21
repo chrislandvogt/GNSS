@@ -184,6 +184,7 @@ jobs:
     # Prereleases are published, but not deployed.
     needs: [version, publish]
     if: github.ref_type == 'tag' && needs.version.outputs.prerelease == 'false'
+    environment: Env
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

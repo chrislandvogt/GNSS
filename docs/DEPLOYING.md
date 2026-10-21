@@ -15,9 +15,11 @@ Once, by a maintainer with access to the Cloudflare account and the repository's
 
 1. **An API token.** In the Cloudflare dashboard, go to *My Profile → API Tokens → Create Token → Create Custom Token*. Give it one permission, *Account → Cloudflare Pages → Edit*, for this account only.
 2. **The account ID.** It's shown on the dashboard's *Workers & Pages* page, and in the address bar after `dash.cloudflare.com/`.
-3. **GitHub secrets.** In the repository's *Settings → Secrets and variables → Actions*, add two repository secrets:
+3. **GitHub secrets.** In the repository's *Settings → Environments*, create an environment named `Env` (the deploy jobs name it), and add two environment secrets:
    - `CLOUDFLARE_API_TOKEN`: the token
    - `CLOUDFLARE_ACCOUNT_ID`: the account ID
+
+   Under *Deployment branches and tags*, allow only the `main` branch and tags matching `v*`, so no other branch or pull request can use the token. Deploys then show in the repository's *Deployments* list.
 4. **Optionally, the project's name.** Add a repository variable `CLOUDFLARE_PAGES_PROJECT` to use another name. The default is `gnss`.
 
 The next push to main deploys. If the Pages project doesn't exist, the first deploy creates it, with `production` as its production branch, so releases and main never overwrite each other. Cloudflare picks the address: `gnss.pages.dev` if it's free, or a variant if not. The deploy job's log shows it.
