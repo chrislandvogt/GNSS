@@ -239,7 +239,6 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 **Goal:** the second-opinion tool in real users' hands.
 
 - [ ] Oracle suite in CI: DynAdjust outputs stored as golden files, plus a manual job to regenerate them.
-- [ ] Readers for the vector formats the other packages actually export, each checked against real exports from pilot users: GVX (NGS's exchange format, from TBC, Infinity and MAGNET), SKI-ASCII (Infinity) and TVF (Topcon).
 - [ ] Documentation: a user guide for the second-opinion workflow in the browser and the CLI, and a worked example on public data.
 - [ ] Deploy the web page at a versioned URL, and publish its static bundle with checksums.
 - [ ] Release CLI binaries for Windows, macOS and Linux, with checksums and an SBOM. Build with cargo-dist or a plain Actions matrix, and generate the SBOM with cargo-cyclonedx.
