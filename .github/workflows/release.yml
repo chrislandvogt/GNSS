@@ -4,12 +4,19 @@ name: Release
 # web bundle, publishes them as a GitHub release with checksums, SBOMs and
 # build provenance, then deploys the site: the latest release at the root and
 # every release under /v/<version>/ (docs/RELEASING.md). Run by hand, it's a
-# dry run that builds everything and publishes nothing.
+# dry run that builds everything and publishes nothing, unless "publish" is
+# ticked: then, on main, it tags the commit v<version> and releases it, as a
+# pushed tag would (for releasing without a git client, from a phone).
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Tag main as v<version> and publish the release (otherwise a dry run)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -25,10 +32,15 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
+      # Whether this run publishes, and the tag it publishes as.
+      publish: ${{ steps.version.outputs.publish }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v5
       - name: The tag, the crates and the web app agree
         id: version
+        env:
+          PUBLISH: ${{ inputs.publish }}
         run: |
           version="$(cargo metadata --format-version 1 --no-deps --locked \
             | jq -r '.packages[] | select(.name == "gnss-cli") | .version')"
@@ -41,9 +53,25 @@ jobs:
             echo "::error::The tag $GITHUB_REF_NAME doesn't match the crates' version $version."
             exit 1
           fi
+          publish=false
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            publish=true
+          elif [ "$PUBLISH" = true ]; then
+            if [ "$GITHUB_REF" != refs/heads/main ]; then
+              echo "::error::Publishing by hand only releases main, not $GITHUB_REF_NAME."
+              exit 1
+            fi
+            if [ -n "$(git ls-remote --tags origin "refs/tags/v$version")" ]; then
+              echo "::error::v$version is already tagged; set a new version first (docs/RELEASING.md)."
+              exit 1
+            fi
+            publish=true
+          fi
           case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
   ci:
     name: CI
@@ -160,30 +188,33 @@ jobs:
           sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
       - name: Build provenance (Sigstore)
-        if: github.ref_type == 'tag'
+        if: needs.version.outputs.publish == 'true'
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/*
       - name: Dry run
-        if: github.ref_type != 'tag'
+        if: needs.version.outputs.publish != 'true'
         run: |
           echo "::notice::Dry run of $VERSION: everything built, nothing published."
           ls -l dist
       - name: Publish the GitHub release
-        if: github.ref_type == 'tag'
+        if: needs.version.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           flags=()
           if [ "${{ needs.version.outputs.prerelease }}" = true ]; then flags+=(--prerelease); fi
-          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes \
+          # A pushed tag must already exist; publishing by hand creates it here,
+          # on the commit everything above was built from.
+          if [ "$GITHUB_REF_TYPE" = tag ]; then flags+=(--verify-tag); else flags+=(--target "$GITHUB_SHA"); fi
+          gh release create "${{ needs.version.outputs.tag }}" dist/* --generate-notes \
             --title "v$VERSION" "${flags[@]}"
 
   deploy:
     name: Deploy the site to Cloudflare Pages
     # Prereleases are published, but not deployed.
     needs: [version, publish]
-    if: github.ref_type == 'tag' && needs.version.outputs.prerelease == 'false'
+    if: needs.version.outputs.publish == 'true' && needs.version.outputs.prerelease == 'false'
     environment: Env
     runs-on: ubuntu-latest
     steps:
