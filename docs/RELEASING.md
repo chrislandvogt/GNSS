@@ -19,7 +19,9 @@ A release is a tag. Pushing `v<version>` runs `.github/workflows/release.yml`, w
 
 A version with a hyphen (`0.2.0-rc.1`) is a prerelease: it's published on GitHub, marked as a prerelease, but not deployed to the site.
 
-To try the whole workflow without publishing, run it by hand from the *Actions* tab (*Release → Run workflow*) on any branch. It builds and checks everything, skips the version-to-tag check, and publishes nothing.
+**Without a git client** (from a phone, say), do step 3 from the *Actions* tab instead: *Release → Run workflow*, on `main`, with *Tag main as v<version> and publish the release* ticked. The workflow checks that the version isn't tagged yet, builds and checks everything as for a pushed tag, then tags the commit it built and publishes it.
+
+To try the whole workflow without publishing, run it by hand with that box left unticked, on any branch. It builds and checks everything, skips the version-to-tag check, and publishes nothing.
 
 ## What the workflow does
 
