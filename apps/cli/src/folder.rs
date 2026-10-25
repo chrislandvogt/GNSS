@@ -6,11 +6,13 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use gnss_api::project::{EditRecord, Import, Project};
+use gnss_store::{FsStore, ProjectPath, Store, StoreError};
 use serde::Serialize;
 
 /// A project folder.
 pub struct Folder {
     root: PathBuf,
+    store: FsStore,
 }
 
 impl Folder {
@@ -27,9 +29,7 @@ impl Folder {
                 root.display()
             ));
         }
-        let folder = Folder {
-            root: root.to_path_buf(),
-        };
+        let folder = Folder::at(root);
         for dir in [root.to_path_buf(), folder.raw(), folder.results()] {
             fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
@@ -46,9 +46,7 @@ impl Folder {
 
     /// Opens an existing project folder.
     pub fn open(root: &Path) -> Result<Folder, String> {
-        let folder = Folder {
-            root: root.to_path_buf(),
-        };
+        let folder = Folder::at(root);
         if !folder.project_file().is_file() {
             return Err(format!(
                 "{} isn't a project: there's no project.toml. Create one with gnss init, or \
@@ -57,6 +55,13 @@ impl Folder {
             ));
         }
         Ok(folder)
+    }
+
+    fn at(root: &Path) -> Folder {
+        Folder {
+            root: root.to_path_buf(),
+            store: FsStore::new(root),
+        }
     }
 
     /// The folder.
@@ -88,53 +93,31 @@ impl Folder {
         Project::from_toml(&text).map_err(|e| e.to_string())
     }
 
-    /// `raw.lock`'s entries: (SHA-256, path).
-    fn locks(&self) -> Result<Vec<(String, String)>, String> {
-        let text = fs::read_to_string(self.lock_file()).map_err(|e| format!("raw.lock: {e}"))?;
-        text.lines()
-            .filter(|l| !l.trim().is_empty())
-            .map(|l| {
-                l.split_once("  ")
-                    .map(|(h, p)| (h.to_owned(), p.to_owned()))
-                    .ok_or_else(|| format!("raw.lock: {l:?} isn't a hash and a path"))
-            })
-            .collect()
-    }
-
     /// A raw file's bytes, checked against `raw.lock`: raw files never change.
+    /// The message doesn't repeat the file's name, which callers add.
     pub fn read_raw(&self, file: &str) -> Result<Vec<u8>, String> {
-        let bytes = fs::read(self.root.join(file)).map_err(|e| e.to_string())?;
-        let hash = gnss_store::sha256_hex(&bytes);
-        match self.locks()?.iter().find(|(_, p)| p == file) {
-            Some((expected, _)) if *expected == hash => Ok(bytes),
-            Some(_) => Err(
-                "it has changed since it was imported (its SHA-256 no longer matches raw.lock). \
-                 Raw files are never edited: restore it, or import the new version under another \
-                 name"
-                    .into(),
-            ),
-            None => Err("raw.lock has no hash for it".into()),
-        }
+        ProjectPath::new(file)
+            .and_then(|path| self.store.read_raw(&path))
+            .map_err(|e| {
+                let message = e.to_string();
+                message
+                    .strip_prefix(&format!("{file}: "))
+                    .map_or(message.clone(), str::to_owned)
+            })
     }
 
     /// Copies an import into `raw/`, records its hash and adds it to the project.
     pub fn add_import(&self, import: &Import, bytes: &[u8]) -> Result<(), String> {
-        let target = self.root.join(&import.file);
-        if target.exists() {
-            return Err(format!(
-                "{} is already in the project; give the new file another name",
-                import.file
-            ));
+        let path = ProjectPath::new(import.file.as_str()).map_err(|e| e.to_string())?;
+        if self.store.read(&path).map_err(|e| e.to_string())?.is_some() {
+            return Err(StoreError::RawExists(import.file.clone()).to_string());
         }
         let project = self.project()?;
         if project.imports.iter().any(|i| i.file == import.file) {
             return Err(format!("{} is already imported", import.file));
         }
-        self.write(&target, bytes)?;
-        self.append(
-            &self.lock_file(),
-            &format!("{}  {}\n", gnss_store::sha256_hex(bytes), import.file),
-        )?;
+        let mut store = self.store.clone();
+        store.add_raw(&path, bytes).map_err(|e| e.to_string())?;
         #[derive(Serialize)]
         struct Entry<'a> {
             import: [&'a Import; 1],

@@ -263,7 +263,9 @@ The rules:
 - Corrections, such as a wrong antenna height in a RINEX header, are overlays that record the reason. They're never edits to the raw files.
 - Everything in `results/` and `.cache/` can be regenerated from the rest. The web app keeps `.cache/` in browser storage (OPFS) rather than in the folder, because writing many small files through the File System Access API is slow.
 - Every file has a schema version, and migrations are automatic and logged.
-- Each file has a JSON Schema (generated with schemars), so editors validate as you type.
+- Each file has a JSON Schema (generated with schemars), so editors validate as you type. They're in the repository's `schemas/` folder: `project.schema.json`, `marks.schema.json` and `occupation.schema.json`. A test fails if they fall behind the code; regenerate them with `GNSS_UPDATE_SCHEMAS=1 cargo test -p gnss-api --test schemas`. In VS Code with Even Better TOML, or any editor using Taplo, a `#:schema <url>` comment on a file's first line points it at its schema.
+- Schema version 1 is the first, so there's nothing to migrate yet. A file with a newer version than the app reads is refused with a message saying so, rather than misread.
+- The core reads and writes a project only through the `store` crate's `Store`: `FsStore` natively, and a `MemoryStore` the web app fills from the user's folder or browser storage. `gnss_api::folder::load` loads a project from either, reporting every problem by file.
 
 ## 7. Pipeline and provenance
 

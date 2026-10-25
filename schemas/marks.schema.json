@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MarkFile",
+  "description": "`marks.toml`: the project's marks and their known coordinates.",
+  "type": "object",
+  "properties": {
+    "mark": {
+      "description": "The marks, in the order written.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Mark"
+      }
+    },
+    "schema": {
+      "description": "The schema version: 1 (`SCHEMA`), raised only when a migration is needed.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema"
+  ],
+  "$defs": {
+    "Constraint": {
+      "description": "How a known coordinate takes part in the adjustment.",
+      "oneOf": [
+        {
+          "description": "Held fixed.",
+          "type": "string",
+          "const": "fixed"
+        },
+        {
+          "description": "Weighted by its standard deviations.",
+          "type": "string",
+          "const": "weighted"
+        },
+        {
+          "description": "A starting value only.",
+          "type": "string",
+          "const": "free"
+        }
+      ]
+    },
+    "KnownCoordinate": {
+      "description": "A coordinate known before the survey, such as a control value from a\nstate database or an AUSPOS solution.",
+      "type": "object",
+      "properties": {
+        "constraint": {
+          "description": "How the adjustment uses it.",
+          "$ref": "#/$defs/Constraint",
+          "default": "free"
+        },
+        "epoch": {
+          "description": "The coordinate epoch as a decimal year, for a dynamic frame.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "frame": {
+          "description": "The frame, such as `GDA2020` or `ITRF2014`.",
+          "type": "string"
+        },
+        "height": {
+          "description": "Ellipsoidal height in metres.",
+          "type": "number",
+          "format": "double"
+        },
+        "latitude": {
+          "description": "Latitude in degrees, north positive.",
+          "type": "number",
+          "format": "double"
+        },
+        "longitude": {
+          "description": "Longitude in degrees, east positive.",
+          "type": "number",
+          "format": "double"
+        },
+        "sd": {
+          "description": "Standard deviations east, north and up, in metres.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxItems": 3,
+          "minItems": 3
+        },
+        "source": {
+          "description": "Where the value came from, such as `SCIMS 2026-09-01` or `AUSPOS job 1234`.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "frame",
+        "latitude",
+        "longitude",
+        "height",
+        "source"
+      ]
+    },
+    "Mark": {
+      "description": "A physical survey mark.",
+      "type": "object",
+      "properties": {
+        "approx": {
+          "description": "A rough position, used to check that a set-up was on the mark it\nclaims (M9). Latitude and longitude in degrees, height in metres.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxItems": 3,
+          "minItems": 3
+        },
+        "id": {
+          "description": "The mark's id, such as `PM12345`.",
+          "$ref": "#/$defs/MarkId"
+        },
+        "kind": {
+          "description": "What kind of mark it is.",
+          "$ref": "#/$defs/MarkKind",
+          "default": "permanent-mark"
+        },
+        "known": {
+          "description": "Coordinates known before this survey: control, each with its source.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/KnownCoordinate"
+          }
+        },
+        "name": {
+          "description": "A name, if it has one besides its id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ]
+    },
+    "MarkId": {
+      "description": "A survey mark's id, such as `PM12345`.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]{0,59}$"
+    },
+    "MarkKind": {
+      "description": "What kind of mark a mark is.",
+      "oneOf": [
+        {
+          "description": "A permanent mark, such as a PM or SSM.",
+          "type": "string",
+          "const": "permanent-mark"
+        },
+        {
+          "description": "A continuously operating reference station.",
+          "type": "string",
+          "const": "cors"
+        },
+        {
+          "description": "A mark placed for this survey only.",
+          "type": "string",
+          "const": "temporary"
+        },
+        {
+          "description": "Anything else.",
+          "type": "string",
+          "const": "other"
+        }
+      ]
+    }
+  }
+}
