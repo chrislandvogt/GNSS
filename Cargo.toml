@@ -17,6 +17,7 @@ gnss-api = { path = "crates/api" }
 gnss-datum = { path = "crates/datum" }
 gnss-formats = { path = "crates/formats" }
 gnss-model = { path = "crates/model" }
+gnss-pipeline = { path = "crates/pipeline" }
 gnss-report = { path = "crates/report" }
 gnss-store = { path = "crates/store" }
 hifitime = "4.3"
@@ -26,6 +27,9 @@ libm = "0.2.16"
 # Without "std": its dynamic matrix products would go to matrixmultiply, which
 # picks SIMD and FMA kernels by CPU at run time, so results would differ
 # between machines (D-024). Its own loops are the same everywhere.
+# Pipeline node keys (ARCHITECTURE.md section 7). "pure": the same Rust code on
+# every target, with no C compiler; keys are small, so speed doesn't matter.
+blake3 = { version = "=1.8.7", default-features = false, features = ["std", "pure"] }
 # JSON Schemas for the project files, so editors check them as you type
 # (ARCHITECTURE.md section 6).
 schemars = "=1.2.2"

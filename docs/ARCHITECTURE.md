@@ -306,6 +306,7 @@ checks run as nodes alongside, wherever their inputs exist
 {"run":"2026-10-15T03:12:44Z","app":"0.3.0+3f2a1c","build":"web","node":"baseline/9c1e","status":"computed","inputs":["rinex/77ab","rinex/12cd","nav/aa01"],"settings":"set/41fe","engine":"rtklib-ex 2.5.0 blake3:5d0e","outputs":["sol/9c1e"],"ms":4210}
 ```
 
+- **Implemented so far** (`crates/pipeline`): the graph, checked for missing inputs and cycles and run in a fixed order (each node after its inputs, ties by id); BLAKE3 keys built field by field with lengths, so no two different inputs hash alike; the cache in `.cache/<2 hex>/<key>` through the `store` crate; progress events and cancellation between nodes, supplied by the host; and `verify`. Nodes run one after another for now; the parallel executors come with the work that needs them.
 - **`verify`** re-runs the whole graph while ignoring the cache, then compares output hashes. This is the audit answer to "how did you get this number?" Hashes must match when the re-run uses the same build: the same web release on any operating system, or the same native build on the same platform. Across builds, outputs are compared numerically against the tolerances in section 4.
 
 ## 8. Command API and front ends

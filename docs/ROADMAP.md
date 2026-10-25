@@ -270,13 +270,13 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [ ] Schema versioning and migrations. Every file carries its version and a newer one is refused with a message; there's nothing to migrate until version 2.
 - [ ] Antenna geometry catalogue (`data/antennas`): ARP, measure-up points, and the radius and offsets needed for slant-height conversion, with sources cited. This information isn't in ANTEX. Document how to contribute to it.
 - [ ] Pipeline:
-  - [ ] A DAG of steps: ingest → QC → baseline → vector set → adjustment → evaluation → report.
-  - [ ] Node keys = hash(inputs, settings, tool versions), with a content-addressed cache.
-  - [ ] Parallel execution, cancellation and progress events, with an executor for each host: tokio and rayon natively, and workers in the browser.
+  - [ ] A DAG of steps: ingest → QC → baseline → vector set → adjustment → evaluation → report. The graph and its runner are done (`crates/pipeline`); the steps arrive with the milestones that build them (M6 onwards).
+  - [x] Node keys = hash(inputs, settings, tool versions), with a content-addressed cache.
+  - [ ] Parallel execution, cancellation and progress events, with an executor for each host: tokio and rayon natively, and workers in the browser. Cancellation and progress events are done; nodes run one at a time until the engine work (M8) needs more.
 - [ ] Storage interface (`store`): the file system natively; the File System Access API and OPFS in the browser, with zip import and export. The `Store` trait, `FsStore` and `MemoryStore` are done, and the CLI uses them; the browser side and zips are next.
 - [ ] Provenance:
   - [ ] An append-only JSONL record of every run: inputs, settings, versions, outputs and timing.
-  - [ ] A `verify` command that re-runs everything and compares hashes.
+  - [ ] A `verify` command that re-runs everything and compares hashes. `gnss_pipeline::verify` does the comparison; the command comes with the first real steps.
 - [ ] Command API (`api` crate): typed requests and responses for every operation, plus a job model for long-running work.
 
 **Exit criteria:**
