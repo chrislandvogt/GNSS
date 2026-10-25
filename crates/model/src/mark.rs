@@ -5,10 +5,10 @@ use crate::error::from_toml;
 use crate::{MarkId, ModelError, SCHEMA};
 
 /// `marks.toml`: the project's marks and their known coordinates.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MarkFile {
-    /// The schema version, [`SCHEMA`].
+    /// The schema version: 1 (`SCHEMA`), raised only when a migration is needed.
     pub schema: u32,
     /// The marks, in the order written.
     #[serde(default, rename = "mark", skip_serializing_if = "Vec::is_empty")]
@@ -52,7 +52,7 @@ impl Default for MarkFile {
 }
 
 /// A physical survey mark.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Mark {
     /// The mark's id, such as `PM12345`.
@@ -96,7 +96,9 @@ impl Mark {
 }
 
 /// What kind of mark a mark is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum MarkKind {
     /// A permanent mark, such as a PM or SSM.
@@ -111,7 +113,9 @@ pub enum MarkKind {
 }
 
 /// How a known coordinate takes part in the adjustment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum Constraint {
     /// Held fixed.
@@ -125,7 +129,7 @@ pub enum Constraint {
 
 /// A coordinate known before the survey, such as a control value from a
 /// state database or an AUSPOS solution.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct KnownCoordinate {
     /// The frame, such as `GDA2020` or `ITRF2014`.

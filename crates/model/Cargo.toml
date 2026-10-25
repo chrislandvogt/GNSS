@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 gnss-datum.workspace = true
 hifitime.workspace = true
+schemars.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 toml.workspace = true

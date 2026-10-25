@@ -21,10 +21,10 @@ use crate::export::{self, ExportError, Results};
 pub const SCHEMA: u32 = 1;
 
 /// A project, as `project.toml` holds it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Project {
-    /// The schema version, [`SCHEMA`].
+    /// The schema version: 1 (`SCHEMA`), raised only when a migration is needed.
     pub schema: u32,
     /// The project's name, for the report.
     pub name: String,
@@ -39,7 +39,7 @@ pub struct Project {
 }
 
 /// How to adjust.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AdjustmentSettings {
     /// The frame to adjust in, such as "GDA2020".
@@ -98,7 +98,7 @@ impl AdjustmentSettings {
 }
 
 /// The formats files can be imported from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum Format {
     /// DynaML stations and measurements.
@@ -199,7 +199,7 @@ pub fn guess_format(name: &str, bytes: &[u8]) -> Option<Format> {
 }
 
 /// A file imported into the project.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Import {
     /// The file, relative to the project folder, such as "raw/vectors.xml".
@@ -228,7 +228,7 @@ impl Import {
 }
 
 /// An exclusion or re-weighting, with the person's reason.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EditRecord {
     /// The observation's identifier, such as "vectors.xml:21".

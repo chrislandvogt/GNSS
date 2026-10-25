@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Occupation",
+  "description": "One set-up of one receiver and antenna over one mark for one span of\ntime: a file in `occupations/`.",
+  "type": "object",
+  "properties": {
+    "antenna": {
+      "description": "The antenna.",
+      "$ref": "#/$defs/Antenna"
+    },
+    "end": {
+      "description": "When observation ended, in UTC.",
+      "$ref": "#/$defs/Timestamp"
+    },
+    "field_log": {
+      "description": "The field log, in `fieldlogs/`, if there is one.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "height": {
+      "description": "The antenna height, as measured.",
+      "$ref": "#/$defs/HeightMeasurement"
+    },
+    "id": {
+      "description": "The occupation's id, which is also its file name.",
+      "$ref": "#/$defs/OccupationId"
+    },
+    "mark": {
+      "description": "The mark occupied.",
+      "$ref": "#/$defs/MarkId"
+    },
+    "receiver": {
+      "description": "The receiver.",
+      "$ref": "#/$defs/Receiver"
+    },
+    "rinex": {
+      "description": "The occupation's RINEX files in `raw/`, as paths from the project folder.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "schema": {
+      "description": "The schema version: 1 (`SCHEMA`), raised only when a migration is needed.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "start": {
+      "description": "When observation started, in UTC.",
+      "$ref": "#/$defs/Timestamp"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "mark",
+    "start",
+    "end",
+    "receiver",
+    "antenna",
+    "height"
+  ],
+  "$defs": {
+    "Antenna": {
+      "description": "An antenna, named as in the IGS's `rcvr_ant.tab`, which is how its\ncalibration is found.",
+      "type": "object",
+      "properties": {
+        "calibration": {
+          "description": "Where the calibration comes from, such as `igs20.atx`, if not the default.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "igs": {
+          "description": "The IGS antenna code, such as `LEIAS10` or `TRM59800.00`.",
+          "type": "string"
+        },
+        "radome": {
+          "description": "The radome's IGS code; `NONE` without one.",
+          "type": "string",
+          "default": "NONE"
+        },
+        "serial": {
+          "description": "The serial number.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "igs"
+      ]
+    },
+    "HeightMeasurement": {
+      "description": "An antenna height, as measured in the field, with its evidence.",
+      "type": "object",
+      "properties": {
+        "measured_by": {
+          "description": "Who measured it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "method": {
+          "description": "Vertical or slant.",
+          "$ref": "#/$defs/HeightMethod"
+        },
+        "photos": {
+          "description": "Photos of the tape, in `fieldlogs/`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "to": {
+          "description": "The point measured to, such as `ARP` or a slant point named in the\nantenna geometry catalogue.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The height in metres.",
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "to",
+        "value"
+      ]
+    },
+    "HeightMethod": {
+      "description": "How an antenna height was measured.",
+      "oneOf": [
+        {
+          "description": "Vertically, from the mark to the measure-up point.",
+          "type": "string",
+          "const": "vertical"
+        },
+        {
+          "description": "On the slant, from the mark to a point on the antenna's edge. It's\nconverted to vertical with the antenna geometry catalogue.",
+          "type": "string",
+          "const": "slant"
+        }
+      ]
+    },
+    "MarkId": {
+      "description": "A survey mark's id, such as `PM12345`.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]{0,59}$"
+    },
+    "OccupationId": {
+      "description": "An occupation's id, such as `2026-10-14-PM12345-A`. It's also its file name in `occupations/`.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]{0,59}$"
+    },
+    "Receiver": {
+      "description": "A receiver.",
+      "type": "object",
+      "properties": {
+        "firmware": {
+          "description": "The firmware version.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "make": {
+          "description": "The maker, such as `Leica`.",
+          "type": "string"
+        },
+        "model": {
+          "description": "The model, such as `GS10`.",
+          "type": "string"
+        },
+        "serial": {
+          "description": "The serial number.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "make",
+        "model"
+      ]
+    },
+    "Timestamp": {
+      "description": "A time in UTC, such as 2026-10-14T00:12:00Z.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"
+    }
+  }
+}

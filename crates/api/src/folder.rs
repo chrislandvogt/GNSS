@@ -113,3 +113,22 @@ pub fn load<S: Store + ?Sized>(store: &S) -> Result<Loaded, LoadError> {
         issues,
     })
 }
+
+/// The JSON Schemas of the project's files, as (file name, schema), for
+/// editors to check the files as they're typed. They're kept in the
+/// repository's `schemas/` folder, and a test checks they're up to date.
+pub fn json_schemas() -> Vec<(&'static str, String)> {
+    let pretty =
+        |schema: schemars::Schema| serde_json::to_string_pretty(&schema).unwrap_or_default() + "\n";
+    vec![
+        (
+            "project.schema.json",
+            pretty(schemars::schema_for!(Project)),
+        ),
+        ("marks.schema.json", pretty(schemars::schema_for!(MarkFile))),
+        (
+            "occupation.schema.json",
+            pretty(schemars::schema_for!(Occupation)),
+        ),
+    ]
+}

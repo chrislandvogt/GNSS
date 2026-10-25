@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Project",
+  "description": "A project, as `project.toml` holds it.",
+  "type": "object",
+  "properties": {
+    "adjustment": {
+      "description": "How to adjust.",
+      "$ref": "#/$defs/AdjustmentSettings"
+    },
+    "edit": {
+      "description": "The person's exclusions and re-weightings, with their reasons.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EditRecord"
+      }
+    },
+    "import": {
+      "description": "The files imported, in order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Import"
+      }
+    },
+    "name": {
+      "description": "The project's name, for the report.",
+      "type": "string"
+    },
+    "schema": {
+      "description": "The schema version: 1 (`SCHEMA`), raised only when a migration is needed.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "name",
+    "adjustment"
+  ],
+  "$defs": {
+    "AdjustmentSettings": {
+      "description": "How to adjust.",
+      "type": "object",
+      "properties": {
+        "alpha0": {
+          "description": "The w-test's level, α₀.",
+          "type": "number",
+          "format": "double",
+          "default": 0.001
+        },
+        "beta0": {
+          "description": "The tests' power, β₀.",
+          "type": "number",
+          "format": "double",
+          "default": 0.8
+        },
+        "datum": {
+          "description": "\"constrained\" (control as imported), \"minimal\" (inner constraints) or\n\"fixed:NAME\" (minimal, holding one mark).",
+          "type": "string",
+          "default": "constrained"
+        },
+        "epoch": {
+          "description": "The coordinate epoch, as a decimal year, for a dynamic frame.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "frame": {
+          "description": "The frame to adjust in, such as \"GDA2020\".",
+          "type": "string"
+        },
+        "global_alpha": {
+          "description": "The global test's level.",
+          "type": "number",
+          "format": "double",
+          "default": 0.05
+        },
+        "uncertainty": {
+          "description": "\"a-priori\" or \"a-posteriori\": the variance factor uncertainties use.",
+          "type": "string",
+          "default": "a-priori"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "frame"
+      ]
+    },
+    "EditRecord": {
+      "description": "An exclusion or re-weighting, with the person's reason.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "\"exclude\" or \"reweight\".",
+          "type": "string"
+        },
+        "factor": {
+          "description": "For a re-weighting: the factor the covariance is multiplied by.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "observation": {
+          "description": "The observation's identifier, such as \"vectors.xml:21\".",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "observation",
+        "action",
+        "reason"
+      ]
+    },
+    "Format": {
+      "description": "The formats files can be imported from.",
+      "oneOf": [
+        {
+          "description": "DynaML stations and measurements.",
+          "type": "string",
+          "const": "dynaml"
+        },
+        {
+          "description": "STAR*NET GPS vectors.",
+          "type": "string",
+          "const": "starnet"
+        },
+        {
+          "description": "Trimble Data Exchange Format, from Trimble Business Center.",
+          "type": "string",
+          "const": "tdef"
+        },
+        {
+          "description": "An RTKLIB solution.",
+          "type": "string",
+          "const": "rtklib"
+        },
+        {
+          "description": "The CSV vector format.",
+          "type": "string",
+          "const": "csv-vectors"
+        },
+        {
+          "description": "The CSV control format.",
+          "type": "string",
+          "const": "csv-control"
+        },
+        {
+          "description": "A SINEX solution.",
+          "type": "string",
+          "const": "sinex"
+        }
+      ]
+    },
+    "Import": {
+      "description": "A file imported into the project.",
+      "type": "object",
+      "properties": {
+        "base": {
+          "description": "For an RTKLIB solution: the base's mark name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "epoch": {
+          "description": "The epoch of its contents, as a decimal year or date, for formats that don't say.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "file": {
+          "description": "The file, relative to the project folder, such as \"raw/vectors.xml\".",
+          "type": "string"
+        },
+        "format": {
+          "description": "Its format.",
+          "$ref": "#/$defs/Format"
+        },
+        "frame": {
+          "description": "The frame of its contents, for formats that don't say.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rover": {
+          "description": "For an RTKLIB solution: the rover's mark name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "format"
+      ]
+    }
+  }
+}

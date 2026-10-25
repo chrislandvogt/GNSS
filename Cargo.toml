@@ -26,6 +26,9 @@ libm = "0.2.16"
 # Without "std": its dynamic matrix products would go to matrixmultiply, which
 # picks SIMD and FMA kernels by CPU at run time, so results would differ
 # between machines (D-024). Its own loops are the same everywhere.
+# JSON Schemas for the project files, so editors check them as you type
+# (ARCHITECTURE.md section 6).
+schemars = "=1.2.2"
 nalgebra = { version = "0.35", default-features = false, features = ["alloc", "libm-force"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

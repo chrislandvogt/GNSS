@@ -5,10 +5,10 @@ use crate::{MarkId, ModelError, OccupationId, SCHEMA, Timestamp};
 
 /// One set-up of one receiver and antenna over one mark for one span of
 /// time: a file in `occupations/`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Occupation {
-    /// The schema version, [`SCHEMA`].
+    /// The schema version: 1 (`SCHEMA`), raised only when a migration is needed.
     pub schema: u32,
     /// The occupation's id, which is also its file name.
     pub id: OccupationId,
@@ -79,7 +79,7 @@ impl Occupation {
 }
 
 /// A receiver.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Receiver {
     /// The maker, such as `Leica`.
@@ -107,7 +107,7 @@ impl Receiver {
 
 /// An antenna, named as in the IGS's `rcvr_ant.tab`, which is how its
 /// calibration is found.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Antenna {
     /// The IGS antenna code, such as `LEIAS10` or `TRM59800.00`.
@@ -152,7 +152,7 @@ impl Antenna {
 }
 
 /// How an antenna height was measured.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum HeightMethod {
     /// Vertically, from the mark to the measure-up point.
@@ -163,7 +163,7 @@ pub enum HeightMethod {
 }
 
 /// An antenna height, as measured in the field, with its evidence.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct HeightMeasurement {
     /// Vertical or slant.

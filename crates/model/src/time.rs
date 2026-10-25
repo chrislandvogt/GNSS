@@ -103,6 +103,20 @@ impl Serialize for Timestamp {
     }
 }
 
+impl schemars::JsonSchema for Timestamp {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Timestamp".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "description": "A time in UTC, such as 2026-10-14T00:12:00Z.",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"
+        })
+    }
+}
+
 impl<'de> Deserialize<'de> for Timestamp {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         Timestamp::parse(&String::deserialize(d)?).map_err(serde::de::Error::custom)

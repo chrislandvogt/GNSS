@@ -258,22 +258,22 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 
 **Goal:** an occupation-first project folder and a cached, reproducible build graph.
 
-- [ ] Domain model:
-  - [ ] Mark, Receiver and Antenna (IGS code, radome, serial, calibration source).
-  - [ ] HeightMeasurement (method, value, measure-up point, measured by, photos).
-  - [ ] Occupation, Session (derived), Baseline, Observation and AdjustmentConfig.
+- [ ] Domain model (`crates/model`):
+  - [x] Mark, Receiver and Antenna (IGS code, radome, serial, calibration source).
+  - [x] HeightMeasurement (method, value, measure-up point, measured by, photos).
+  - [ ] Occupation, Session (derived), Baseline, Observation and AdjustmentConfig. Occupation, sessions and candidate baselines (derived from overlapping occupations) are done; the processed baseline and observation types come with the engine (M8).
 - [ ] Project folder format per [ARCHITECTURE.md](ARCHITECTURE.md#6-project-format):
-  - [ ] TOML, with one file per occupation.
-  - [ ] An immutable `raw/` directory with hashes.
+  - [x] TOML, with one file per occupation, loaded from any store with every problem reported by file (`gnss_api::folder`).
+  - [x] An immutable `raw/` directory with hashes (`raw.lock`, checked on every read).
   - [ ] Overlays for corrections.
-  - [ ] JSON Schema for every file.
-  - [ ] Schema versioning and migrations.
+  - [x] JSON Schema for every file (`schemas/`, checked against the code by a test).
+  - [ ] Schema versioning and migrations. Every file carries its version and a newer one is refused with a message; there's nothing to migrate until version 2.
 - [ ] Antenna geometry catalogue (`data/antennas`): ARP, measure-up points, and the radius and offsets needed for slant-height conversion, with sources cited. This information isn't in ANTEX. Document how to contribute to it.
 - [ ] Pipeline:
   - [ ] A DAG of steps: ingest → QC → baseline → vector set → adjustment → evaluation → report.
   - [ ] Node keys = hash(inputs, settings, tool versions), with a content-addressed cache.
   - [ ] Parallel execution, cancellation and progress events, with an executor for each host: tokio and rayon natively, and workers in the browser.
-- [ ] Storage interface (`store`): the file system natively; the File System Access API and OPFS in the browser, with zip import and export.
+- [ ] Storage interface (`store`): the file system natively; the File System Access API and OPFS in the browser, with zip import and export. The `Store` trait, `FsStore` and `MemoryStore` are done, and the CLI uses them; the browser side and zips are next.
 - [ ] Provenance:
   - [ ] An append-only JSONL record of every run: inputs, settings, versions, outputs and timing.
   - [ ] A `verify` command that re-runs everything and compares hashes.

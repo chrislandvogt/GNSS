@@ -68,6 +68,20 @@ macro_rules! id {
             }
         }
 
+        impl schemars::JsonSchema for $name {
+            fn schema_name() -> std::borrow::Cow<'static, str> {
+                stringify!($name).into()
+            }
+
+            fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+                schemars::json_schema!({
+                    "type": "string",
+                    "description": $doc,
+                    "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]{0,59}$"
+                })
+            }
+        }
+
         impl<'de> Deserialize<'de> for $name {
             fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
                 $name::new(String::deserialize(d)?).map_err(serde::de::Error::custom)
