@@ -312,7 +312,13 @@ checks run as nodes alongside, wherever their inputs exist
 ## 8. Command API and front ends
 
 - The `api` crate defines a typed request/response pair for every operation, for example `ImportRinex`, `SetHeight`, `ProcessBaselines`, `Adjust`, `Explain`, `Export`.
-- Long-running operations return a `JobId` and emit `JobProgress`, `JobFinished` and `IssueRaised` events.
+- Long-running operations return a `JobId` and emit `JobProgress`, `JobFinished` and `IssueRaised` events (`gnss_api::jobs`). They're serialised with a `type` field, which is how the web app's worker posts them:
+
+  ```json
+  {"type":"progress","job":1,"done":2,"total":7,"step":"baseline/A~B"}
+  {"type":"issue-raised","job":1,"file":"occupations/A.toml","message":"mark PM9 isn't in marks.toml; add it there first"}
+  {"type":"finished","job":1,"outcome":{"status":"succeeded","computed":4,"cached":3}}
+  ```
 - **Transports:**
 
   | Transport | Used by |

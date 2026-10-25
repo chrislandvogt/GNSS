@@ -383,6 +383,7 @@ dependencies = [
  "gnss-datum",
  "gnss-formats",
  "gnss-model",
+ "gnss-pipeline",
  "gnss-report",
  "gnss-store",
  "libm",

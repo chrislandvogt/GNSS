@@ -277,7 +277,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 - [ ] Provenance:
   - [x] An append-only JSONL record of every run: inputs, settings, versions, outputs and timing (`gnss_pipeline::provenance`, with timing from the host's clock).
   - [ ] A `verify` command that re-runs everything and compares hashes. `gnss_pipeline::verify` does the comparison; the command comes with the first real steps.
-- [ ] Command API (`api` crate): typed requests and responses for every operation, plus a job model for long-running work.
+- [ ] Command API (`api` crate): typed requests and responses for every operation, plus a job model for long-running work. The job model is done (`gnss_api::jobs`: ids, and progress, issue and finished events as tagged JSON); the requests and responses grow with each operation.
 
 **Exit criteria:**
 - Changing one antenna height re-runs only the dependent nodes.
