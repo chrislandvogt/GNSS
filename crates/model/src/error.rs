@@ -31,7 +31,8 @@ pub struct Issue {
 }
 
 impl Issue {
-    pub(crate) fn new(file: impl Into<String>, message: impl Into<String>) -> Self {
+    /// An issue in a file.
+    pub fn new(file: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             file: file.into(),
             message: message.into(),

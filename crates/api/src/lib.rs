@@ -9,6 +9,7 @@
 
 pub mod build;
 pub mod export;
+pub mod folder;
 pub mod project;
 
 /// Version of the core.

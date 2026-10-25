@@ -342,6 +342,7 @@ dependencies = [
  "gnss-adjust",
  "gnss-datum",
  "gnss-formats",
+ "gnss-model",
  "gnss-report",
  "gnss-store",
  "libm",
