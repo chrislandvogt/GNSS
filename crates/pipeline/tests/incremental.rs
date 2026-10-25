@@ -244,3 +244,78 @@ fn progress_cancellation_and_failures() {
     .unwrap_err();
     assert_eq!(err.to_string(), "adjust: the network has no datum");
 }
+
+#[test]
+fn every_run_is_recorded_in_provenance() {
+    use gnss_pipeline::provenance::{self, RunInfo};
+
+    let mut store = MemoryStore::new();
+    let graph = survey(&DAY);
+    let tick = Cell::new(0.0);
+    // A clock that advances 2 ms each time it's read.
+    let mut hooks = Hooks::none().with_clock(|| {
+        tick.set(tick.get() + 2.0);
+        tick.get()
+    });
+    let runs = run(
+        &graph,
+        &mut StoreCache(&mut store),
+        &mut compute,
+        &mut hooks,
+    )
+    .unwrap();
+    assert!(runs.iter().all(|r| r.ms == Some(2)));
+    let info = |started| RunInfo {
+        started,
+        app: "0.2.0",
+        build: "native",
+    };
+    provenance::append(
+        &mut store,
+        &provenance::records(info("2026-10-25T07:00:00Z"), &graph, &runs),
+    )
+    .unwrap();
+    let again = run(
+        &graph,
+        &mut StoreCache(&mut store),
+        &mut compute,
+        &mut Hooks::none(),
+    )
+    .unwrap();
+    provenance::append(
+        &mut store,
+        &provenance::records(info("2026-10-25T07:05:00Z"), &graph, &again),
+    )
+    .unwrap();
+
+    let records = provenance::read(&store).unwrap();
+    assert_eq!(records.len(), 14);
+    let first = &records[0];
+    assert_eq!(
+        (first.node.as_str(), first.status.as_str(), first.ms),
+        ("normalise/A", "computed", Some(2))
+    );
+    assert_eq!(
+        first.inputs,
+        [format!("occupations/A.toml@{}", Key::of(b"height = 1.532"))]
+    );
+    let adjust = records.iter().find(|r| r.node == "adjust").unwrap();
+    assert_eq!(adjust.inputs.len(), 3);
+    assert!(adjust.inputs[0].starts_with("baseline/A~B@"));
+    // The second run reused everything, with the same keys and outputs.
+    for (a, b) in records[..7].iter().zip(&records[7..]) {
+        assert_eq!((b.status.as_str(), b.ms), ("cached", None));
+        assert_eq!((&a.key, &a.output), (&b.key, &b.output));
+    }
+    // Each line is one JSON record, appended.
+    let text = String::from_utf8(
+        gnss_store::Store::read_existing(
+            &store,
+            &gnss_store::ProjectPath::new("provenance.jsonl").unwrap(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(text.lines().count(), 14);
+    assert!(text.starts_with("{\"run\":\"2026-10-25T07:00:00Z\",\"app\":\"0.2.0\",\"build\":\"native\",\"node\":\"normalise/A\",\"status\":\"computed\""));
+}

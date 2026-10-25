@@ -300,10 +300,10 @@ checks run as nodes alongside, wherever their inputs exist
   - Natively, tokio orchestrates, rayon handles CPU-bound maths, and engine modules run in a pool of wasmtime instances.
   - In the web app, the core runs in a dedicated worker and engine modules run in a pool of engine workers (section 14.1).
 - **Incremental by construction.** Changing an antenna height invalidates that occupation's baselines and everything downstream of them, and nothing else.
-- **Provenance.** Every run appends a JSONL record per node: computed or cached, inputs, settings, engine, outputs and duration. For example:
+- **Provenance.** Every run appends a JSONL record per node to `provenance.jsonl`: computed or cached, its key, the tool, the hash of its settings, its inputs (outside data as `name@hash`, upstream nodes as `node@key`), the hash of its output, and its duration when the host times it. Hashes are BLAKE3, written in full. For example (hashes shortened here):
 
 ```json
-{"run":"2026-10-15T03:12:44Z","app":"0.3.0+3f2a1c","build":"web","node":"baseline/9c1e","status":"computed","inputs":["rinex/77ab","rinex/12cd","nav/aa01"],"settings":"set/41fe","engine":"rtklib-ex 2.5.0 blake3:5d0e","outputs":["sol/9c1e"],"ms":4210}
+{"run":"2026-10-15T03:12:44Z","app":"0.3.0","build":"web","node":"baseline/A~B","status":"computed","key":"9c1e…","tool":"rtklib-ex 2.5.0 blake3:5d0e…","settings":"41fe…","inputs":["normalise/A@77ab…","normalise/B@12cd…"],"output":"5a90…","ms":4210}
 ```
 
 - **Implemented so far** (`crates/pipeline`): the graph, checked for missing inputs and cycles and run in a fixed order (each node after its inputs, ties by id); BLAKE3 keys built field by field with lengths, so no two different inputs hash alike; the cache in `.cache/<2 hex>/<key>` through the `store` crate; progress events and cancellation between nodes, supplied by the host; and `verify`. Nodes run one after another for now; the parallel executors come with the work that needs them.

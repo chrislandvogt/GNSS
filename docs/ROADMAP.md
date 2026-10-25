@@ -275,7 +275,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [ ] Parallel execution, cancellation and progress events, with an executor for each host: tokio and rayon natively, and workers in the browser. Cancellation and progress events are done; nodes run one at a time until the engine work (M8) needs more.
 - [ ] Storage interface (`store`): the file system natively; the File System Access API and OPFS in the browser, with zip import and export. The `Store` trait, `FsStore` and `MemoryStore` are done, and the CLI uses them; the browser side and zips are next.
 - [ ] Provenance:
-  - [ ] An append-only JSONL record of every run: inputs, settings, versions, outputs and timing.
+  - [x] An append-only JSONL record of every run: inputs, settings, versions, outputs and timing (`gnss_pipeline::provenance`, with timing from the host's clock).
   - [ ] A `verify` command that re-runs everything and compares hashes. `gnss_pipeline::verify` does the comparison; the command comes with the first real steps.
 - [ ] Command API (`api` crate): typed requests and responses for every operation, plus a job model for long-running work.
 

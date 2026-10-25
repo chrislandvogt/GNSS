@@ -56,6 +56,9 @@ pub struct NodeRun {
     pub status: Status,
     /// The hash of its output.
     pub output: Key,
+    /// How long it took in milliseconds, looking up included, if the host
+    /// gave a clock.
+    pub ms: Option<u64>,
 }
 
 /// Progress, reported as a run goes.
@@ -99,6 +102,7 @@ pub enum RunError<E: std::fmt::Display> {
 pub struct Hooks<'a> {
     on_event: Box<dyn FnMut(Event<'_>) + 'a>,
     cancelled: Box<dyn Fn() -> bool + 'a>,
+    clock: Option<Box<dyn Fn() -> f64 + 'a>>,
 }
 
 impl<'a> Hooks<'a> {
@@ -107,7 +111,21 @@ impl<'a> Hooks<'a> {
         Self {
             on_event: Box::new(on_event),
             cancelled: Box::new(cancelled),
+            clock: None,
         }
+    }
+
+    /// Times each node with the host's clock, in milliseconds from any
+    /// fixed point (`performance.now()` in the browser, an `Instant`
+    /// natively). The core doesn't read a clock itself: there's none it can
+    /// rely on in every build.
+    pub fn with_clock(mut self, clock: impl Fn() -> f64 + 'a) -> Self {
+        self.clock = Some(Box::new(clock));
+        self
+    }
+
+    fn now(&self) -> Option<f64> {
+        self.clock.as_ref().map(|c| c())
     }
 
     /// No progress reporting, and never cancelled.
@@ -155,6 +173,7 @@ where
         let Some(key) = graph.key(&node.id) else {
             continue;
         };
+        let started = hooks.now();
         let (bytes, status) = match cache.get(&key)? {
             Some(bytes) => (bytes, Status::Cached),
             None => {
@@ -172,6 +191,9 @@ where
             key,
             status,
             output: Key::of(&bytes),
+            ms: started
+                .zip(hooks.now())
+                .map(|(a, b)| (b - a).max(0.0).round() as u64),
         };
         (hooks.on_event)(Event::Finished(&record));
         runs.push(record);

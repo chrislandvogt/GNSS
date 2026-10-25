@@ -10,10 +10,12 @@
 //! The crate runs nodes one after another and never touches the file
 //! system, the clock or threads: the host supplies the cache (usually a
 //! project's `.cache/` through [`StoreCache`]), the work each node does,
-//! and progress and cancellation through [`Hooks`].
+//! and progress, cancellation and timing through [`Hooks`]. Each run is
+//! recorded in `provenance.jsonl` with the [`provenance`] module.
 
 mod graph;
 mod key;
+pub mod provenance;
 mod run;
 
 pub use graph::{Graph, GraphError, Input, Node, NodeId};
