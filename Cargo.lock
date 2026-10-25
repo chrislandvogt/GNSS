@@ -420,6 +420,14 @@ dependencies = [
 [[package]]
 name = "gnss-model"
 version = "0.1.0"
+dependencies = [
+ "gnss-datum",
+ "hifitime",
+ "serde",
+ "thiserror",
+ "toml",
+ "wasm-bindgen-test",
+]
 
 [[package]]
 name = "gnss-pipeline"
