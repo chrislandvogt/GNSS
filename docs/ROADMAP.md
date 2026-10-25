@@ -99,7 +99,7 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
   - [x] Measure its speed and peak memory against the native build.
   - [x] Record the results in D-023, and set the web performance targets ([ARCHITECTURE.md](ARCHITECTURE.md#20-performance-targets)).
 - [x] Web skeleton: a Vite and Svelte page that loads the core in a worker, opens a project folder (or uses OPFS where folders aren't available), and works offline through a service worker.
-- [ ] Deploy the web skeleton at a versioned URL on a static host that can set response headers. Needs the maintainer to choose a host and create the account (Cloudflare Pages or Netlify; CI already builds the deployable site).
+- [x] Deploy the web skeleton at a versioned URL on a static host that can set response headers: Cloudflare Pages, uploaded from CI (`docs/DEPLOYING.md`).
 - [x] Add cargo-deny for licences, advisories, bans and sources. Deny GPL, AGPL and LGPL. Allow-list MPL-2.0 (D-005). Apply the same licence policy to the web app's JavaScript packages.
 - [x] Write CONTRIBUTING.md (DCO sign-off), CODE_OF_CONDUCT.md (Contributor Covenant), SECURITY.md, and issue and PR templates. The maintainer adds the Code of Conduct contact and enables private vulnerability reporting.
 - [x] Write `docs/CONVENTIONS.md`: units, frames, epochs, time scales, covariance storage, error handling, logging, numerics, host access and determinism.
@@ -240,8 +240,8 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 
 - [ ] Oracle suite in CI: DynAdjust outputs stored as golden files, plus a manual job to regenerate them.
 - [x] Documentation: a user guide for the second-opinion workflow in the browser and the CLI (`docs/user/second-opinion.md`), and a worked example on public data (`docs/user/worked-example.md`: a real TBC network from ICSM's PynAdjust).
-- [ ] Deploy the web page at a versioned URL, and publish its static bundle with checksums. The release workflow does this (`docs/RELEASING.md`), and main deploys to Cloudflare Pages from CI (`docs/DEPLOYING.md`); ticked once v0.1.0 has gone out.
-- [ ] Release CLI binaries for Windows, macOS and Linux, with checksums and an SBOM. Build with cargo-dist or a plain Actions matrix, and generate the SBOM with cargo-cyclonedx. The release workflow does this with a plain matrix, plus build provenance; ticked once v0.1.0 has gone out.
+- [x] Deploy the web page at a versioned URL, and publish its static bundle with checksums. v0.1.0 is at `https://gnss-bui.pages.dev/` and `/v/0.1.0/`, deployed by the release workflow (`docs/RELEASING.md`); main deploys to `main.gnss-bui.pages.dev` from CI (`docs/DEPLOYING.md`).
+- [x] Release CLI binaries for Windows, macOS and Linux, with checksums and an SBOM. v0.1.0 has static Linux, Windows and macOS (Apple silicon and Intel) builds from a plain Actions matrix, CycloneDX SBOMs, `SHA256SUMS` and Sigstore build provenance.
 - [ ] Announce to pilot users and partners, and collect feedback as issues.
 
 **Exit criteria:** v0.1 is tagged, and at least three external users have run it on real data.
