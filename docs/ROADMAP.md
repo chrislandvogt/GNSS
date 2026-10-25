@@ -273,7 +273,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [ ] A DAG of steps: ingest → QC → baseline → vector set → adjustment → evaluation → report. The graph and its runner are done (`crates/pipeline`); the steps arrive with the milestones that build them (M6 onwards).
   - [x] Node keys = hash(inputs, settings, tool versions), with a content-addressed cache.
   - [ ] Parallel execution, cancellation and progress events, with an executor for each host: tokio and rayon natively, and workers in the browser. Cancellation and progress events are done; nodes run one at a time until the engine work (M8) needs more.
-- [ ] Storage interface (`store`): the file system natively; the File System Access API and OPFS in the browser, with zip import and export. The `Store` trait, `FsStore` and `MemoryStore` are done, and the CLI uses them; the browser side and zips are next.
+- [ ] Storage interface (`store`): the file system natively; the File System Access API and OPFS in the browser, with zip import and export. The `Store` trait, `FsStore` and `MemoryStore` are done, and the CLI uses them; so are deterministic zip export and import (`gnss_store::zip`). The browser side is next.
 - [ ] Provenance:
   - [x] An append-only JSONL record of every run: inputs, settings, versions, outputs and timing (`gnss_pipeline::provenance`, with timing from the host's clock).
   - [ ] A `verify` command that re-runs everything and compares hashes. `gnss_pipeline::verify` does the comparison; the command comes with the first real steps.

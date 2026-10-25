@@ -30,6 +30,9 @@ libm = "0.2.16"
 # Pipeline node keys (ARCHITECTURE.md section 7). "pure": the same Rust code on
 # every target, with no C compiler; keys are small, so speed doesn't matter.
 blake3 = { version = "=1.8.7", default-features = false, features = ["std", "pure"] }
+# Project zips (store::zip). Both already come with tiff's deflate.
+crc32fast = "1.5"
+miniz_oxide = "0.9"
 # JSON Schemas for the project files, so editors check them as you type
 # (ARCHITECTURE.md section 6).
 schemars = "=1.2.2"

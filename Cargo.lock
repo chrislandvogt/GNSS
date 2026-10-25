@@ -509,6 +509,8 @@ version = "0.1.0"
 name = "gnss-store"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
+ "miniz_oxide",
  "sha2",
  "thiserror",
  "wasm-bindgen-test",
