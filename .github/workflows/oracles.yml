@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       dynadjust-ref:
-        description: DynAdjust tag or commit to build
+        description: DynAdjust tag or branch to build
         default: v1.4.1
   pull_request:
     paths:
@@ -48,17 +48,20 @@ jobs:
             libboost-program-options-dev libopenblas-dev liblapacke-dev
       - name: Restore the DynAdjust build
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}/DynAdjust
-          key: dynadjust-${{ env.DYNADJUST_REF }}-ubuntu-24.04
+          key: dynadjust-${{ env.DYNADJUST_REF }}-ubuntu-24.04-v2
       - name: Build DynAdjust ${{ env.DYNADJUST_REF }}
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          git clone --quiet https://github.com/icsm-au/DynAdjust.git "$RUNNER_TEMP/DynAdjust"
-          git -C "$RUNNER_TEMP/DynAdjust" checkout --quiet "$DYNADJUST_REF"
+          git clone --quiet --depth 1 --branch "$DYNADJUST_REF" \
+            https://github.com/icsm-au/DynAdjust.git "$RUNNER_TEMP/DynAdjust"
           cmake -S "$RUNNER_TEMP/DynAdjust/dynadjust" -B "$RUNNER_TEMP/build" -DCMAKE_BUILD_TYPE=Release
           cmake --build "$RUNNER_TEMP/build" --parallel 4
+          # Keep what the scripts use: the binaries, and .git, from which
+          # they record the version they ran.
+          find "$RUNNER_TEMP/DynAdjust" -mindepth 1 -maxdepth 1 ! -name bin ! -name .git -exec rm -rf {} +
           ls "$RUNNER_TEMP/DynAdjust/bin"
       - name: Run DynAdjust on the oracle networks
         run: |
