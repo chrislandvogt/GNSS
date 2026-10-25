@@ -6,13 +6,17 @@
 //      shows its report (styled, which the policy must allow), takes an
 //      exclusion with a reason, and downloads a GeoPackage and CSV,
 //   3. a project in browser storage (OPFS) accepts a file, and the core
-//      hashes it to the same SHA-256 as Node does,
+//      hashes it to the same SHA-256 as Node does; a project zip imports into
+//      browser storage, is checked with its problem reported by file,
+//      exports without its cache, can't be imported over itself, and is
+//      removed,
 //   4. after the service worker has cached the build, the app reloads and
 //      the engine module loads with the network switched off,
 //   5. the page logs no errors.
 //
 // Usage: node tests/app.mjs
 import { createHash } from 'node:crypto'
+import { crc32 } from 'node:zlib'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -23,6 +27,42 @@ import { serve } from './static-server.mjs'
 const ui = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const SAMPLE = path.resolve(ui, '../../../crates/formats/tests/data/dynaml')
 const REQUIRED = ['Secure context', 'WebAssembly', 'WebAssembly SIMD', 'Web workers', 'Browser storage (OPFS)', 'Offline use (service worker)']
+
+// A zip of stored entries, as an archiver might make one.
+function zipOf(entries) {
+  const locals = []
+  const centrals = []
+  let offset = 0
+  for (const [name, text] of entries) {
+    const n = Buffer.from(name)
+    const data = Buffer.from(text)
+    const head = Buffer.alloc(30)
+    head.writeUInt32LE(0x04034b50, 0)
+    head.writeUInt16LE(20, 4)
+    head.writeUInt32LE(crc32(data), 14)
+    head.writeUInt32LE(data.length, 18)
+    head.writeUInt32LE(data.length, 22)
+    head.writeUInt16LE(n.length, 26)
+    const central = Buffer.alloc(46)
+    central.writeUInt32LE(0x02014b50, 0)
+    central.writeUInt16LE(20, 4)
+    central.writeUInt16LE(20, 6)
+    head.copy(central, 16, 14, 26)
+    central.writeUInt16LE(n.length, 28)
+    central.writeUInt32LE(offset, 42)
+    locals.push(head, n, data)
+    centrals.push(central, n)
+    offset += 30 + n.length + data.length
+  }
+  const directory = Buffer.concat(centrals)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50, 0)
+  end.writeUInt16LE(entries.length, 8)
+  end.writeUInt16LE(entries.length, 10)
+  end.writeUInt32LE(directory.length, 12)
+  end.writeUInt32LE(offset, 16)
+  return Buffer.concat([...locals, directory, end])
+}
 
 const server = await serve(path.join(ui, 'dist'))
 const browser = await chromium.launch()
@@ -89,11 +129,40 @@ try {
   writeFileSync(file, content)
   const expected = createHash('sha256').update(content).digest('hex')
   await page.getByRole('button', { name: 'Use browser storage' }).click()
-  await page.locator('details.diagnostics input[type=file]').setInputFiles(file)
+  await page.getByLabel('Add files').setInputFiles(file)
   await page.getByRole('cell', { name: 'sample.txt' }).waitFor()
   await page.getByRole('button', { name: 'Compute SHA-256 hashes' }).click()
   await page.getByRole('cell', { name: expected }).waitFor()
   console.log(`browser storage project ok; core hash matches Node (${expected.slice(0, 12)}…)`)
+
+  const zip = path.join(scratch, 'Survey.zip')
+  writeFileSync(
+    zip,
+    zipOf([
+      ['Survey/project.toml', 'schema = 1\nname = "Zip test"\n\n[adjustment]\nframe = "GDA2020"\n'],
+      ['Survey/marks.toml', 'schema = 1\n'],
+      ['Survey/occupations/bad.toml', 'not toml ['],
+      ['Survey/.cache/ab/abcd', 'derived'],
+    ]),
+  )
+  const importZip = page.getByLabel('Import a project zip')
+  await importZip.setInputFiles(zip)
+  await page.getByText('Survey (browser storage)').waitFor()
+  await page.getByRole('cell', { name: 'occupations/bad.toml' }).waitFor()
+  await page.getByRole('button', { name: 'Check project' }).click()
+  await page.getByRole('status').filter({ hasText: 'Zip test: 0 marks, 0 occupations, 0 overlays; 1 problem.' }).waitFor()
+  await page.locator('.checked li').filter({ hasText: 'occupations/bad.toml' }).waitFor()
+  const exported = await downloaded('Export as zip')
+  const text = exported.bytes.toString('latin1')
+  if (exported.name !== 'Survey.zip' || !text.startsWith('PK\x03\x04') || !text.includes('occupations/bad.toml') || text.includes('.cache')) {
+    throw new Error(`${exported.name} isn't the project without its cache`)
+  }
+  await importZip.setInputFiles(zip)
+  await page.getByRole('alert').filter({ hasText: 'a project called Survey is already in browser storage' }).waitFor()
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: 'Remove from browser storage' }).click()
+  await page.getByRole('button', { name: 'Survey', exact: true }).waitFor({ state: 'detached' })
+  console.log(`project zip imported, checked (1 problem, by file), exported without its cache (${exported.bytes.length} bytes), not imported twice, removed`)
 
   // 4. Offline: wait for the service worker to finish caching, then reload
   //    with no network and load the engine from the cache.

@@ -8,8 +8,10 @@
 
 use std::collections::BTreeMap;
 
+use gnss_api::folder;
 use gnss_api::project::{self, ExportFile, ExportFormat, Format, Project, Run, Summary};
 use gnss_datum::FrameId;
+use gnss_store::{MemoryStore, ProjectPath, Store, zip};
 use serde::Serialize;
 
 /// A loaded file.
@@ -188,13 +190,95 @@ pub fn project_toml(project_json: &str) -> Result<String, String> {
     parse(project_json)?.to_toml().map_err(|e| e.to_string())
 }
 
+/// A file in a project, by its path relative to the project folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectFile {
+    /// Its path, such as `raw/A.rnx`.
+    pub path: String,
+    /// Its contents.
+    pub data: Vec<u8>,
+}
+
+/// A store holding a project's files, each path checked.
+fn store(files: Vec<ProjectFile>) -> Result<MemoryStore, String> {
+    let mut store = MemoryStore::new();
+    for file in files {
+        let path = ProjectPath::new(&file.path).map_err(|e| e.to_string())?;
+        store.write(&path, &file.data).map_err(|e| e.to_string())?;
+    }
+    Ok(store)
+}
+
+/// A project's files as a zip, the same bytes the CLI would make. The
+/// derived-data cache is left out.
+pub fn zip_export(files: Vec<ProjectFile>) -> Result<Vec<u8>, String> {
+    zip::export(&store(files)?).map_err(|e| e.to_string())
+}
+
+/// The files in a project zip, checked: none escapes the project, and none is
+/// damaged.
+pub fn zip_import(zip: &[u8]) -> Result<Vec<ProjectFile>, String> {
+    let store = zip::import(zip).map_err(|e| e.to_string())?;
+    Ok(store
+        .files()
+        .map(|(path, data)| ProjectFile {
+            path: path.to_string(),
+            data: data.to_vec(),
+        })
+        .collect())
+}
+
+/// What checking a project found.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Checked {
+    /// The project's name.
+    pub name: String,
+    /// How many marks, occupations and overlays read without problems.
+    pub marks: usize,
+    /// See `marks`.
+    pub occupations: usize,
+    /// See `marks`.
+    pub overlays: usize,
+    /// Every problem, by file.
+    pub issues: Vec<CheckedIssue>,
+}
+
+/// A problem in a project file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CheckedIssue {
+    /// The file, relative to the project folder.
+    pub file: String,
+    /// What's wrong, and what to do about it.
+    pub message: String,
+}
+
+/// Loads a project from its files the way the CLI does, raw files checked
+/// against `raw.lock`, and reports what it found.
+pub fn check_project(files: Vec<ProjectFile>) -> Result<Checked, String> {
+    let loaded = folder::load(&store(files)?).map_err(|e| e.to_string())?;
+    Ok(Checked {
+        name: loaded.project.name,
+        marks: loaded.marks.marks.len(),
+        occupations: loaded.occupations.len(),
+        overlays: loaded.overlays.len(),
+        issues: loaded
+            .issues
+            .into_iter()
+            .map(|i| CheckedIssue {
+                file: i.file,
+                message: i.message,
+            })
+            .collect(),
+    })
+}
+
 #[cfg(target_arch = "wasm32")]
 mod bindings {
     use std::cell::RefCell;
 
     use wasm_bindgen::prelude::{JsError, JsValue, wasm_bindgen};
 
-    use super::Session;
+    use super::{ProjectFile, Session};
 
     thread_local! {
         static SESSION: RefCell<Session> = RefCell::new(Session::default());
@@ -273,6 +357,61 @@ mod bindings {
         Ok(array)
     }
 
+    /// Files from JavaScript: an array of `{ path, data }`, with `data` a
+    /// Uint8Array.
+    fn files_from(array: &js_sys::Array) -> Result<Vec<ProjectFile>, JsError> {
+        array
+            .iter()
+            .map(|entry| {
+                let path = js_sys::Reflect::get(&entry, &"path".into())
+                    .ok()
+                    .and_then(|p| p.as_string())
+                    .ok_or_else(|| JsError::new("a file has no path"))?;
+                let data = js_sys::Reflect::get(&entry, &"data".into())
+                    .map_err(|_| JsError::new("a file has no data"))?;
+                Ok(ProjectFile {
+                    path,
+                    data: js_sys::Uint8Array::new(&data).to_vec(),
+                })
+            })
+            .collect()
+    }
+
+    /// A project's files, as an array of `{ path, data }` for JavaScript.
+    fn files_to(files: Vec<ProjectFile>) -> Result<js_sys::Array, JsError> {
+        let array = js_sys::Array::new();
+        for file in files {
+            let entry = js_sys::Object::new();
+            js_sys::Reflect::set(&entry, &"path".into(), &file.path.into())
+                .map_err(|_| JsError::new("couldn't list the files"))?;
+            let data = js_sys::Uint8Array::from(file.data.as_slice());
+            js_sys::Reflect::set(&entry, &"data".into(), &JsValue::from(data))
+                .map_err(|_| JsError::new("couldn't list the files"))?;
+            array.push(&entry);
+        }
+        Ok(array)
+    }
+
+    /// A project's files, as an array of `{ path, data }`, as a zip.
+    #[wasm_bindgen(js_name = zipExport)]
+    pub fn zip_export(files: &js_sys::Array) -> Result<Vec<u8>, JsError> {
+        super::zip_export(files_from(files)?).map_err(|e| JsError::new(&e))
+    }
+
+    /// The files in a project zip, as an array of `{ path, data }`.
+    #[wasm_bindgen(js_name = zipImport)]
+    pub fn zip_import(zip: &[u8]) -> Result<js_sys::Array, JsError> {
+        files_to(super::zip_import(zip).map_err(|e| JsError::new(&e))?)
+    }
+
+    /// Checks a project, given as an array of `{ path, data }`; what was
+    /// found as JSON.
+    #[wasm_bindgen(js_name = checkProject)]
+    pub fn check_project(files: &js_sys::Array) -> Result<String, JsError> {
+        let checked = super::check_project(files_from(files)?).map_err(|e| JsError::new(&e))?;
+        json(&checked)
+    }
+
     /// A project given as JSON, as `project.toml`'s text.
     #[wasm_bindgen(js_name = projectToml)]
     pub fn project_toml(project: &str) -> Result<String, JsError> {
@@ -307,7 +446,9 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::wasm_bindgen_test as test;
 
-    use super::{Session, catalogue, project_toml};
+    use super::{
+        ProjectFile, Session, catalogue, check_project, project_toml, zip_export, zip_import,
+    };
 
     const STATIONS: &[u8] =
         include_bytes!("../../../../crates/formats/tests/data/dynaml/gnss-networkstn.xml");
@@ -375,6 +516,44 @@ mod tests {
         assert!(err.contains("schema 2"), "{err}");
         let err = project_toml(&PROJECT.replace("\"datum\"", "\"datun\"")).unwrap_err();
         assert!(err.contains("unknown field `datun`"), "{err}");
+    }
+
+    fn file(path: &str, data: &[u8]) -> ProjectFile {
+        ProjectFile {
+            path: path.into(),
+            data: data.to_vec(),
+        }
+    }
+
+    #[test]
+    fn projects_go_in_and_out_of_zips_and_are_checked() {
+        let project = "schema = 1\nname = \"Zipped\"\n\n[adjustment]\nframe = \"GDA2020\"\n";
+        let files = vec![
+            file("project.toml", project.as_bytes()),
+            file("marks.toml", b"schema = 1\n"),
+            file("occupations/bad.toml", b"not toml ["),
+            file(".cache/ab/abcd", b"derived"),
+        ];
+        let zip = zip_export(files.clone()).unwrap();
+        let back = zip_import(&zip).unwrap();
+        let paths: Vec<&str> = back.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            ["marks.toml", "occupations/bad.toml", "project.toml"]
+        );
+        assert_eq!(back[2], files[0]);
+
+        let checked = check_project(back).unwrap();
+        assert_eq!(checked.name, "Zipped");
+        assert_eq!((checked.marks, checked.occupations), (0, 0));
+        assert_eq!(checked.issues.len(), 1);
+        assert_eq!(checked.issues[0].file, "occupations/bad.toml");
+
+        let err = zip_export(vec![file("../escape", b"x")]).unwrap_err();
+        assert!(err.contains("../escape"), "{err}");
+        assert!(zip_import(b"not a zip").is_err());
+        let err = check_project(vec![file("marks.toml", b"")]).unwrap_err();
+        assert!(err.contains("project.toml"), "{err}");
     }
 
     #[test]

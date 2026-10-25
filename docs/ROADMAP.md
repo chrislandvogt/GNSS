@@ -273,7 +273,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [ ] A DAG of steps: ingest → QC → baseline → vector set → adjustment → evaluation → report. The graph and its runner are done (`crates/pipeline`); the steps arrive with the milestones that build them (M6 onwards).
   - [x] Node keys = hash(inputs, settings, tool versions), with a content-addressed cache.
   - [ ] Parallel execution, cancellation and progress events, with an executor for each host: tokio and rayon natively, and workers in the browser. Cancellation and progress events are done; nodes run one at a time until the engine work (M8) needs more.
-- [ ] Storage interface (`store`): the file system natively; the File System Access API and OPFS in the browser, with zip import and export. The `Store` trait, `FsStore` and `MemoryStore` are done, and the CLI uses them; so are deterministic zip export and import (`gnss_store::zip`). The browser side is next.
+- [x] Storage interface (`store`): the file system natively; the File System Access API and OPFS in the browser, with zip import and export. The CLI uses `FsStore`. The web app reads a folder or a browser-storage project into a `MemoryStore` in the core worker, which checks it the way the CLI does, and makes and reads zips with `gnss_store::zip`, so both produce the same bytes.
 - [ ] Provenance:
   - [x] An append-only JSONL record of every run: inputs, settings, versions, outputs and timing (`gnss_pipeline::provenance`, with timing from the host's clock).
   - [ ] A `verify` command that re-runs everything and compares hashes. `gnss_pipeline::verify` does the comparison; the command comes with the first real steps.
@@ -441,7 +441,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 
 - [ ] Web app shell: the Svelte and TypeScript UI on the main thread, the core in a worker, and typed messages generated from the command API (specta).
 - [ ] Project explorer and import:
-  - [ ] Open a project folder (Chrome, Edge), or import and export a zip (Firefox, Safari).
+  - [ ] Open a project folder (Chrome, Edge), or import and export a zip (Firefox, Safari). The plumbing is in M5's diagnostics panel: opening, checking, zip import and export, and removing projects from browser storage. The explorer itself is still to come.
   - [ ] Drag and drop RINEX, field logs and vectors.
 - [ ] Map (MapLibre GL):
   - [ ] Marks, occupations and baselines coloured by quality.

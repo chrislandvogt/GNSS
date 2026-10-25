@@ -3,11 +3,13 @@
 import type {
   Adjusted,
   Catalogue,
+  CheckedProject,
   CoreInfo,
   CoreRequest,
   CoreResponse,
   ExportedFile,
   LoadedFile,
+  ProjectFileData,
   ProjectSpec,
 } from '../workers/protocol'
 
@@ -74,6 +76,21 @@ class CoreClient {
   /** The project as project.toml's text, for the CLI. */
   projectToml(project: ProjectSpec): Promise<string> {
     return this.call<string>({ type: 'project-toml', project })
+  }
+
+  /** A project's files as a zip, the same bytes the CLI makes. Hands the files' buffers to the worker. */
+  zipExport(files: ProjectFileData[]): Promise<ArrayBuffer> {
+    return this.call<ArrayBuffer>({ type: 'zip-export', files }, files.map((f) => f.data))
+  }
+
+  /** The files in a project zip, checked: none escapes the project or is damaged. */
+  zipImport(data: ArrayBuffer): Promise<ProjectFileData[]> {
+    return this.call<ProjectFileData[]>({ type: 'zip-import', data }, [data])
+  }
+
+  /** Loads a project the way the CLI does and reports every problem, by file. */
+  checkProject(files: ProjectFileData[]): Promise<CheckedProject> {
+    return this.call<CheckedProject>({ type: 'check-project', files }, files.map((f) => f.data))
   }
 }
 

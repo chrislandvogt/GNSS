@@ -783,6 +783,8 @@ flowchart LR
 - Raw files are hash-verified on load as before (section 6). In a folder on disk other programs can change them, and the hashes catch that.
 - Large files are read in slices, never loaded whole.
 - Zips are made and read by the core (`gnss_store::zip`), so every browser and the CLI produce the same file. Export is deterministic: entries sorted by path, fixed timestamps, `.cache/` left out because it can be rebuilt. Import refuses paths that escape the project, encryption, ZIP64 and damaged entries (checked by CRC), and accepts a zip whose files sit in one top folder.
+- A zip is imported as a new project in browser storage, named after the zip; it never overwrites one already there, whose raw files may be the only copy. Removing a project from browser storage asks first and suggests exporting it.
+- Opening a project, from a folder or browser storage, loads it in the core worker exactly as the CLI loads a folder (section 6), so the same problems are reported, by file.
 
 ### 14.3 Offline use and installation
 
