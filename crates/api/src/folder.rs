@@ -7,7 +7,7 @@
 //! person sees every problem at once: a file with problems is left out and
 //! the rest is loaded.
 
-use gnss_model::{Issue, MarkFile, Occupation};
+use gnss_model::{Issue, MarkFile, Occupation, Overlay};
 use gnss_store::{ProjectPath, Store, StoreError};
 
 use crate::project::{Project, ProjectError};
@@ -21,6 +21,9 @@ pub struct Loaded {
     pub marks: MarkFile,
     /// The occupations that read without problems, sorted by id.
     pub occupations: Vec<Occupation>,
+    /// The corrections to raw files that read without problems, sorted by id,
+    /// which is the order they're applied in.
+    pub overlays: Vec<Overlay>,
     /// Every problem found, by file.
     pub issues: Vec<Issue>,
 }
@@ -105,11 +108,48 @@ pub fn load<S: Store + ?Sized>(store: &S) -> Result<Loaded, LoadError> {
         }
     }
     occupations.sort_by(|a, b| a.id.cmp(&b.id));
+
+    let mut overlays = Vec::new();
+    for path in store.list("overlays")? {
+        let file = path.to_string();
+        let Some(stem) = path.file_name().strip_suffix(".toml") else {
+            issues.push(Issue::new(
+                file,
+                "only .toml files belong in overlays/; move it elsewhere",
+            ));
+            continue;
+        };
+        let overlay =
+            match Overlay::from_toml(&String::from_utf8_lossy(&store.read_existing(&path)?)) {
+                Ok(o) => o,
+                Err(e) => {
+                    issues.push(Issue::new(file, e.to_string()));
+                    continue;
+                }
+            };
+        if overlay.id.as_str() != stem {
+            issues.push(Issue::new(
+                file,
+                format!(
+                    "its id is {} but its file is {stem}.toml; an overlay's file is named after its id",
+                    overlay.id
+                ),
+            ));
+            continue;
+        }
+        // The file it corrects must be a raw file, unchanged since import.
+        match ProjectPath::new(overlay.file.as_str()).and_then(|p| store.read_raw(&p)) {
+            Ok(_) => overlays.push(overlay),
+            Err(e) => issues.push(Issue::new(file, e.to_string())),
+        }
+    }
+    overlays.sort_by(|a, b| a.id.cmp(&b.id));
     issues.extend(gnss_model::validate(&marks, &occupations));
     Ok(Loaded {
         project,
         marks,
         occupations,
+        overlays,
         issues,
     })
 }
@@ -129,6 +169,10 @@ pub fn json_schemas() -> Vec<(&'static str, String)> {
         (
             "occupation.schema.json",
             pretty(schemars::schema_for!(Occupation)),
+        ),
+        (
+            "overlay.schema.json",
+            pretty(schemars::schema_for!(Overlay)),
         ),
     ]
 }

@@ -209,7 +209,7 @@ impl HeightMeasurement {
 
 /// A path from the project folder, inside the given directory, written with
 /// forward slashes and not leaving it.
-fn check_path(path: &str, directory: &str) -> Result<(), ModelError> {
+pub(crate) fn check_path(path: &str, directory: &str) -> Result<(), ModelError> {
     let inside = path.strip_prefix(directory).is_some_and(|rest| {
         !rest.is_empty()
             && !path.contains('\\')

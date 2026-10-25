@@ -265,7 +265,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 - [ ] Project folder format per [ARCHITECTURE.md](ARCHITECTURE.md#6-project-format):
   - [x] TOML, with one file per occupation, loaded from any store with every problem reported by file (`gnss_api::folder`).
   - [x] An immutable `raw/` directory with hashes (`raw.lock`, checked on every read).
-  - [ ] Overlays for corrections.
+  - [x] Overlays for corrections: one file per correction in `overlays/`, with its reason, author and time, checked against the raw file it corrects. RINEX ingest (M6) applies them.
   - [x] JSON Schema for every file (`schemas/`, checked against the code by a test).
   - [ ] Schema versioning and migrations. Every file carries its version and a newer one is refused with a message; there's nothing to migrate until version 2.
 - [ ] Antenna geometry catalogue (`data/antennas`): ARP, measure-up points, and the radius and offsets needed for slant-height conversion, with sources cited. This information isn't in ANTEX. Document how to contribute to it.

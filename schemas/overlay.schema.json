@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Overlay",
+  "description": "A recorded correction to a raw file: a file in `overlays/`. Raw files are\nnever edited (ARCHITECTURE.md section 6), so a wrong value in one, such as\nan antenna type or height in a RINEX header, is corrected here, with who\nmade the correction, when and why. RINEX ingest (M6) applies overlays in\norder of their ids, and the report lists every one.",
+  "type": "object",
+  "properties": {
+    "by": {
+      "description": "Who made the correction.",
+      "type": "string"
+    },
+    "file": {
+      "description": "The raw file corrected, in `raw/`.",
+      "type": "string"
+    },
+    "id": {
+      "description": "The overlay's id, which is also its file name, such as\n`2026-10-15-PM12345A-antenna`.",
+      "$ref": "#/$defs/OverlayId"
+    },
+    "reason": {
+      "description": "Why: the evidence for the correction, such as the field log.",
+      "type": "string"
+    },
+    "recorded": {
+      "description": "When it was recorded, in UTC.",
+      "$ref": "#/$defs/Timestamp"
+    },
+    "rinex": {
+      "description": "Corrections to a RINEX file's header.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RinexHeader"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "schema": {
+      "description": "The schema version: 1 (`SCHEMA`), raised only when a migration is needed.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "file",
+    "reason",
+    "by",
+    "recorded"
+  ],
+  "$defs": {
+    "OverlayId": {
+      "description": "An overlay's id, such as `2026-10-15-PM12345A-antenna`. It's also its file name in `overlays/`.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]{0,59}$"
+    },
+    "RinexHeader": {
+      "description": "Values that replace those in a RINEX header. Only the values given are\nreplaced.",
+      "type": "object",
+      "properties": {
+        "antenna": {
+          "description": "The antenna's IGS code in ANT # / TYPE.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "antenna_delta": {
+          "description": "ANTENNA: DELTA H/E/N: height, east and north eccentricities of the\nantenna reference point from the mark, in metres.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxItems": 3,
+          "minItems": 3
+        },
+        "marker_name": {
+          "description": "MARKER NAME.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "radome": {
+          "description": "The radome's IGS code in ANT # / TYPE.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "receiver": {
+          "description": "The receiver type in REC # / TYPE / VERS.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Timestamp": {
+      "description": "A time in UTC, such as 2026-10-14T00:12:00Z.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"
+    }
+  }
+}

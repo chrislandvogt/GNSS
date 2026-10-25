@@ -228,6 +228,22 @@ measured_by = "CL"
 photos = ["fieldlogs/2026-10-14-PM12345-A-tape.jpg"]
 ```
 
+A correction to a raw file is an overlay, one file per correction in `overlays/`, named after its id. It names the raw file, says who made it, when and why, and gives only the values it replaces. RINEX ingest applies overlays in order of their ids:
+
+```toml
+schema = 1
+id = "2026-10-15-PM12345A-antenna"
+file = "raw/PM12345A.rnx"
+reason = "The field log and tape photo show an AS10 at 1.532 m to the ARP; the header had the default antenna and no height"
+by = "CL"
+recorded = "2026-10-15T03:00:00Z"
+
+[rinex]
+antenna = "LEIAS10"
+radome = "NONE"
+antenna_delta = [1.532, 0.0, 0.0]   # height, east, north (metres)
+```
+
 Until the occupation model arrives (M5), a second-opinion project (M3) is `project.toml`, `raw/`, `raw.lock` and `results/`. The vectors and control it adjusts are files imported as they are, and the person's edits sit next to them with their reasons:
 
 ```toml
@@ -263,7 +279,7 @@ The rules:
 - Corrections, such as a wrong antenna height in a RINEX header, are overlays that record the reason. They're never edits to the raw files.
 - Everything in `results/` and `.cache/` can be regenerated from the rest. The web app keeps `.cache/` in browser storage (OPFS) rather than in the folder, because writing many small files through the File System Access API is slow.
 - Every file has a schema version, and migrations are automatic and logged.
-- Each file has a JSON Schema (generated with schemars), so editors validate as you type. They're in the repository's `schemas/` folder: `project.schema.json`, `marks.schema.json` and `occupation.schema.json`. A test fails if they fall behind the code; regenerate them with `GNSS_UPDATE_SCHEMAS=1 cargo test -p gnss-api --test schemas`. In VS Code with Even Better TOML, or any editor using Taplo, a `#:schema <url>` comment on a file's first line points it at its schema.
+- Each file has a JSON Schema (generated with schemars), so editors validate as you type. They're in the repository's `schemas/` folder: `project.schema.json`, `marks.schema.json`, `occupation.schema.json` and `overlay.schema.json`. A test fails if they fall behind the code; regenerate them with `GNSS_UPDATE_SCHEMAS=1 cargo test -p gnss-api --test schemas`. In VS Code with Even Better TOML, or any editor using Taplo, a `#:schema <url>` comment on a file's first line points it at its schema.
 - Schema version 1 is the first, so there's nothing to migrate yet. A file with a newer version than the app reads is refused with a message saying so, rather than misread.
 - The core reads and writes a project only through the `store` crate's `Store`: `FsStore` natively, and a `MemoryStore` the web app fills from the user's folder or browser storage. `gnss_api::folder::load` loads a project from either, reporting every problem by file.
 
