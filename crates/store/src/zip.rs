@@ -20,8 +20,9 @@ const DOS_DATE: u16 = (1 << 5) | 1;
 const UTF8: u16 = 1 << 11;
 /// The most one file may expand to, and the most a whole zip may: well
 /// beyond any RINEX file or project, and a stop for zip bombs.
-const MAX_FILE: usize = 2 << 30;
-const MAX_TOTAL: usize = 8 << 30;
+/// In `u64`, because `usize` is 32 bits on wasm32.
+const MAX_FILE: u64 = 2 << 30;
+const MAX_TOTAL: u64 = 8 << 30;
 
 /// Why a zip couldn't be read or written.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -164,7 +165,7 @@ pub fn import(zip: &[u8]) -> Result<MemoryStore, ZipError> {
 
     let mut entries = Vec::with_capacity(count);
     let mut at = directory;
-    let mut total = 0usize;
+    let mut total = 0u64;
     for _ in 0..count {
         if r.u32(at)? != CENTRAL {
             return Err(ZipError::Malformed("its directory is damaged".into()));
@@ -191,8 +192,8 @@ pub fn import(zip: &[u8]) -> Result<MemoryStore, ZipError> {
                 "{name} uses compression method {method}"
             )));
         }
-        total = total.saturating_add(size);
-        if size > MAX_FILE || total > MAX_TOTAL {
+        total = total.saturating_add(size as u64);
+        if size as u64 > MAX_FILE || total > MAX_TOTAL {
             return Err(ZipError::TooLarge(name));
         }
         entries.push((name, method, crc, compressed, size, local));
