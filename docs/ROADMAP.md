@@ -238,7 +238,7 @@ The goal is a tool that rigorously adjusts imported GNSS vectors and reports the
 
 **Goal:** the second-opinion tool in real users' hands.
 
-- [ ] Oracle suite in CI: DynAdjust outputs stored as golden files, plus a manual job to regenerate them.
+- [x] Oracle suite in CI: DynAdjust outputs stored as golden files, plus a manual job to regenerate them. Four networks (three synthetic, and DynAdjust's own sample end to end) are checked on every CI run; the *Oracles* workflow rebuilds DynAdjust and regenerates them (`docs/VALIDATION.md`, D4).
 - [x] Documentation: a user guide for the second-opinion workflow in the browser and the CLI (`docs/user/second-opinion.md`), and a worked example on public data (`docs/user/worked-example.md`: a real TBC network from ICSM's PynAdjust).
 - [x] Deploy the web page at a versioned URL, and publish its static bundle with checksums. v0.1.0 is at `https://gnss-bui.pages.dev/` and `/v/0.1.0/`, deployed by the release workflow (`docs/RELEASING.md`); main deploys to `main.gnss-bui.pages.dev` from CI (`docs/DEPLOYING.md`).
 - [x] Release CLI binaries for Windows, macOS and Linux, with checksums and an SBOM. v0.1.0 has static Linux, Windows and macOS (Apple silicon and Intel) builds from a plain Actions matrix, CycloneDX SBOMs, `SHA256SUMS` and Sigstore build provenance.

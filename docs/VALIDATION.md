@@ -92,6 +92,7 @@ The first generator is in place (`gnss_adjust::synthetic`, M2). It scatters mark
 
 - D3 networks and real (anonymised) networks run through DynAdjust.
 - Outputs are stored as golden files, with the DynAdjust version and settings recorded.
+- Every CI run compares our adjustment with the golden files. The manual *Oracles* workflow (`.github/workflows/oracles.yml`) regenerates them: it builds DynAdjust from a pinned tag (1.4.1 by default), runs the oracle scripts, runs the comparison tests against what DynAdjust just produced, and uploads the new files with a summary of how they differ from the committed ones. It also runs on pull requests that change the oracle scripts. Regenerated locally with DynAdjust 1.4.1, the committed files are reproduced byte for byte.
 - STAR*NET comparisons are made by partners who hold licences, then published manually. Commercial software can't run in CI.
 
 The first three synthetic networks are in place (`crates/adjust/tests/dynadjust.rs`), with DynAdjust 1.4.1's results made by `tests/oracle/dynadjust.py`. They have baselines, clusters, weighted control (point clusters), a fixed mark, and injected blunders of 2 to 6 cm. DynAdjust flags a component when its N-stat, the residual over its own standard deviation, exceeds 1.96 (95%), so it's compared with our standardised residuals. Against G-ADJ:

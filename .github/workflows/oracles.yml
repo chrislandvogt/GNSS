@@ -1,0 +1,96 @@
+name: Oracles
+
+# Regenerates the DynAdjust golden files (docs/VALIDATION.md): builds
+# DynAdjust from a pinned tag, runs the oracle scripts, then runs our
+# comparison tests against what it just produced. The golden files
+# themselves are checked on every CI run; this job is for when the
+# networks, the scripts or DynAdjust's version change. It uploads the new
+# files and shows how they differ from the committed ones; commit them by
+# hand after reviewing the diff.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dynadjust-ref:
+        description: DynAdjust tag or commit to build
+        default: v1.4.1
+  pull_request:
+    paths:
+      - crates/adjust/tests/oracle/dynadjust.py
+      - crates/api/tests/oracle/dynadjust_sample.py
+      - .github/workflows/oracles.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oracles-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  DYNADJUST_REF: ${{ inputs.dynadjust-ref || 'v1.4.1' }}
+
+jobs:
+  dynadjust:
+    name: DynAdjust golden files
+    # The build steps in crates/adjust/tests/oracle/dynadjust.py are for this release.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - name: Install DynAdjust's build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxerces-c-dev xsdcxx libboost-system-dev \
+            libboost-filesystem-dev libboost-timer-dev libboost-thread-dev \
+            libboost-program-options-dev libopenblas-dev liblapacke-dev
+      - name: Restore the DynAdjust build
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/DynAdjust
+          key: dynadjust-${{ env.DYNADJUST_REF }}-ubuntu-24.04
+      - name: Build DynAdjust ${{ env.DYNADJUST_REF }}
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --quiet https://github.com/icsm-au/DynAdjust.git "$RUNNER_TEMP/DynAdjust"
+          git -C "$RUNNER_TEMP/DynAdjust" checkout --quiet "$DYNADJUST_REF"
+          cmake -S "$RUNNER_TEMP/DynAdjust/dynadjust" -B "$RUNNER_TEMP/build" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/build" --parallel 4
+          ls "$RUNNER_TEMP/DynAdjust/bin"
+      - name: Run DynAdjust on the oracle networks
+        run: |
+          python3 -I crates/adjust/tests/oracle/dynadjust.py "$RUNNER_TEMP/DynAdjust/bin"
+          python3 -I crates/api/tests/oracle/dynadjust_sample.py "$RUNNER_TEMP/DynAdjust/bin"
+      # The tests compare within tolerances, so a different BLAS or DynAdjust
+      # build that changes only the last digits still passes.
+      - name: Compare our adjustment with what DynAdjust just produced
+        run: |
+          cargo test --locked -p gnss-adjust --test dynadjust
+          cargo test --locked -p gnss-api --test dynaml
+      - name: How the new files differ from the committed ones
+        run: |
+          files="crates/adjust/tests/data/dynadjust crates/api/tests/data/dynadjust"
+          {
+            echo "## DynAdjust $DYNADJUST_REF golden files"
+            echo
+            if git diff --quiet -- $files; then
+              echo "Identical to the committed files."
+            else
+              echo "They differ from the committed files. If that's intended, download the"
+              echo "\`dynadjust-golden-files\` artifact, review it and commit it."
+              echo
+              echo '```'
+              git diff --stat -- $files
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          git diff --stat -- $files
+      - uses: actions/upload-artifact@v6
+        with:
+          name: dynadjust-golden-files
+          path: |
+            crates/adjust/tests/data/dynadjust/
+            crates/api/tests/data/dynadjust/
