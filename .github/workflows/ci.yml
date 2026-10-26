@@ -98,6 +98,7 @@ jobs:
           workspaces: |
             crates/datum/fuzz
             crates/formats/fuzz
+            crates/rinex-io/fuzz
       - run: cargo +nightly install cargo-fuzz --locked
       - name: Fuzz for two minutes, starting from the test grids
         working-directory: crates/datum/fuzz
@@ -105,6 +106,14 @@ jobs:
           mkdir -p corpus/grid
           cp ../tests/data/grids/*.gsb ../tests/data/grids/*.tif corpus/grid/
           cargo +nightly fuzz run grid corpus/grid -- -max_total_time=120 -max_len=262144 -rss_limit_mb=2048
+      - name: Fuzz the RINEX reader and decompressor for a minute each, starting from the test files
+        working-directory: crates/rinex-io/fuzz
+        run: |
+          for target in obs crinex; do
+            mkdir -p "corpus/$target"
+            cp ../tests/data/rinex/*.crx ../tests/data/rinex/synthetic3.rnx ../tests/data/rinex/synthetic2.11o ../tests/data/rinex/MOBS0050.20o "corpus/$target/"
+            cargo +nightly fuzz run "$target" "corpus/$target" -- -max_total_time=60 -max_len=65536 -rss_limit_mb=2048
+          done
       - name: Fuzz each format reader for 30 seconds, starting from the test files
         working-directory: crates/formats/fuzz
         run: |

@@ -6,3 +6,5 @@ crates/formats/tests/data/tdef/*.asc -text
 
 # Generated with LF; a test compares them with the generator byte for byte.
 schemas/*.json text eol=lf
+# RINEX fixtures are compared byte for byte: never convert their line endings.
+crates/rinex-io/tests/data/rinex/** -text

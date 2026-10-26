@@ -1,0 +1,37 @@
+# Fuzz targets for the RINEX readers, which take files from anyone
+# (CONVENTIONS.md section 6). Fuzzing needs a nightly toolchain and cargo-fuzz,
+# so this is its own workspace, outside the main build:
+#
+#     cargo +nightly fuzz run obs
+#
+# CI runs each target briefly, starting from the test files.
+
+[package]
+name = "gnss-rinex-io-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+gnss-rinex-io = { path = ".." }
+libfuzzer-sys = "0.4"
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "obs"
+path = "fuzz_targets/obs.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "crinex"
+path = "fuzz_targets/crinex.rs"
+test = false
+doc = false
+bench = false

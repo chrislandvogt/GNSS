@@ -504,6 +504,10 @@ dependencies = [
 [[package]]
 name = "gnss-rinex-io"
 version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "wasm-bindgen-test",
+]
 
 [[package]]
 name = "gnss-store"

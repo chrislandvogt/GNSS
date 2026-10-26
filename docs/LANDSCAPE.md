@@ -31,7 +31,7 @@ These suites are capable but cost thousands of dollars per seat, are closed, and
 | GNU Gama | Geodetic network adjustment | Comparison reference. GPL-3, so it's never linked. |
 | GeodePy (Geoscience Australia) | Python geodesy and GDA2020 transformations | Test oracle for datums (D-011) |
 | PROJ | Coordinate transformations | Test oracle and optional backend (D-011) |
-| `rinex` crate (nav-solutions) | Rust RINEX parsing and QC | Dependency, wrapped behind our own interface (D-007) |
+| `rinex` crate (nav-solutions) | Rust RINEX parsing and QC | Vetted and not used: it panics on most of a sample of GA CORS files and reads whole files into memory. We read RINEX ourselves (D-027) |
 | `gnss-rtk` crate | Rust PVT solver | Not used: AGPL-3, and no integer ambiguity resolution found (D-006) |
 | georinex | Python RINEX reader | Reference for parser behaviour |
 | Anubis | RINEX quality checking (a teqc replacement) | Reference for QC metrics |
