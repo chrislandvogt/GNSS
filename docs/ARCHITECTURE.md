@@ -93,7 +93,7 @@ Every crate except `engine-host` compiles to both native code and WebAssembly. C
 | `datum` | Frames, epochs, Helmert transformations, plate motion, grids, geoid, projections | hifitime, nalgebra, libm, tiff |
 | `adjust` | Least squares, statistics, reliability, VCE, uncertainty, loops | nalgebra, libm; its own block-sparse solver and distributions (D-025) |
 | `formats` | Parsers and writers for exchange formats | quick-xml, csv; its own SQLite file writer for GeoPackage (D-026) |
-| `rinex-io` | RINEX parsing (wrapped), header extraction, QC | rinex (nav-solutions, MPL-2.0) |
+| `rinex-io` | RINEX observation files (2.11, 3.0x, 4.0x) and Hatanaka decompression, read a line at a time; header extraction, QC | none: our own reader (D-027) |
 | `fetch` | Source registry, download, cache, data packs | reqwest (uses the browser's fetch in the web app), sha2 |
 | `engine` | Engine and module host traits, job and result types | none of note |
 | `engine-rtklib` | Config generation, output parsing | none of note |

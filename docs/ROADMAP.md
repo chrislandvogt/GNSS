@@ -289,8 +289,8 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 
 **Goal:** trustworthy observation data and the metadata to check it.
 
-- [ ] Integrate the `rinex` crate (nav-solutions; pin the version and confirm its licence) for RINEX 2.11, 3.0x and 4.0x, including Hatanaka compression. Wrap it behind our own trait so the parser can be swapped.
-- [ ] Header extraction: marker, receiver, antenna and radome, antenna deltas (H/E/N), approximate position, interval, time span and observation types.
+- [x] Read RINEX 2.11, 3.0x and 4.0x observation files, including Hatanaka compression. Our own reader (`gnss_rinex_io::read_obs`), not the `rinex` crate, which panicked on 27 of 38 GA CORS files (D-027). The decompressor matches CRX2RNX byte for byte; both are fuzzed.
+- [x] Header extraction: marker, receiver, antenna and radome, antenna deltas (H/E/N), approximate position, interval, time span and observation types. Header records in events (a new site occupation) update it.
 - [ ] Occupation detection: split and merge files, and detect gaps and multiple occupations within one file.
 - [ ] Header reconciliation against field logs (this feeds M9). Write corrected RINEX on export, and never overwrite raw files.
 - [ ] QC metrics:
@@ -299,7 +299,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [ ] Multipath (code minus carrier).
   - [ ] SNR statistics, elevation coverage and data gaps.
   - [ ] Check all of these against Anubis and teqc-style reference outputs.
-- [ ] Read large files in slices rather than whole, so a 24 h, 1 Hz file ingests in the browser within its target.
+- [ ] Read large files in slices rather than whole, so a 24 h, 1 Hz file ingests in the browser within its target. The reader works a line at a time from any `BufRead`, and restores a daily 30 s file in about 0.6 s natively; the browser's reading of a `File` in slices, and its timing, are still to do.
 - [ ] Open receiver formats (UBX, SBF, Unicore, NovAtel, RTCM3): decide between running `convbin` from RTKLIB-EX, as another WebAssembly module, and our own Rust decoders (D-020).
 
 **Exit criteria:**

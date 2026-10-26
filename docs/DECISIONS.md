@@ -78,7 +78,7 @@ Add new entries at the end with the next number. Never renumber an entry. Supers
 **Why:** it's AGPL-3, which would pull the whole app to AGPL (D-005). We also couldn't find integer ambiguity resolution in it, so it isn't a survey-grade baseline engine.
 
 ### D-007 Use the nav-solutions `rinex` crate behind our own interface
-**Status:** Accepted (confirm the licence of each pinned version)
+**Status:** Superseded by [D-027](#d-027-our-own-rinex-observation-reader-and-hatanaka-decompressor)
 
 **Decision:** parse RINEX with the `rinex` crate (MPL-2.0 in recent releases; earlier GeoRust-era releases were Apache-2.0/MIT), wrapped behind a trait in `rinex-io`.
 
@@ -345,3 +345,27 @@ The tool shows the difference from adjusting directly in GDA2020, so the shortcu
 - Reading GeoPackages, if it's ever needed, is a different matter.
 
 **Revisit:** if exports need features beyond writing tables once, such as spatial indexes on very large layers or updating a file in place.
+
+### D-027 Our own RINEX observation reader and Hatanaka decompressor
+**Status:** Proposed
+
+**Decision:** `rinex-io` reads RINEX 2.11, 3.0x and 4.0x observation files, plain or Hatanaka-compressed (CRINEX 1.0 and 3.0), with its own code rather than the `rinex` crate (supersedes D-007). It reads a line at a time and never panics on what it reads.
+
+**Why:** we vetted `rinex` 0.24.0 (the newest release at least two weeks old) and 0.22.0 on 38 daily files from Australian CORS and RTKLIB's test data (October 2026):
+- **It crashes on real files.** Both versions panic on 27 of the 38 GA files, in the `LEAP SECONDS` header record, whose later fields are optional and usually blank. In the browser a panic aborts the core worker, and the M6 exit criterion is that malformed files never crash the app. These files aren't even malformed.
+- **It reads whole files.** It parses everything into maps in memory, where we need to read a 24-hour 1 Hz file in slices in the browser.
+- **It's heavy.** About 90 crates with only the observation feature, including `geo`, `geojson`, `spade` and six versions of `rstar`.
+
+Observation files are a fixed-column format, and Hatanaka's compression is published (Hatanaka 2008) with a reference implementation to test against. The reader and decompressor are about 2,000 lines, with about 750 more of tests.
+
+**Alternatives:**
+- **Fix the bug upstream and use `rinex`.** The crash is fixable, but the whole-file design and the dependency weight stay. It changes fast (four releases in the week before 0.24.0), which also makes pinning a version harder.
+- **Run CRX2RNX as a WebAssembly module.** It handles only decompression, and its error handling exits the process.
+
+**Consequences:**
+- The decompressor's output matches CRX2RNX 4.1.0 byte for byte: on four full days of real data (three RINEX 3, one RINEX 2) checked by hand, and on committed fixtures (synthetic files that exercise events, blank fields, cycle slips and clock offsets, and excerpts of real files) checked in CI.
+- Both are fuzzed in CI. `clippy::indexing_slicing` is on for the crate, so slicing past the end of a line is a lint error, not a panic.
+- Navigation files, gzip and Unix compress (`.Z`) aren't read yet. They come with the steps that need them (M6 QC, M7 data fetch).
+
+**Revisit:** if `rinex` becomes robust and light enough that maintaining our own reader costs more than it saves. The reader sits behind our own types, so swapping is contained.
+
