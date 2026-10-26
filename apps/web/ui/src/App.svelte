@@ -3,18 +3,24 @@
   import Adjustment from './Adjustment.svelte'
   import { detectCapabilities } from './lib/capabilities'
   import { core } from './lib/core'
+  import { download } from './lib/download'
   import { rtklibPool } from './lib/engine'
   import { ENGINE_CHECK_CONFIG } from './lib/engine-check'
   import {
     canOpenFolders,
+    createBrowserProject,
     importFiles,
+    listBrowserProjects,
     listFiles,
     openBrowserStorage,
     openFolder,
+    readProject,
+    removeBrowserProject,
+    storageUse,
     type ProjectFile,
     type ProjectRoot,
   } from './lib/project'
-  import type { CoreInfo } from './workers/protocol'
+  import type { CheckedProject, CoreInfo } from './workers/protocol'
 
   const capabilities = detectCapabilities()
   let info = $state<CoreInfo | null>(null)
@@ -23,6 +29,9 @@
   let hashes = $state<Record<string, string>>({})
   let message = $state('')
   let busy = $state(false)
+  let stored = $state<string[]>([])
+  let usage = $state<Awaited<ReturnType<typeof storageUse>>>(null)
+  let checked = $state<CheckedProject | null>(null)
 
   let rover = $state('')
   let base = $state('')
@@ -35,11 +44,22 @@
     } catch (err) {
       message = `The core didn’t start: ${err}`
     }
+    await refreshStorage()
   })
 
-  async function open(kind: 'folder' | 'browser') {
+  async function refreshStorage() {
     try {
-      project = kind === 'folder' ? await openFolder() : await openBrowserStorage()
+      stored = await listBrowserProjects()
+      usage = await storageUse()
+    } catch {
+      // Without browser storage the capability check already explains why.
+    }
+  }
+
+  async function open(kind: 'folder' | 'browser', name?: string) {
+    message = ''
+    try {
+      project = kind === 'folder' ? await openFolder() : await openBrowserStorage(name)
       await refresh()
     } catch (err) {
       if ((err as DOMException).name !== 'AbortError') message = String(err)
@@ -47,9 +67,65 @@
   }
 
   async function refresh() {
+    checked = null
+    await refreshStorage()
     if (!project) return
     files = await listFiles(project.handle)
     hashes = {}
+  }
+
+  async function onImportZip(event: Event) {
+    const input = event.currentTarget as HTMLInputElement
+    const zip = input.files?.[0]
+    input.value = ''
+    if (!zip) return
+    busy = true
+    message = ''
+    try {
+      project = await createBrowserProject(zip.name, await core.zipImport(await zip.arrayBuffer()))
+      await refresh()
+    } catch (err) {
+      message = `${zip.name}: ${err instanceof Error ? err.message : err}`
+    } finally {
+      busy = false
+    }
+  }
+
+  async function exportZip() {
+    if (!project) return
+    busy = true
+    message = ''
+    try {
+      download(`${project.handle.name}.zip`, await core.zipExport(await readProject(project)), 'application/zip')
+    } catch (err) {
+      message = String(err)
+    } finally {
+      busy = false
+    }
+  }
+
+  async function check() {
+    if (!project) return
+    busy = true
+    message = ''
+    try {
+      checked = await core.checkProject(await readProject(project))
+    } catch (err) {
+      checked = null
+      message = String(err)
+    } finally {
+      busy = false
+    }
+  }
+
+  async function remove() {
+    if (!project || project.kind !== 'browser') return
+    const name = project.handle.name
+    if (!confirm(`Remove ${name} from browser storage? Export it as a zip first if you need it; this can’t be undone.`)) return
+    await removeBrowserProject(name)
+    project = null
+    files = []
+    await refresh()
   }
 
   async function onImport(event: Event) {
@@ -110,7 +186,9 @@
   }
 
   const fmtSize = (bytes: number) =>
-    bytes >= 2 ** 20 ? `${(bytes / 2 ** 20).toFixed(1)} MiB` : `${(bytes / 1024).toFixed(1)} KiB`
+    bytes >= 2 ** 30
+      ? `${(bytes / 2 ** 30).toFixed(1)} GiB`
+      : bytes >= 2 ** 20 ? `${(bytes / 2 ** 20).toFixed(1)} MiB` : `${(bytes / 1024).toFixed(1)} KiB`
 </script>
 
 <main>
@@ -148,7 +226,21 @@
         <button onclick={() => open('folder')}>Open a project folder</button>
       {/if}
       <button onclick={() => open('browser')}>Use browser storage</button>
+      <label>Import a project zip: <input type="file" accept=".zip,application/zip" onchange={onImportZip} disabled={busy} /></label>
     </p>
+    {#if stored.length}
+      <p class="actions">
+        In browser storage:
+        {#each stored as name (name)}<button class="link" onclick={() => open('browser', name)}>{name}</button>{/each}
+      </p>
+    {/if}
+    {#if usage}
+      <p class="muted">
+        Browser storage: {fmtSize(usage.used)} of {fmtSize(usage.quota)} used;
+        {usage.persisted ? 'kept by the browser' : 'the browser may clear it when space runs low'}. Export a zip to keep a
+        durable copy.
+      </p>
+    {/if}
     {#if project}
       <p>
         <strong>{project.name}</strong>
@@ -159,8 +251,23 @@
       {/if}
       {#if files.length}
         <p class="actions">
+          <button onclick={check} disabled={busy}>Check project</button>
+          <button onclick={exportZip} disabled={busy}>Export as zip</button>
           <button onclick={hashAll} disabled={busy}>Compute SHA-256 hashes</button>
+          {#if project.kind === 'browser'}<button onclick={remove} disabled={busy}>Remove from browser storage</button>{/if}
         </p>
+        {#if checked}
+          <div role="status" class="checked">
+            <p>
+              <strong>{checked.name}</strong>: {checked.marks} marks, {checked.occupations} occupations,
+              {checked.overlays} overlays;
+              {checked.issues.length === 1 ? '1 problem' : `${checked.issues.length || 'no'} problems`}.
+            </p>
+            {#if checked.issues.length}
+              <ul>{#each checked.issues as issue, i (i)}<li><code>{issue.file}</code>: {issue.message}</li>{/each}</ul>
+            {/if}
+          </div>
+        {/if}
         <table>
           <thead><tr><th>File</th><th>Size</th><th>SHA-256</th></tr></thead>
           <tbody>

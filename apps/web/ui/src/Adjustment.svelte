@@ -4,6 +4,7 @@
   // worker; files never leave the browser.
   import { onMount } from 'svelte'
   import { core } from './lib/core'
+  import { download } from './lib/download'
   import type { Adjusted, Catalogue, LoadedFile, ProjectSpec } from './workers/protocol'
 
   interface Entry extends LoadedFile {
@@ -105,15 +106,6 @@
   async function include(observation: string) {
     edits = edits.filter((e) => e.observation !== observation)
     await run()
-  }
-
-  function download(fileName: string, data: BlobPart, type = 'application/octet-stream') {
-    const url = URL.createObjectURL(new Blob([data], { type }))
-    const link = document.createElement('a')
-    link.href = url
-    link.download = fileName
-    link.click()
-    setTimeout(() => URL.revokeObjectURL(url), 60_000)
   }
 
   async function exportAs(format: string) {

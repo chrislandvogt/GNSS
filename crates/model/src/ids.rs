@@ -92,6 +92,11 @@ macro_rules! id {
 
 id!(MarkId, "mark", "A survey mark's id, such as `PM12345`.");
 id!(
+    OverlayId,
+    "overlay",
+    "An overlay's id, such as `2026-10-15-PM12345A-antenna`. It's also its file name in `overlays/`."
+);
+id!(
     OccupationId,
     "occupation",
     "An occupation's id, such as `2026-10-14-PM12345-A`. It's also its file name in `occupations/`."

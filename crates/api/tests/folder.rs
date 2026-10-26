@@ -151,3 +151,51 @@ fn a_broken_marks_file_is_an_issue_not_a_failure() {
     // Without the marks, both occupations' marks are unknown.
     assert_eq!(found.len(), 3, "{found:?}");
 }
+
+fn overlay(id: &str, file: &str) -> String {
+    format!(
+        "schema = 1\nid = \"{id}\"\nfile = \"{file}\"\nreason = \"Field log shows an AS10\"\nby = \"CL\"\n\
+         recorded = \"2026-10-15T03:00:00Z\"\n[rinex]\nantenna = \"LEIAS10\"\n"
+    )
+}
+
+#[test]
+fn overlays_load_in_id_order_and_must_correct_a_locked_raw_file() {
+    let mut store = project();
+    for (name, id, file) in [
+        ("b-later", "b-later", "raw/B.rnx"),
+        ("a-first", "a-first", "raw/A.rnx"),
+        ("c-unimported", "c-unimported", "raw/C.rnx"),
+        ("d-misnamed", "d-other", "raw/A.rnx"),
+    ] {
+        store
+            .write(
+                &path(&format!("overlays/{name}.toml")),
+                overlay(id, file).as_bytes(),
+            )
+            .unwrap();
+    }
+    let loaded = load(&store).unwrap();
+    let ids: Vec<&str> = loaded.overlays.iter().map(|o| o.id.as_str()).collect();
+    assert_eq!(ids, ["a-first", "b-later"]);
+    let found: Vec<String> = loaded.issues.iter().map(ToString::to_string).collect();
+    assert_eq!(found.len(), 2, "{found:#?}");
+    assert!(
+        found[0].starts_with("overlays/c-unimported.toml: raw/C.rnx: no such file"),
+        "{found:?}"
+    );
+    assert!(
+        found[1].contains("its id is d-other but its file is d-misnamed.toml"),
+        "{found:?}"
+    );
+
+    // Editing the raw file it corrects is caught, as for an occupation.
+    store.write(&path("raw/B.rnx"), b"edited").unwrap();
+    let found = issues(&store);
+    assert!(
+        found
+            .iter()
+            .any(|i| i.starts_with("overlays/b-later.toml: raw/B.rnx: it has changed")),
+        "{found:?}"
+    );
+}

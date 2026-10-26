@@ -70,6 +70,21 @@ export interface Adjusted {
   report: string
 }
 
+/** A file in a project, by its path relative to the project folder. */
+export interface ProjectFileData {
+  path: string
+  data: ArrayBuffer
+}
+
+/** What checking a project found (apps/web/core's `Checked`). */
+export interface CheckedProject {
+  name: string
+  marks: number
+  occupations: number
+  overlays: number
+  issues: { file: string; message: string }[]
+}
+
 export interface ExportedFile {
   name: string
   data: ArrayBuffer
@@ -84,6 +99,9 @@ export type CoreRequest =
   | { id: number; type: 'adjust'; project: ProjectSpec; generated: string }
   | { id: number; type: 'export'; format: string; ellipseScale: number; now: string }
   | { id: number; type: 'project-toml'; project: ProjectSpec }
+  | { id: number; type: 'zip-export'; files: ProjectFileData[] }
+  | { id: number; type: 'zip-import'; data: ArrayBuffer }
+  | { id: number; type: 'check-project'; files: ProjectFileData[] }
 
 export type CoreResponse =
   | { id: number; ok: true; result: unknown }

@@ -228,6 +228,22 @@ measured_by = "CL"
 photos = ["fieldlogs/2026-10-14-PM12345-A-tape.jpg"]
 ```
 
+A correction to a raw file is an overlay, one file per correction in `overlays/`, named after its id. It names the raw file, says who made it, when and why, and gives only the values it replaces. RINEX ingest applies overlays in order of their ids:
+
+```toml
+schema = 1
+id = "2026-10-15-PM12345A-antenna"
+file = "raw/PM12345A.rnx"
+reason = "The field log and tape photo show an AS10 at 1.532 m to the ARP; the header had the default antenna and no height"
+by = "CL"
+recorded = "2026-10-15T03:00:00Z"
+
+[rinex]
+antenna = "LEIAS10"
+radome = "NONE"
+antenna_delta = [1.532, 0.0, 0.0]   # height, east, north (metres)
+```
+
 Until the occupation model arrives (M5), a second-opinion project (M3) is `project.toml`, `raw/`, `raw.lock` and `results/`. The vectors and control it adjusts are files imported as they are, and the person's edits sit next to them with their reasons:
 
 ```toml
@@ -263,7 +279,7 @@ The rules:
 - Corrections, such as a wrong antenna height in a RINEX header, are overlays that record the reason. They're never edits to the raw files.
 - Everything in `results/` and `.cache/` can be regenerated from the rest. The web app keeps `.cache/` in browser storage (OPFS) rather than in the folder, because writing many small files through the File System Access API is slow.
 - Every file has a schema version, and migrations are automatic and logged.
-- Each file has a JSON Schema (generated with schemars), so editors validate as you type. They're in the repository's `schemas/` folder: `project.schema.json`, `marks.schema.json` and `occupation.schema.json`. A test fails if they fall behind the code; regenerate them with `GNSS_UPDATE_SCHEMAS=1 cargo test -p gnss-api --test schemas`. In VS Code with Even Better TOML, or any editor using Taplo, a `#:schema <url>` comment on a file's first line points it at its schema.
+- Each file has a JSON Schema (generated with schemars), so editors validate as you type. They're in the repository's `schemas/` folder: `project.schema.json`, `marks.schema.json`, `occupation.schema.json` and `overlay.schema.json`. A test fails if they fall behind the code; regenerate them with `GNSS_UPDATE_SCHEMAS=1 cargo test -p gnss-api --test schemas`. In VS Code with Even Better TOML, or any editor using Taplo, a `#:schema <url>` comment on a file's first line points it at its schema.
 - Schema version 1 is the first, so there's nothing to migrate yet. A file with a newer version than the app reads is refused with a message saying so, rather than misread.
 - The core reads and writes a project only through the `store` crate's `Store`: `FsStore` natively, and a `MemoryStore` the web app fills from the user's folder or browser storage. `gnss_api::folder::load` loads a project from either, reporting every problem by file.
 
@@ -284,18 +300,25 @@ checks run as nodes alongside, wherever their inputs exist
   - Natively, tokio orchestrates, rayon handles CPU-bound maths, and engine modules run in a pool of wasmtime instances.
   - In the web app, the core runs in a dedicated worker and engine modules run in a pool of engine workers (section 14.1).
 - **Incremental by construction.** Changing an antenna height invalidates that occupation's baselines and everything downstream of them, and nothing else.
-- **Provenance.** Every run appends a JSONL record per node: computed or cached, inputs, settings, engine, outputs and duration. For example:
+- **Provenance.** Every run appends a JSONL record per node to `provenance.jsonl`: computed or cached, its key, the tool, the hash of its settings, its inputs (outside data as `name@hash`, upstream nodes as `node@key`), the hash of its output, and its duration when the host times it. Hashes are BLAKE3, written in full. For example (hashes shortened here):
 
 ```json
-{"run":"2026-10-15T03:12:44Z","app":"0.3.0+3f2a1c","build":"web","node":"baseline/9c1e","status":"computed","inputs":["rinex/77ab","rinex/12cd","nav/aa01"],"settings":"set/41fe","engine":"rtklib-ex 2.5.0 blake3:5d0e","outputs":["sol/9c1e"],"ms":4210}
+{"run":"2026-10-15T03:12:44Z","app":"0.3.0","build":"web","node":"baseline/A~B","status":"computed","key":"9c1e…","tool":"rtklib-ex 2.5.0 blake3:5d0e…","settings":"41fe…","inputs":["normalise/A@77ab…","normalise/B@12cd…"],"output":"5a90…","ms":4210}
 ```
 
+- **Implemented so far** (`crates/pipeline`): the graph, checked for missing inputs and cycles and run in a fixed order (each node after its inputs, ties by id); BLAKE3 keys built field by field with lengths, so no two different inputs hash alike; the cache in `.cache/<2 hex>/<key>` through the `store` crate; progress events and cancellation between nodes, supplied by the host; and `verify`. Nodes run one after another for now; the parallel executors come with the work that needs them.
 - **`verify`** re-runs the whole graph while ignoring the cache, then compares output hashes. This is the audit answer to "how did you get this number?" Hashes must match when the re-run uses the same build: the same web release on any operating system, or the same native build on the same platform. Across builds, outputs are compared numerically against the tolerances in section 4.
 
 ## 8. Command API and front ends
 
 - The `api` crate defines a typed request/response pair for every operation, for example `ImportRinex`, `SetHeight`, `ProcessBaselines`, `Adjust`, `Explain`, `Export`.
-- Long-running operations return a `JobId` and emit `JobProgress`, `JobFinished` and `IssueRaised` events.
+- Long-running operations return a `JobId` and emit `JobProgress`, `JobFinished` and `IssueRaised` events (`gnss_api::jobs`). They're serialised with a `type` field, which is how the web app's worker posts them:
+
+  ```json
+  {"type":"progress","job":1,"done":2,"total":7,"step":"baseline/A~B"}
+  {"type":"issue-raised","job":1,"file":"occupations/A.toml","message":"mark PM9 isn't in marks.toml; add it there first"}
+  {"type":"finished","job":1,"outcome":{"status":"succeeded","computed":4,"cached":3}}
+  ```
 - **Transports:**
 
   | Transport | Used by |
@@ -759,6 +782,9 @@ flowchart LR
 - Browsers can evict their storage, so the app requests persistent storage, shows how much it's using, and treats the folder on disk or an exported zip as the durable copy. Browser storage is working space, not a backup.
 - Raw files are hash-verified on load as before (section 6). In a folder on disk other programs can change them, and the hashes catch that.
 - Large files are read in slices, never loaded whole.
+- Zips are made and read by the core (`gnss_store::zip`), so every browser and the CLI produce the same file. Export is deterministic: entries sorted by path, fixed timestamps, `.cache/` left out because it can be rebuilt. Import refuses paths that escape the project, encryption, ZIP64 and damaged entries (checked by CRC), and accepts a zip whose files sit in one top folder.
+- A zip is imported as a new project in browser storage, named after the zip; it never overwrites one already there, whose raw files may be the only copy. Removing a project from browser storage asks first and suggests exporting it.
+- Opening a project, from a folder or browser storage, loads it in the core worker exactly as the CLI loads a folder (section 6), so the same problems are reported, by file.
 
 ### 14.3 Offline use and installation
 

@@ -12,6 +12,7 @@
 
 mod lock;
 mod path;
+pub mod zip;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod fs;

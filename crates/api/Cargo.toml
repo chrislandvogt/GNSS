@@ -13,6 +13,7 @@ gnss-adjust.workspace = true
 gnss-datum.workspace = true
 gnss-formats.workspace = true
 gnss-model.workspace = true
+gnss-pipeline.workspace = true
 gnss-report.workspace = true
 gnss-store.workspace = true
 libm.workspace = true

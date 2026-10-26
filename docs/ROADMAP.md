@@ -265,19 +265,19 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 - [ ] Project folder format per [ARCHITECTURE.md](ARCHITECTURE.md#6-project-format):
   - [x] TOML, with one file per occupation, loaded from any store with every problem reported by file (`gnss_api::folder`).
   - [x] An immutable `raw/` directory with hashes (`raw.lock`, checked on every read).
-  - [ ] Overlays for corrections.
+  - [x] Overlays for corrections: one file per correction in `overlays/`, with its reason, author and time, checked against the raw file it corrects. RINEX ingest (M6) applies them.
   - [x] JSON Schema for every file (`schemas/`, checked against the code by a test).
   - [ ] Schema versioning and migrations. Every file carries its version and a newer one is refused with a message; there's nothing to migrate until version 2.
 - [ ] Antenna geometry catalogue (`data/antennas`): ARP, measure-up points, and the radius and offsets needed for slant-height conversion, with sources cited. This information isn't in ANTEX. Document how to contribute to it.
 - [ ] Pipeline:
-  - [ ] A DAG of steps: ingest → QC → baseline → vector set → adjustment → evaluation → report.
-  - [ ] Node keys = hash(inputs, settings, tool versions), with a content-addressed cache.
-  - [ ] Parallel execution, cancellation and progress events, with an executor for each host: tokio and rayon natively, and workers in the browser.
-- [ ] Storage interface (`store`): the file system natively; the File System Access API and OPFS in the browser, with zip import and export. The `Store` trait, `FsStore` and `MemoryStore` are done, and the CLI uses them; the browser side and zips are next.
+  - [ ] A DAG of steps: ingest → QC → baseline → vector set → adjustment → evaluation → report. The graph and its runner are done (`crates/pipeline`); the steps arrive with the milestones that build them (M6 onwards).
+  - [x] Node keys = hash(inputs, settings, tool versions), with a content-addressed cache.
+  - [ ] Parallel execution, cancellation and progress events, with an executor for each host: tokio and rayon natively, and workers in the browser. Cancellation and progress events are done; nodes run one at a time until the engine work (M8) needs more.
+- [x] Storage interface (`store`): the file system natively; the File System Access API and OPFS in the browser, with zip import and export. The CLI uses `FsStore`. The web app reads a folder or a browser-storage project into a `MemoryStore` in the core worker, which checks it the way the CLI does, and makes and reads zips with `gnss_store::zip`, so both produce the same bytes.
 - [ ] Provenance:
-  - [ ] An append-only JSONL record of every run: inputs, settings, versions, outputs and timing.
-  - [ ] A `verify` command that re-runs everything and compares hashes.
-- [ ] Command API (`api` crate): typed requests and responses for every operation, plus a job model for long-running work.
+  - [x] An append-only JSONL record of every run: inputs, settings, versions, outputs and timing (`gnss_pipeline::provenance`, with timing from the host's clock).
+  - [ ] A `verify` command that re-runs everything and compares hashes. `gnss_pipeline::verify` does the comparison; the command comes with the first real steps.
+- [ ] Command API (`api` crate): typed requests and responses for every operation, plus a job model for long-running work. The job model is done (`gnss_api::jobs`: ids, and progress, issue and finished events as tagged JSON); the requests and responses grow with each operation.
 
 **Exit criteria:**
 - Changing one antenna height re-runs only the dependent nodes.
@@ -441,7 +441,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 
 - [ ] Web app shell: the Svelte and TypeScript UI on the main thread, the core in a worker, and typed messages generated from the command API (specta).
 - [ ] Project explorer and import:
-  - [ ] Open a project folder (Chrome, Edge), or import and export a zip (Firefox, Safari).
+  - [ ] Open a project folder (Chrome, Edge), or import and export a zip (Firefox, Safari). The plumbing is in M5's diagnostics panel: opening, checking, zip import and export, and removing projects from browser storage. The explorer itself is still to come.
   - [ ] Drag and drop RINEX, field logs and vectors.
 - [ ] Map (MapLibre GL):
   - [ ] Marks, occupations and baselines coloured by quality.

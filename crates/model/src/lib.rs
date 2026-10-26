@@ -7,6 +7,7 @@
 //!
 //! The types here are what the project folder's files hold: `marks.toml` is
 //! a [`MarkFile`] and each file in `occupations/` is an [`Occupation`].
+//! Corrections to raw files are [`Overlay`]s in `overlays/`.
 //! Reading one checks it on its own ([`Occupation::from_toml`]); a whole
 //! project is checked with [`validate`], which reports every problem at once.
 
@@ -14,13 +15,15 @@ mod error;
 mod ids;
 mod mark;
 mod occupation;
+mod overlay;
 mod session;
 mod time;
 
 pub use error::{Issue, ModelError};
-pub use ids::{MarkId, OccupationId};
+pub use ids::{MarkId, OccupationId, OverlayId};
 pub use mark::{Constraint, KnownCoordinate, Mark, MarkFile, MarkKind};
 pub use occupation::{Antenna, HeightMeasurement, HeightMethod, Occupation, Receiver};
+pub use overlay::{Overlay, RinexHeader};
 pub use session::{Candidate, Session, candidates, sessions};
 pub use time::Timestamp;
 
