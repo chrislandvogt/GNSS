@@ -182,7 +182,10 @@ jobs:
     name: Web app
     # Built from the exact engine module the engine-module job produced and checked.
     needs: engine-module
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 can't install its browsers on Ubuntu 26.04, which
+    # ubuntu-latest became in October 2026. Move back once Playwright is
+    # upgraded to a release that supports it.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: apps/web/ui
