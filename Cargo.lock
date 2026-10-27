@@ -376,10 +376,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "gnss-antennas"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "toml",
+ "wasm-bindgen-test",
+]
+
+[[package]]
 name = "gnss-api"
 version = "0.1.0"
 dependencies = [
  "gnss-adjust",
+ "gnss-antennas",
  "gnss-datum",
  "gnss-formats",
  "gnss-model",

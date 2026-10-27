@@ -1,0 +1,18 @@
+# Slant-height geometry, for converting a slant height to the vertical
+# height of the antenna reference point (ARP). The IGS files don't give it:
+# antenna.gra marks a slant-height point on only a few antennas, and never
+# with its radius. Each entry needs a source a reviewer can check, such as
+# the manufacturer's manual and page. Don't add an entry from memory or by
+# measuring a drawing. See README.md.
+#
+# [[antenna]]
+# igs = "XXXNNNN"            # the IGS antenna code, as in rcvr_ant.json
+# point = "SHMP"             # the slant point's name, as an occupation's
+#                            # height `to` gives it
+# radius = 0.0               # metres, horizontally from the antenna's axis
+#                            # to the slant point
+# above_arp = 0.0            # metres, vertically from the ARP up to the
+#                            # slant point (negative if below)
+# source = "Manufacturer, document title, version, page"
+
+schema = 1

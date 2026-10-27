@@ -7,6 +7,7 @@
 //! person sees every problem at once: a file with problems is left out and
 //! the rest is loaded.
 
+use gnss_antennas::Catalogue;
 use gnss_model::{Issue, MarkFile, Occupation, Overlay};
 use gnss_store::{ProjectPath, Store, StoreError};
 
@@ -89,6 +90,11 @@ pub fn load<S: Store + ?Sized>(store: &S) -> Result<Loaded, LoadError> {
             continue;
         }
         let mut problems = Vec::new();
+        if let Some(problem) =
+            Catalogue::igs().check(&occupation.antenna.igs, &occupation.antenna.radome)
+        {
+            problems.push(problem);
+        }
         for raw in &occupation.rinex {
             if let Err(e) = ProjectPath::new(raw.as_str()).and_then(|p| store.read_raw(&p)) {
                 problems.push(e.to_string());

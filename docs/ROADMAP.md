@@ -268,7 +268,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [x] Overlays for corrections: one file per correction in `overlays/`, with its reason, author and time, checked against the raw file it corrects. RINEX ingest (M6) applies them.
   - [x] JSON Schema for every file (`schemas/`, checked against the code by a test).
   - [ ] Schema versioning and migrations. Every file carries its version and a newer one is refused with a message; there's nothing to migrate until version 2.
-- [ ] Antenna geometry catalogue (`data/antennas`): ARP, measure-up points, and the radius and offsets needed for slant-height conversion, with sources cited. This information isn't in ANTEX. Document how to contribute to it.
+- [ ] Antenna geometry catalogue (`data/antennas`): ARP, measure-up points, and the radius and offsets needed for slant-height conversion, with sources cited. This information isn't in ANTEX. Document how to contribute to it. Done from the IGS (`gnss-antennas`): every antenna and radome code, each antenna's ARP and north reference point and its drawing, and which pairs `igs20.atx` calibrates; the project loader refuses codes that aren't IGS codes. Still to do: slant-height geometry, which the IGS files don't give; `slant.toml` takes sourced entries, and is empty until manufacturer figures are added.
 - [ ] Pipeline:
   - [ ] A DAG of steps: ingest → QC → baseline → vector set → adjustment → evaluation → report. The graph and its runner are done (`crates/pipeline`); the steps arrive with the milestones that build them (M6 onwards).
   - [x] Node keys = hash(inputs, settings, tool versions), with a content-addressed cache.

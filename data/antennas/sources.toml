@@ -1,0 +1,20 @@
+# Where the IGS files here came from. Written by update.py.
+
+[[file]]
+name = "rcvr_ant.json"
+url = "https://files.igs.org/pub/station/general/rcvr_ant.json"
+fetched = "2026-10-27"
+sha256 = "c6f7bb54cb14d478d1b26e088442bbc8d6750b75f7d9fae9665f5dbe5b0d57bd"
+
+[[file]]
+name = "antenna.gra"
+url = "https://files.igs.org/pub/station/general/antenna.gra"
+fetched = "2026-10-27"
+sha256 = "1fe212279b28aab63a5b70f7c476381c55e233ebf96f9567acc6fc1199de4212"
+
+[[file]]
+name = "calibrated.txt"
+from = "https://files.igs.org/pub/station/general/igs20.atx"
+fetched = "2026-10-27"
+sha256_of_source = "0cd58d0d9ee678d5586de6c01f576e5aceb86f4a0735a168f733dfd091c0a614"
+pairs = 512

@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 gnss-adjust.workspace = true
+gnss-antennas.workspace = true
 gnss-datum.workspace = true
 gnss-formats.workspace = true
 gnss-model.workspace = true
