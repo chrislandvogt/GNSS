@@ -141,6 +141,38 @@ fn every_problem_is_reported_and_the_rest_loads() {
 }
 
 #[test]
+fn antennas_and_radomes_must_be_igs_codes() {
+    let mut store = project();
+    let b = path("occupations/B.toml");
+    let text = String::from_utf8(store.read_existing(&b).unwrap()).unwrap();
+    // A letter O for a zero, as typed from a label.
+    store
+        .write(&b, text.replace("LEIAS10", "LEIAS1O").as_bytes())
+        .unwrap();
+    let a = path("occupations/A.toml");
+    let text = String::from_utf8(store.read_existing(&a).unwrap()).unwrap();
+    store
+        .write(
+            &a,
+            text.replace("igs = \"LEIAS10\"", "igs = \"LEIAS10\"\nradome = \"SCIS\"")
+                .as_bytes(),
+        )
+        .unwrap();
+    let issues = issues(&store);
+    assert_eq!(issues.len(), 1, "{issues:?}");
+    assert!(
+        issues[0].starts_with("occupations/B.toml: antenna \"LEIAS1O\" isn't an IGS antenna code"),
+        "{}",
+        issues[0]
+    );
+    // A real radome the IGS hasn't calibrated with this antenna is allowed;
+    // processing decides what to do about it.
+    let loaded = load(&store).unwrap();
+    let ids: Vec<&str> = loaded.occupations.iter().map(|o| o.id.as_str()).collect();
+    assert_eq!(ids, ["A"]);
+}
+
+#[test]
 fn a_broken_marks_file_is_an_issue_not_a_failure() {
     let mut store = project();
     store

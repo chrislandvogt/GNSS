@@ -16,6 +16,7 @@ gnss-adjust = { path = "crates/adjust" }
 gnss-api = { path = "crates/api" }
 gnss-datum = { path = "crates/datum" }
 gnss-formats = { path = "crates/formats" }
+gnss-antennas = { path = "crates/antennas" }
 gnss-model = { path = "crates/model" }
 gnss-pipeline = { path = "crates/pipeline" }
 gnss-report = { path = "crates/report" }

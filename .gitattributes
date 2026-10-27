@@ -8,3 +8,8 @@ crates/formats/tests/data/tdef/*.asc -text
 schemas/*.json text eol=lf
 # RINEX fixtures are compared byte for byte: never convert their line endings.
 crates/rinex-io/tests/data/rinex/** -text
+
+# The IGS antenna files are kept exactly as published; a test checks their SHA-256.
+data/antennas/*.gra -text
+data/antennas/*.json -text
+data/antennas/calibrated.txt -text
