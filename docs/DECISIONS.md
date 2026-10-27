@@ -347,7 +347,7 @@ The tool shows the difference from adjusting directly in GDA2020, so the shortcu
 **Revisit:** if exports need features beyond writing tables once, such as spatial indexes on very large layers or updating a file in place.
 
 ### D-027 Our own RINEX observation reader and Hatanaka decompressor
-**Status:** Proposed
+**Status:** Accepted
 
 **Decision:** `rinex-io` reads RINEX 2.11, 3.0x and 4.0x observation files, plain or Hatanaka-compressed (CRINEX 1.0 and 3.0), with its own code rather than the `rinex` crate (supersedes D-007). It reads a line at a time and never panics on what it reads.
 
