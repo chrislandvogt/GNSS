@@ -99,6 +99,11 @@ impl GnssTime {
         Some(Self(ticks))
     }
 
+    /// A time from its ticks since 1980-01-06 00:00:00.
+    pub fn from_ticks(ticks: i64) -> Self {
+        Self(ticks)
+    }
+
     /// The ticks since 1980-01-06 00:00:00.
     pub fn ticks(self) -> i64 {
         self.0

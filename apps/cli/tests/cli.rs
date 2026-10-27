@@ -399,3 +399,46 @@ fn errors_are_plain_and_change_nothing() {
     assert_eq!(fs::read_dir(project.join("raw")).unwrap().count(), 0);
     assert_eq!(fs::read_to_string(project.join("raw.lock")).unwrap(), "");
 }
+
+#[test]
+fn qc_reads_plain_and_compressed_rinex_alike() {
+    let dir = tempfile::tempdir().unwrap();
+    let rinex = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../crates/rinex-io/tests/data/rinex/SWTC00AUS_20251660000.rnx"
+    );
+    let crx = format!("{rinex}.crx");
+    let plain = json(&ok(dir.path(), &["qc", "--json", rinex], 0));
+    let compressed = json(&ok(dir.path(), &["qc", "--json", &crx], 0));
+    assert_eq!(plain[0]["qc"], compressed[0]["qc"]);
+    let qc = &plain[0]["qc"];
+    assert_eq!(qc["marker"], "SWTC00AUS");
+    assert_eq!(qc["antenna"], "LEIAS10");
+    assert_eq!(qc["epochs"], 6);
+    assert_eq!(qc["interval"], 30.0);
+    assert!(qc["antenna_note"].is_null(), "{qc}");
+    let gps = qc["systems"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["system"] == "GPS")
+        .unwrap();
+    assert_eq!(gps["pair"], "L1/L2");
+
+    let human = stdout(&ok(dir.path(), &["qc", rinex], 0));
+    assert!(human.contains("LEICA GR30 with LEIAS10 NONE"), "{human}");
+    assert!(
+        human.contains("6 of 6 epochs (100.0%) every 30 s"),
+        "{human}"
+    );
+
+    let not_rinex = dir.path().join("notes.txt");
+    fs::write(&not_rinex, "hello\n").unwrap();
+    let o = gnss(dir.path(), &["qc", path(&not_rinex)]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(
+        stderr(&o).contains("notes.txt: line 1: a RINEX file starts"),
+        "{}",
+        stderr(&o)
+    );
+}

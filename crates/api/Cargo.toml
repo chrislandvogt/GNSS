@@ -16,6 +16,7 @@ gnss-formats.workspace = true
 gnss-model.workspace = true
 gnss-pipeline.workspace = true
 gnss-report.workspace = true
+gnss-rinex-io.workspace = true
 gnss-store.workspace = true
 libm.workspace = true
 nalgebra.workspace = true

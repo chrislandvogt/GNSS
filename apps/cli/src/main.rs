@@ -62,6 +62,16 @@ enum Command {
     Export(ExportArgs),
     /// Leave an observation out of the adjustment, with a reason.
     Exclude(ExcludeArgs),
+    /// Check RINEX observation files: equipment, completeness, gaps, cycle
+    /// slips and multipath.
+    Qc(QcArgs),
+}
+
+#[derive(Args)]
+struct QcArgs {
+    /// The files, plain or Hatanaka-compressed RINEX 2, 3 or 4.
+    #[arg(required = true)]
+    files: Vec<PathBuf>,
 }
 
 #[derive(Args)]
@@ -242,7 +252,79 @@ fn dispatch(cli: &Cli) -> Result<u8, Failure> {
         Command::Report(args) => report(cli, args),
         Command::Export(args) => export_results(cli, args),
         Command::Exclude(args) => exclude(cli, args),
+        Command::Qc(args) => qc(cli, args),
     }
+}
+
+fn qc(cli: &Cli, args: &QcArgs) -> Result<u8, Failure> {
+    let mut reports = Vec::new();
+    for path in &args.files {
+        let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let report = gnss_api::rinex::check_file(std::io::BufReader::new(file))
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        reports.push((path.display().to_string(), report));
+    }
+    let json: Vec<_> = reports
+        .iter()
+        .map(|(file, r)| serde_json::json!({ "file": file, "qc": r }))
+        .collect();
+    print(cli, &json, || {
+        for (file, r) in &reports {
+            println!("{file}: {} (RINEX {})", r.marker, r.version);
+            let radome = r.radome.as_deref().unwrap_or("NONE");
+            println!("  {} with {} {}", r.receiver, r.antenna, radome);
+            if let Some(note) = &r.antenna_note {
+                println!("  note: {note}");
+            }
+            if let Some([h, e, n]) = r.antenna_delta {
+                println!("  antenna height {h:.4} m (east {e:.4}, north {n:.4})");
+            }
+            let span = match (&r.first, &r.last) {
+                (Some(a), Some(b)) => format!("{a} to {b} {}", r.time_system),
+                _ => "no epochs".to_owned(),
+            };
+            println!("  {span}");
+            let completeness = r
+                .expected_epochs
+                .filter(|&e| e > 0)
+                .map(|e| format!(" ({:.1}%)", 100.0 * r.epochs as f64 / e as f64))
+                .unwrap_or_default();
+            println!(
+                "  {} of {} epochs{completeness} every {} s; {} gaps; {} events",
+                r.epochs,
+                r.expected_epochs.map_or("?".to_owned(), |e| e.to_string()),
+                r.interval.map_or("?".to_owned(), |i| i.to_string()),
+                r.gaps.len(),
+                r.events
+            );
+            for (from, to, seconds) in &r.gaps {
+                println!("    gap {from} to {to} ({seconds} s)");
+            }
+            for s in &r.systems {
+                let mp: Vec<String> = s
+                    .multipath
+                    .iter()
+                    .map(|(name, rms)| format!("{name} {rms:.3} m"))
+                    .collect();
+                let pair = s.pair.as_deref().map_or_else(
+                    || "no dual-frequency pair, so no slips or multipath".to_owned(),
+                    |p| {
+                        format!(
+                            "{p}: {} slips, {} flagged by the receiver",
+                            s.slips, s.flagged
+                        )
+                    },
+                );
+                let mp = if mp.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {}", mp.join(", "))
+                };
+                println!("  {:8} {:3} satellites; {pair}{mp}", s.system, s.satellites);
+            }
+        }
+    })?;
+    Ok(0)
 }
 
 /// Prints `value` as JSON with `--json`, and otherwise runs `human`.

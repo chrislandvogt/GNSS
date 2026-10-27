@@ -13,6 +13,8 @@ mod error;
 mod header;
 mod lines;
 mod obs;
+pub mod qc;
+pub mod signal;
 mod text;
 mod time;
 
