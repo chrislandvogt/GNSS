@@ -468,3 +468,45 @@ fn qc_reads_plain_and_compressed_rinex_alike() {
         stderr(&o)
     );
 }
+
+#[test]
+fn import_rinex_makes_occupations_and_marks() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("p");
+    ok(root.path(), &["init", path(&project)], 0);
+    let data = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../crates/rinex-io/tests/data/rinex"
+    );
+    let swtc = format!("{data}/SWTC00AUS_20251660000.rnx.crx");
+    let mobs = format!("{data}/MOBS0050.20o");
+    let o = json(&ok(
+        &project,
+        &["import", "rinex", "--json", &swtc, &mobs],
+        0,
+    ));
+    let ids: Vec<&str> = o["occupations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["2020-01-05-MOBS-A", "2025-06-15-SWTC00AUS-A"]);
+    assert_eq!(o["marks_added"], serde_json::json!(["MOBS", "SWTC00AUS"]));
+    let occupation =
+        fs::read_to_string(project.join("occupations/2025-06-15-SWTC00AUS-A.toml")).unwrap();
+    assert!(
+        occupation.contains("rinex = [\"raw/SWTC00AUS_20251660000.rnx.crx\"]"),
+        "{occupation}"
+    );
+    assert!(
+        fs::read_to_string(project.join("raw.lock"))
+            .unwrap()
+            .contains("raw/MOBS0050.20o")
+    );
+
+    // Again: the raw file exists, and nothing changes.
+    let o = gnss(&project, &["import", "rinex", &mobs]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stderr(&o).contains("raw/MOBS0050.20o"), "{}", stderr(&o));
+}

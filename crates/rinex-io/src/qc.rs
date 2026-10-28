@@ -773,31 +773,7 @@ impl Qc {
         let mut ticks = self.epoch_ticks;
         ticks.sort_unstable();
         ticks.dedup();
-        let mut spacings: BTreeMap<i64, usize> = BTreeMap::new();
-        for w in ticks.windows(2) {
-            if let [a, b] = w {
-                *spacings.entry(b - a).or_default() += 1;
-            }
-        }
-        // The most common spacing; the shortest among equals.
-        let interval = spacings
-            .iter()
-            .max_by(|x, y| x.1.cmp(y.1).then(y.0.cmp(x.0)))
-            .map(|(&t, _)| t);
-        let mut gaps = Vec::new();
-        if let Some(step) = interval {
-            for w in ticks.windows(2) {
-                if let [a, b] = w {
-                    // Over 1.5 intervals, in whole ticks.
-                    if (b - a) * 2 > step * 3 {
-                        gaps.push(Gap {
-                            after: tick_time(*a),
-                            before: tick_time(*b),
-                        });
-                    }
-                }
-            }
-        }
+        let (interval, gaps) = spacing(&ticks);
         let first = ticks.first().copied();
         let last = ticks.last().copied();
         let expected_epochs = match (first, last, interval) {
@@ -958,4 +934,35 @@ fn finish_arc(arc: Arc, system: &mut SystemState, min_epochs: usize) {
 
 fn tick_time(ticks: i64) -> GnssTime {
     GnssTime::from_ticks(ticks)
+}
+
+/// The interval (the most common spacing, the shortest among equals) and
+/// the gaps (spacings over 1.5 intervals) of sorted, distinct epochs, in
+/// ticks.
+pub(crate) fn spacing(ticks: &[i64]) -> (Option<i64>, Vec<Gap>) {
+    let mut spacings: BTreeMap<i64, usize> = BTreeMap::new();
+    for w in ticks.windows(2) {
+        if let [a, b] = w {
+            *spacings.entry(b.saturating_sub(*a)).or_default() += 1;
+        }
+    }
+    let interval = spacings
+        .iter()
+        .max_by(|x, y| x.1.cmp(y.1).then(y.0.cmp(x.0)))
+        .map(|(&t, _)| t);
+    let mut gaps = Vec::new();
+    if let Some(step) = interval {
+        for w in ticks.windows(2) {
+            if let [a, b] = w {
+                // Over 1.5 intervals, in whole ticks.
+                if i128::from(*b - *a) * 2 > i128::from(step) * 3 {
+                    gaps.push(Gap {
+                        after: tick_time(*a),
+                        before: tick_time(*b),
+                    });
+                }
+            }
+        }
+    }
+    (interval, gaps)
 }

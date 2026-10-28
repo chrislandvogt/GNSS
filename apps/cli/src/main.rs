@@ -99,6 +99,23 @@ enum ImportCommand {
     Vectors(ImportArgs<VectorFormat>),
     /// Control: DynaML stations, CSV or SINEX.
     Control(ImportArgs<ControlFormat>),
+    /// RINEX observation files: each set-up found in them becomes an
+    /// occupation, and marks not yet in marks.toml are added.
+    Rinex(RinexArgs),
+}
+
+#[derive(Args)]
+struct RinexArgs {
+    /// The files, plain or Hatanaka-compressed RINEX 2, 3 or 4.
+    #[arg(required = true)]
+    files: Vec<PathBuf>,
+    /// The mark every file was on, instead of their headers' marker names.
+    #[arg(long)]
+    mark: Option<String>,
+    /// Files of one set-up are one occupation if the next starts within
+    /// this many seconds of the last ending.
+    #[arg(long, value_name = "SECONDS", default_value_t = 300.0)]
+    join: f64,
 }
 
 #[derive(Args)]
@@ -252,6 +269,7 @@ fn dispatch(cli: &Cli) -> Result<u8, Failure> {
             let allowed = [Format::Dynaml, Format::CsvControl, Format::Sinex];
             import(cli, format, &allowed, args)
         }
+        Command::Import(ImportCommand::Rinex(args)) => import_rinex(cli, args),
         Command::Adjust(args) => adjust(cli, args),
         Command::Report(args) => report(cli, args),
         Command::Export(args) => export_results(cli, args),
@@ -356,6 +374,53 @@ fn qc(cli: &Cli, args: &QcArgs) -> Result<u8, Failure> {
                     );
                 }
             }
+        }
+    })?;
+    Ok(0)
+}
+
+fn import_rinex(cli: &Cli, args: &RinexArgs) -> Result<u8, Failure> {
+    let folder = Folder::open(&cli.project)?;
+    let mut files = Vec::new();
+    for path in &args.files {
+        let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .ok_or_else(|| format!("{} isn't a file", path.display()))?;
+        files.push((name, bytes));
+    }
+    let options = gnss_api::ingest::IngestOptions {
+        mark: args.mark.clone(),
+        join_s: args.join,
+        ..Default::default()
+    };
+    let report = gnss_api::ingest::import_rinex(&mut folder.store(), &files, &options)
+        .map_err(|e| e.to_string())?;
+    print(cli, &report, || {
+        for o in &report.occupations {
+            let interval = o.interval.map_or("?".to_owned(), |i| i.to_string());
+            println!(
+                "{}: {} from {} to {}, {} epochs every {interval} s ({})",
+                o.id,
+                o.mark,
+                o.start,
+                o.end,
+                o.epochs,
+                o.files.join(", ")
+            );
+            for note in &o.notes {
+                println!("  note: {note}");
+            }
+        }
+        if !report.marks_added.is_empty() {
+            println!(
+                "Added to marks.toml: {} (check their names and positions)",
+                report.marks_added.join(", ")
+            );
+        }
+        for note in &report.notes {
+            println!("note: {note}");
         }
     })?;
     Ok(0)

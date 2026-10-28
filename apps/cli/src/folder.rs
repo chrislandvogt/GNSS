@@ -64,6 +64,11 @@ impl Folder {
         }
     }
 
+    /// The folder as a store, for the API's functions that work on any.
+    pub fn store(&self) -> FsStore {
+        self.store.clone()
+    }
+
     /// The folder.
     pub fn root(&self) -> &Path {
         &self.root

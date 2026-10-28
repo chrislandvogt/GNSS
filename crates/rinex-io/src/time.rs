@@ -54,6 +54,18 @@ impl TimeSystem {
         GnssTime(t.0.saturating_add(seconds * TICKS_PER_SECOND))
     }
 
+    /// A time on this scale as UTC.
+    pub fn to_utc(self, t: GnssTime) -> GnssTime {
+        let gps = self.to_gps(t);
+        // Leap seconds counted at the UTC time: near enough, the GPS time
+        // less the leap seconds then.
+        let guess = GnssTime(gps.0.saturating_sub(gps_minus_utc(gps) * TICKS_PER_SECOND));
+        GnssTime(
+            gps.0
+                .saturating_sub(gps_minus_utc(guess) * TICKS_PER_SECOND),
+        )
+    }
+
     /// The three-letter code.
     pub fn code(self) -> &'static str {
         match self {
@@ -261,6 +273,16 @@ mod tests {
         fn to_gps_ticks(self, scale: TimeSystem) -> i64 {
             scale.to_gps(self).ticks() - self.ticks()
         }
+
+        /// This UTC time on another scale (2025: 18 leap seconds).
+        fn to_scale_from_utc(self, scale: TimeSystem) -> GnssTime {
+            let s = match scale {
+                TimeSystem::Gps => 18,
+                TimeSystem::BeiDou => 4,
+                _ => 0,
+            };
+            GnssTime::from_ticks(self.ticks() + s * TICKS_PER_SECOND)
+        }
     }
 
     #[test]
@@ -320,5 +342,9 @@ mod tests {
         assert_eq!(super::gps_minus_utc(before), 17);
         assert_eq!(super::gps_minus_utc(after), 18);
         assert_eq!(super::gps_minus_utc(GnssTime::from_ticks(0)), 0);
+        // And back to UTC.
+        for scale in [TimeSystem::Gps, TimeSystem::BeiDou, TimeSystem::Utc] {
+            assert_eq!(scale.to_utc(t.to_scale_from_utc(scale)), t);
+        }
     }
 }

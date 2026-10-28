@@ -15,6 +15,7 @@ mod header;
 mod lines;
 pub mod nav;
 mod obs;
+pub mod occupation;
 pub mod orbit;
 pub mod qc;
 pub mod signal;
