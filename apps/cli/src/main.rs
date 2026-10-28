@@ -63,7 +63,7 @@ enum Command {
     /// Leave an observation out of the adjustment, with a reason.
     Exclude(ExcludeArgs),
     /// Check RINEX observation files: equipment, completeness, gaps, cycle
-    /// slips and multipath.
+    /// slips and multipath, and with navigation files, elevation coverage.
     Qc(QcArgs),
 }
 
@@ -72,6 +72,10 @@ struct QcArgs {
     /// The files, plain or Hatanaka-compressed RINEX 2, 3 or 4.
     #[arg(required = true)]
     files: Vec<PathBuf>,
+    /// Navigation files (RINEX 2, 3 or 4) for elevation coverage: how much
+    /// of what was above the cutoff was tracked.
+    #[arg(long, value_name = "FILE")]
+    nav: Vec<PathBuf>,
 }
 
 #[derive(Args)]
@@ -257,10 +261,22 @@ fn dispatch(cli: &Cli) -> Result<u8, Failure> {
 }
 
 fn qc(cli: &Cli, args: &QcArgs) -> Result<u8, Failure> {
+    let open = |path: &PathBuf| {
+        std::fs::File::open(path)
+            .map(std::io::BufReader::new)
+            .map_err(|e| format!("{}: {e}", path.display()))
+    };
+    let mut ephemerides = Vec::new();
+    for path in &args.nav {
+        ephemerides.extend(
+            gnss_api::rinex::read_nav(open(path)?)
+                .map_err(|e| format!("{}: {e}", path.display()))?,
+        );
+    }
+    let orbits = (!args.nav.is_empty()).then(|| gnss_api::rinex::Orbits::new(ephemerides));
     let mut reports = Vec::new();
     for path in &args.files {
-        let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let report = gnss_api::rinex::check_file(std::io::BufReader::new(file))
+        let report = gnss_api::rinex::check_file(open(path)?, orbits.clone())
             .map_err(|e| format!("{}: {e}", path.display()))?;
         reports.push((path.display().to_string(), report));
     }
@@ -300,6 +316,9 @@ fn qc(cli: &Cli, args: &QcArgs) -> Result<u8, Failure> {
             for (from, to, seconds) in &r.gaps {
                 println!("    gap {from} to {to} ({seconds} s)");
             }
+            if let Some(note) = &r.coverage_note {
+                println!("  note: {note}");
+            }
             for s in &r.systems {
                 let mp: Vec<String> = s
                     .multipath
@@ -321,6 +340,20 @@ fn qc(cli: &Cli, args: &QcArgs) -> Result<u8, Failure> {
                     format!(", {}", mp.join(", "))
                 };
                 println!("  {:8} {:3} satellites; {pair}{mp}", s.system, s.satellites);
+                if let Some(c) = &s.coverage {
+                    let ratio = c.ratio.map_or("nothing expected".to_owned(), |r| {
+                        format!("{:.1}%", 100.0 * r)
+                    });
+                    println!(
+                        "           above {}°: {} of {} satellite-epochs tracked ({ratio}); {} below; {} unhealthy; {} with no ephemeris",
+                        c.cutoff,
+                        c.tracked,
+                        c.expected,
+                        c.below_cutoff,
+                        c.unhealthy,
+                        c.no_ephemeris
+                    );
+                }
             }
         }
     })?;

@@ -1,13 +1,26 @@
 //! Prints the quality metrics for observation files:
-//! `cargo run --release --example qc -- file...`.
+//! `cargo run --release --example qc -- file...`. With `QC_NAV` set to
+//! navigation files (comma-separated), elevation coverage too.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::io::BufReader;
 
+use gnss_rinex_io::orbit::Orbits;
 use gnss_rinex_io::qc::{Qc, QcOptions};
 
 fn main() {
+    let mut ephemerides = Vec::new();
+    for path in std::env::var("QC_NAV").unwrap_or_default().split(',') {
+        if !path.is_empty() {
+            let file = std::fs::File::open(path).unwrap();
+            ephemerides.extend(
+                gnss_rinex_io::read_nav(BufReader::new(file))
+                    .unwrap()
+                    .ephemerides,
+            );
+        }
+    }
     for path in std::env::args().skip(1) {
         let file = std::fs::File::open(&path).unwrap();
         let mut reader = match gnss_rinex_io::read_obs(BufReader::new(file)) {
@@ -26,6 +39,9 @@ fn main() {
             options.gf_metres_per_second = v;
         }
         let mut qc = Qc::new(reader.header(), options);
+        if let (false, Some(position)) = (ephemerides.is_empty(), reader.header().approx_position) {
+            qc = qc.with_orbits(Orbits::new(ephemerides.clone()), position);
+        }
         loop {
             match reader.next_epoch() {
                 Ok(Some(e)) => {
@@ -74,6 +90,24 @@ fn main() {
                 obs_per_slip,
                 mp.join(", ")
             );
+            if let Some(c) = &s.coverage {
+                println!(
+                    "     coverage {:?}: {} of {} expected, {} below {}°, {} unhealthy, {} no ephemeris",
+                    c.ratio().map(|r| format!("{:.2}%", 100.0 * r)),
+                    c.tracked,
+                    c.expected,
+                    c.below_cutoff,
+                    c.cutoff,
+                    c.unhealthy,
+                    c.no_ephemeris
+                );
+                let signals: Vec<String> = s
+                    .signals
+                    .iter()
+                    .filter_map(|(code, x)| Some(format!("{code} {:.1}%", 100.0 * x.coverage?)))
+                    .collect();
+                println!("     {}", signals.join(", "));
+            }
         }
     }
 }

@@ -432,6 +432,32 @@ fn qc_reads_plain_and_compressed_rinex_alike() {
         "{human}"
     );
 
+    // With a navigation file, elevation coverage: here everything above
+    // 10° that the file's ephemerides cover was tracked.
+    let nav = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../crates/rinex-io/tests/data/nav/HOB200AUS_R_20251660000_excerpt_MN.rnx"
+    );
+    let with_nav = json(&ok(dir.path(), &["qc", "--json", rinex, "--nav", nav], 0));
+    let systems = with_nav[0]["qc"]["systems"].as_array().unwrap();
+    let gps = systems.iter().find(|s| s["system"] == "GPS").unwrap();
+    assert_eq!(gps["coverage"]["cutoff"], 10.0);
+    assert_eq!(gps["coverage"]["expected"], 12);
+    assert_eq!(gps["coverage"]["ratio"], 1.0);
+    assert!(plain[0]["qc"]["systems"][0]["coverage"].is_null());
+    let human = stdout(&ok(dir.path(), &["qc", rinex, "--nav", nav], 0));
+    assert!(
+        human.contains("above 10°: 12 of 12 satellite-epochs tracked (100.0%)"),
+        "{human}"
+    );
+    let o = gnss(dir.path(), &["qc", rinex, "--nav", rinex]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(
+        stderr(&o).contains("not a navigation file"),
+        "{}",
+        stderr(&o)
+    );
+
     let not_rinex = dir.path().join("notes.txt");
     fs::write(&not_rinex, "hello\n").unwrap();
     let o = gnss(dir.path(), &["qc", path(&not_rinex)]);

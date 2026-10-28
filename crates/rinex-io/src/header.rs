@@ -352,7 +352,7 @@ impl HeaderBuilder {
 }
 
 /// `2.11`, `3.04` or `4.01` as a version.
-fn parse_version(text: &str) -> Option<Version> {
+pub(crate) fn parse_version(text: &str) -> Option<Version> {
     let (major, minor) = text.split_once('.').unwrap_or((text, "0"));
     let major: u8 = major.trim().parse().ok()?;
     let minor_digits: String = minor.chars().take(2).collect();

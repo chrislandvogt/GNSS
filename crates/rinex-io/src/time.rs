@@ -41,6 +41,19 @@ impl TimeSystem {
         })
     }
 
+    /// A time on this scale as GPS time. GLONASS time in RINEX is UTC(SU),
+    /// so it's taken as UTC; Galileo, QZSS and NavIC time are steered to GPS
+    /// time within nanoseconds, so they're taken as it.
+    pub fn to_gps(self, t: GnssTime) -> GnssTime {
+        let seconds = match self {
+            Self::Gps | Self::Galileo | Self::Qzss | Self::Irnss => 0,
+            Self::BeiDou => 14,
+            Self::Utc | Self::Glonass => gps_minus_utc(t),
+            Self::Tai => -19,
+        };
+        GnssTime(t.0.saturating_add(seconds * TICKS_PER_SECOND))
+    }
+
     /// The three-letter code.
     pub fn code(self) -> &'static str {
         match self {
@@ -111,7 +124,7 @@ impl GnssTime {
 
     /// Seconds from `earlier` to this time.
     pub fn seconds_since(self, earlier: Self) -> f64 {
-        (self.0 - earlier.0) as f64 / TICKS_PER_SECOND as f64
+        (i128::from(self.0) - i128::from(earlier.0)) as f64 / TICKS_PER_SECOND as f64
     }
 
     /// Year, month, day, hour, minute, and seconds as ticks.
@@ -136,6 +149,38 @@ impl fmt::Display for GnssTime {
             ticks % TICKS_PER_SECOND
         )
     }
+}
+
+/// The UTC dates from which a leap second had been added since 1980.
+const LEAP_SECONDS: [(i64, i64, i64); 18] = [
+    (1981, 7, 1),
+    (1982, 7, 1),
+    (1983, 7, 1),
+    (1985, 7, 1),
+    (1988, 1, 1),
+    (1990, 1, 1),
+    (1991, 1, 1),
+    (1992, 7, 1),
+    (1993, 7, 1),
+    (1994, 7, 1),
+    (1996, 1, 1),
+    (1997, 7, 1),
+    (1999, 1, 1),
+    (2006, 1, 1),
+    (2009, 1, 1),
+    (2012, 7, 1),
+    (2015, 7, 1),
+    (2017, 1, 1),
+];
+
+/// GPS time minus UTC in whole seconds at a UTC time: the leap seconds
+/// since 1980-01-06. None has been announced since 2017.
+pub fn gps_minus_utc(utc: GnssTime) -> i64 {
+    let days = utc.0.div_euclid(TICKS_PER_DAY) + GPS_EPOCH_DAYS;
+    LEAP_SECONDS
+        .iter()
+        .take_while(|&&(y, m, d)| days >= days_from_civil(y, m, d))
+        .count() as i64
 }
 
 /// Seconds text, such as `30.0000000` or `5.5`, as ticks. At most seven
@@ -212,6 +257,12 @@ mod tests {
 
     use super::{GnssTime, TICKS_PER_SECOND, TimeSystem};
 
+    impl GnssTime {
+        fn to_gps_ticks(self, scale: TimeSystem) -> i64 {
+            scale.to_gps(self).ticks() - self.ticks()
+        }
+    }
+
     #[test]
     fn times_are_exact_ticks_from_the_gps_epoch() {
         let start = GnssTime::from_fields(1980, 1, 6, 0, 0, " 0.0000000").unwrap();
@@ -252,5 +303,22 @@ mod tests {
             assert_eq!(TimeSystem::parse(code).unwrap().code(), code);
         }
         assert!(TimeSystem::parse("XYZ").is_none());
+    }
+
+    #[test]
+    fn scales_convert_to_gps_time() {
+        let t = GnssTime::from_fields(2025, 6, 15, 0, 0, "0").unwrap();
+        let gps = |s: TimeSystem| t.to_gps_ticks(s);
+        assert_eq!(gps(TimeSystem::Gps), 0);
+        assert_eq!(gps(TimeSystem::BeiDou), 14 * TICKS_PER_SECOND);
+        assert_eq!(gps(TimeSystem::Utc), 18 * TICKS_PER_SECOND);
+        assert_eq!(gps(TimeSystem::Glonass), 18 * TICKS_PER_SECOND);
+        assert_eq!(gps(TimeSystem::Tai), -19 * TICKS_PER_SECOND);
+        // The leap second at the start of 2017, and none before 1981.
+        let before = GnssTime::from_fields(2016, 12, 31, 23, 59, "59").unwrap();
+        let after = GnssTime::from_fields(2017, 1, 1, 0, 0, "0").unwrap();
+        assert_eq!(super::gps_minus_utc(before), 17);
+        assert_eq!(super::gps_minus_utc(after), 18);
+        assert_eq!(super::gps_minus_utc(GnssTime::from_ticks(0)), 0);
     }
 }

@@ -297,8 +297,9 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [x] Observations per satellite and signal, and completeness.
   - [x] Cycle slips (geometry-free and Melbourne-Wübbena), and the receiver's loss-of-lock flags.
   - [x] Multipath (code minus carrier), as teqc's MP1 and MP2.
-  - [ ] SNR statistics, elevation coverage and data gaps. SNR and gaps are done; elevation coverage needs navigation files, which come next.
+  - [x] SNR statistics, elevation coverage and data gaps. Elevation coverage (`gnss qc --nav`) takes satellites from broadcast orbits: what the orbits put above the cutoff, healthy, against what was tracked, per system and per signal.
   - [ ] Check all of these against Anubis and teqc-style reference outputs. Checked so far: synthetic data with known slips, multipath and gaps, and an independent Python implementation of the same definitions, which agrees exactly on three real daily files. Comparing with teqc or Anubis needs one of them run on the benchmark files.
+- [x] Read RINEX 2.11, 3.0x and 4.0x navigation files (`gnss_rinex_io::read_nav`), and compute broadcast satellite positions for GPS, GLONASS, Galileo, BeiDou (GEO included), QZSS, NavIC and SBAS (`gnss_rinex_io::orbit`). They match RTKLIB's to 0.1 mm on GA files, and GA's precise (Ginan) GPS orbits to 1.8 m RMS (the antenna phase centre against the centre of mass, mostly). Fuzzed. GLONASS frequency channels come from the navigation file where a RINEX 2 header has none, so its slips and multipath can be found.
 - [ ] Read large files in slices rather than whole, so a 24 h, 1 Hz file ingests in the browser within its target. The reader works a line at a time from any `BufRead`, and restores a daily 30 s file in about 0.6 s natively; the browser's reading of a `File` in slices, and its timing, are still to do.
 - [ ] Open receiver formats (UBX, SBF, Unicore, NovAtel, RTCM3): decide between running `convbin` from RTKLIB-EX, as another WebAssembly module, and our own Rust decoders (D-020).
 

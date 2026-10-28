@@ -1,12 +1,20 @@
 //! Checking an observation file: its header, its equipment against the
-//! antenna catalogue, and its quality metrics (`gnss_rinex_io::qc`).
+//! antenna catalogue, and its quality metrics (`gnss_rinex_io::qc`),
+//! with elevation coverage if there are navigation files.
 
 use std::io::BufRead;
 
 use gnss_antennas::Catalogue;
+pub use gnss_rinex_io::orbit::{Ephemeris, Orbits};
 use gnss_rinex_io::qc::{Qc, QcOptions};
 use gnss_rinex_io::{RinexError, read_obs};
 use serde::Serialize;
+
+/// Reads a navigation file's broadcast ephemerides (RINEX 2, 3 or 4).
+/// Those of several files go together into [`Orbits::new`].
+pub fn read_nav<R: BufRead>(reader: R) -> Result<Vec<Ephemeris>, RinexError> {
+    Ok(gnss_rinex_io::read_nav(reader)?.ephemerides)
+}
 
 /// What checking an observation file found.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -42,8 +50,46 @@ pub struct FileQc {
     pub gaps: Vec<(String, String, f64)>,
     /// Events in the file (epoch flags 2 to 5).
     pub events: usize,
+    /// Why there's no elevation coverage although there are orbits.
+    pub coverage_note: Option<String>,
     /// By system.
     pub systems: Vec<SystemQc>,
+}
+
+/// One signal's metrics.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SignalQc {
+    /// Its observation code, such as `L1C`.
+    pub code: String,
+    /// Its observations.
+    pub observations: usize,
+    /// Over the satellite-epochs its system was tracked, 0 to 1.
+    pub completeness: f64,
+    /// For a signal strength, its mean.
+    pub mean_strength: Option<f64>,
+    /// Given orbits: its observations above the elevation cutoff over the
+    /// satellite-epochs expected there, 0 to 1.
+    pub coverage: Option<f64>,
+}
+
+/// Elevation coverage: how much of what was in the sky was tracked.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Coverage {
+    /// The elevation cutoff, degrees.
+    pub cutoff: f64,
+    /// Healthy satellite-epochs above the cutoff, by the broadcast orbits,
+    /// at every expected epoch.
+    pub expected: usize,
+    /// Of those, the ones with observations.
+    pub tracked: usize,
+    /// `tracked` over `expected`, 0 to 1.
+    pub ratio: Option<f64>,
+    /// Satellite-epochs tracked below the cutoff.
+    pub below_cutoff: usize,
+    /// Satellite-epochs tracked that the ephemeris says are unhealthy.
+    pub unhealthy: usize,
+    /// Satellite-epochs tracked with no ephemeris for the time.
+    pub no_ephemeris: usize,
 }
 
 /// One system's metrics.
@@ -64,9 +110,10 @@ pub struct SystemQc {
     pub flagged: usize,
     /// Multipath RMS by band, metres, such as `MP1`.
     pub multipath: Vec<(String, f64)>,
-    /// Each signal: code, observations, completeness (0 to 1), and for a
-    /// signal strength its mean.
-    pub signals: Vec<(String, usize, f64, Option<f64>)>,
+    /// Elevation coverage, given orbits for the system.
+    pub coverage: Option<Coverage>,
+    /// Each signal.
+    pub signals: Vec<SignalQc>,
 }
 
 fn system_name(letter: char) -> String {
@@ -84,10 +131,25 @@ fn system_name(letter: char) -> String {
 }
 
 /// Reads an observation file, plain or Hatanaka-compressed, a line at a
-/// time, and reports on it.
-pub fn check_file<R: BufRead>(reader: R) -> Result<FileQc, RinexError> {
+/// time, and reports on it. With orbits, from the file's navigation files,
+/// elevation coverage too, seen from the header's approximate position.
+pub fn check_file<R: BufRead>(reader: R, orbits: Option<Orbits>) -> Result<FileQc, RinexError> {
     let mut reader = read_obs(reader)?;
     let mut qc = Qc::new(reader.header(), QcOptions::default());
+    let position = reader
+        .header()
+        .approx_position
+        .filter(|p| p.iter().map(|x| x * x).sum::<f64>() > 1e12);
+    let coverage_note = match (orbits, position) {
+        (Some(orbits), Some(position)) => {
+            qc = qc.with_orbits(orbits, position);
+            None
+        }
+        (Some(_), None) => Some(
+            "the header has no approximate position, so there's no elevation coverage".to_owned(),
+        ),
+        (None, _) => None,
+    };
     while let Some(epoch) = reader.next_epoch()? {
         if !epoch.records.is_empty() {
             qc.replan(reader.header());
@@ -131,6 +193,7 @@ pub fn check_file<R: BufRead>(reader: R) -> Result<FileQc, RinexError> {
             .map(|g| (g.after.to_string(), g.before.to_string(), g.seconds()))
             .collect(),
         events: report.events,
+        coverage_note,
         systems: report
             .systems
             .iter()
@@ -146,16 +209,24 @@ pub fn check_file<R: BufRead>(reader: R) -> Result<FileQc, RinexError> {
                     .iter()
                     .map(|(band, m)| (format!("MP{band}"), m.rms))
                     .collect(),
+                coverage: s.coverage.map(|c| Coverage {
+                    cutoff: c.cutoff,
+                    expected: c.expected,
+                    tracked: c.tracked,
+                    ratio: c.ratio(),
+                    below_cutoff: c.below_cutoff,
+                    unhealthy: c.unhealthy,
+                    no_ephemeris: c.no_ephemeris,
+                }),
                 signals: s
                     .signals
                     .iter()
-                    .map(|(code, x)| {
-                        (
-                            code.clone(),
-                            x.observations,
-                            x.completeness,
-                            x.strength.map(|v| v.mean),
-                        )
+                    .map(|(code, x)| SignalQc {
+                        code: code.clone(),
+                        observations: x.observations,
+                        completeness: x.completeness,
+                        mean_strength: x.strength.map(|v| v.mean),
+                        coverage: x.coverage,
                     })
                     .collect(),
             })

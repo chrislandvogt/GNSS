@@ -25,13 +25,23 @@
 //!   combination of both phases that cancels geometry and ionosphere, less
 //!   its mean over each arc; reported as the RMS over arcs of at least
 //!   `min_arc_epochs` epochs, in metres.
+//! - **Elevation coverage**, given broadcast orbits ([`Qc::with_orbits`]):
+//!   the satellite-epochs expected are those the orbits put above
+//!   [`QcOptions::elevation_cutoff`], healthy, at every expected epoch (so
+//!   a gap in the file counts against it); the satellite-epochs tracked are
+//!   those of them with observations. Each signal's coverage is its
+//!   observations above the cutoff over the satellite-epochs expected.
+//!   Only the systems the file has observation types for, and the orbits
+//!   are for, are measured.
+//!   Elevations come from the orbits every 30 s, interpolated between.
 
 use std::collections::BTreeMap;
 
 use crate::header::ObsHeader;
 use crate::obs::{Epoch, EpochFlag, Sv};
+use crate::orbit::{Orbits, Station};
 use crate::signal::{Kind, SPEED_OF_LIGHT, frequency, pairs, parse_code};
-use crate::time::{GnssTime, TICKS_PER_SECOND};
+use crate::time::{GnssTime, TICKS_PER_SECOND, TimeSystem};
 
 /// Thresholds for slips and arcs.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -52,6 +62,9 @@ pub struct QcOptions {
     pub gf_metres_per_second: f64,
     /// Arcs shorter than this many epochs don't count towards multipath.
     pub min_arc_epochs: usize,
+    /// The elevation, in degrees, above which satellites are expected to
+    /// be tracked.
+    pub elevation_cutoff: f64,
 }
 
 impl Default for QcOptions {
@@ -63,6 +76,7 @@ impl Default for QcOptions {
             gf_metres: 0.03,
             gf_metres_per_second: 0.0005,
             min_arc_epochs: 10,
+            elevation_cutoff: 10.0,
         }
     }
 }
@@ -135,6 +149,34 @@ pub struct SignalQc {
     pub completeness: f64,
     /// For a signal strength (`S`), its values.
     pub strength: Option<Stats>,
+    /// Given orbits: its observations above the elevation cutoff over the
+    /// satellite-epochs expected there, 0 to 1.
+    pub coverage: Option<f64>,
+}
+
+/// How much of what was in the sky a system's satellites were tracked,
+/// from broadcast orbits.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Coverage {
+    /// The elevation cutoff, degrees.
+    pub cutoff: f64,
+    /// Healthy satellite-epochs above the cutoff, at every expected epoch.
+    pub expected: usize,
+    /// Of those, the ones with observations.
+    pub tracked: usize,
+    /// Satellite-epochs tracked below the cutoff.
+    pub below_cutoff: usize,
+    /// Satellite-epochs tracked whose ephemeris says they're unhealthy.
+    pub unhealthy: usize,
+    /// Satellite-epochs tracked with no ephemeris for the time.
+    pub no_ephemeris: usize,
+}
+
+impl Coverage {
+    /// Tracked over expected, 0 to 1.
+    pub fn ratio(&self) -> Option<f64> {
+        (self.expected > 0).then(|| self.tracked as f64 / self.expected as f64)
+    }
 }
 
 /// Multipath on one band.
@@ -163,6 +205,8 @@ pub struct SystemQc {
     pub flagged: usize,
     /// Multipath by band.
     pub multipath: BTreeMap<u8, Multipath>,
+    /// Elevation coverage, given orbits.
+    pub coverage: Option<Coverage>,
 }
 
 /// One satellite's metrics.
@@ -271,6 +315,11 @@ struct SystemState {
     slips: usize,
     flagged: usize,
     mp: [(f64, usize); 2],
+    tracked: usize,
+    below_cutoff: usize,
+    unhealthy: usize,
+    no_ephemeris: usize,
+    signals_above: BTreeMap<String, usize>,
 }
 
 /// Gathers metrics an epoch at a time.
@@ -287,6 +336,61 @@ pub struct Qc {
     plan: BTreeMap<char, Plan>,
     glonass: BTreeMap<u8, i8>,
     nominal_interval: Option<f64>,
+    time_system: TimeSystem,
+    sky: Option<Sky>,
+}
+
+/// Elevations from orbits, every 30 s, kept for the two latest times of
+/// each satellite (epochs come in order).
+struct Sky {
+    orbits: Orbits,
+    station: Station,
+    cache: BTreeMap<Sv, [(i64, Elevation); 2]>,
+}
+
+/// An elevation in degrees and whether the satellite is healthy, if
+/// there's an ephemeris.
+type Elevation = Option<(f64, bool)>;
+
+/// The most expected epochs coverage is worked out for: 115 days at 1 Hz.
+/// A file with more (or with a tiny interval across a long span) gets none.
+const MAX_COVERAGE_EPOCHS: usize = 10_000_000;
+
+/// The spacing of computed elevations, in ticks.
+const SKY_STEP: i64 = 30 * TICKS_PER_SECOND;
+
+impl Sky {
+    /// A satellite's elevation and health at a multiple of the step.
+    fn at_step(&mut self, sv: Sv, step: i64) -> Elevation {
+        let slots = self.cache.entry(sv).or_insert([(i64::MIN, None); 2]);
+        if let Some((_, v)) = slots.iter().find(|(s, _)| *s == step) {
+            return *v;
+        }
+        let t = GnssTime::from_ticks(step.saturating_mul(SKY_STEP));
+        let value = self
+            .orbits
+            .position(sv, t)
+            .map(|p| (self.station.look(p.position).1, p.healthy));
+        // Replace the older slot.
+        let older = usize::from(slots[0].0 > slots[1].0);
+        if let Some(slot) = slots.get_mut(older) {
+            *slot = (step, value);
+        }
+        value
+    }
+
+    /// A satellite's elevation (degrees) and health at `t`, GPS time.
+    fn elevation(&mut self, sv: Sv, t: GnssTime) -> Elevation {
+        let step = t.ticks().div_euclid(SKY_STEP);
+        let into = t.ticks().rem_euclid(SKY_STEP);
+        let (e0, h0) = self.at_step(sv, step)?;
+        if into == 0 {
+            return Some((e0, h0));
+        }
+        let (e1, h1) = self.at_step(sv, step + 1)?;
+        let f = into as f64 / SKY_STEP as f64;
+        Some((e0 + (e1 - e0) * f, h0 && h1))
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -340,9 +444,28 @@ impl Qc {
             plan: BTreeMap::new(),
             glonass: header.glonass_channels.clone(),
             nominal_interval: header.interval,
+            time_system: header.time_system,
+            sky: None,
         };
         qc.replan(header);
         qc
+    }
+
+    /// Measures elevation coverage from broadcast orbits, seen from
+    /// `position` (ECEF, metres), such as the header's approximate
+    /// position. The orbits' GLONASS frequency channels fill in any the
+    /// header doesn't give. Does nothing if the position is near the
+    /// Earth's centre (a header's zeros).
+    pub fn with_orbits(mut self, orbits: Orbits, position: [f64; 3]) -> Self {
+        for (prn, channel) in orbits.glonass_channels() {
+            self.glonass.entry(prn).or_insert(channel);
+        }
+        self.sky = Station::new(position).map(|station| Sky {
+            orbits,
+            station,
+            cache: BTreeMap::new(),
+        });
+        self
     }
 
     /// Takes a new header, as after an event that changes observation types.
@@ -366,9 +489,7 @@ impl Qc {
             }
             self.plan.insert(system, plan);
         }
-        if !header.glonass_channels.is_empty() {
-            self.glonass = header.glonass_channels.clone();
-        }
+        self.glonass.extend(&header.glonass_channels);
     }
 
     fn gap_limit(&self) -> f64 {
@@ -394,6 +515,8 @@ impl Qc {
         let Some(time) = epoch.time else { return };
         self.epoch_ticks.push(time.ticks());
         let gap_limit = self.gap_limit();
+        let gps_time = self.time_system.to_gps(time);
+        let cutoff = self.options.elevation_cutoff;
         for sat in &epoch.satellites {
             let sv = sat.sv;
             let Some(plan) = self.plan.get(&sv.system) else {
@@ -406,12 +529,28 @@ impl Qc {
             });
             state.epochs += 1;
             system.satellite_epochs += 1;
+            // Above the cutoff and healthy: counts towards coverage.
+            let mut above = false;
+            if let Some(sky) = self.sky.as_mut() {
+                match sky.elevation(sv, gps_time) {
+                    None => system.no_ephemeris += 1,
+                    Some((_, false)) => system.unhealthy += 1,
+                    Some((e, true)) if e >= cutoff => {
+                        system.tracked += 1;
+                        above = true;
+                    }
+                    Some(_) => system.below_cutoff += 1,
+                }
+            }
             for (code, obs) in plan.types.iter().zip(&sat.observations) {
                 let Some(obs) = obs else { continue };
                 let entry = system.signals.entry(code.clone()).or_default();
                 entry.0 += 1;
                 if parse_code(code).is_some_and(|(k, _)| k == Kind::Strength) {
                     entry.1.add(obs.value);
+                }
+                if above {
+                    *system.signals_above.entry(code.clone()).or_default() += 1;
                 }
             }
 
@@ -558,11 +697,59 @@ impl Qc {
             (Some(_), Some(_), _) => Some(ticks.len()),
             _ => None,
         };
+        // The healthy satellite-epochs above the cutoff at every expected
+        // epoch, by system.
+        let mut expected: BTreeMap<char, usize> = BTreeMap::new();
+        if let (Some(sky), Some(f), Some(n)) = (self.sky.as_mut(), first, expected_epochs)
+            && n <= MAX_COVERAGE_EPOCHS
+        {
+            let step = interval.unwrap_or(0);
+            let svs: Vec<Sv> = sky
+                .orbits
+                .satellites()
+                .filter(|sv| self.plan.contains_key(&sv.system))
+                .collect();
+            for sv in svs {
+                let count = expected.entry(sv.system).or_default();
+                for k in 0..n {
+                    let Some(t) = i64::try_from(k)
+                        .ok()
+                        .and_then(|k| k.checked_mul(step))
+                        .and_then(|d| d.checked_add(f))
+                    else {
+                        break;
+                    };
+                    let t = self.time_system.to_gps(GnssTime::from_ticks(t));
+                    if sky
+                        .elevation(sv, t)
+                        .is_some_and(|(e, ok)| ok && e >= options.elevation_cutoff)
+                    {
+                        *count += 1;
+                    }
+                }
+            }
+        }
+        // The systems the orbits are for; coverage only for those.
+        let orbit_systems: Vec<char> = self
+            .sky
+            .as_ref()
+            .map(|sky| sky.orbits.satellites().map(|sv| sv.system).collect())
+            .unwrap_or_default();
         let systems = self
             .systems
             .into_iter()
             .map(|(letter, s)| {
                 let pair = self.plan.get(&letter).and_then(|p| p.pair);
+                let expected = expected.get(&letter).copied().unwrap_or(0);
+                let with_orbits = orbit_systems.contains(&letter);
+                let coverage = with_orbits.then_some(Coverage {
+                    cutoff: options.elevation_cutoff,
+                    expected,
+                    tracked: s.tracked,
+                    below_cutoff: s.below_cutoff,
+                    unhealthy: s.unhealthy,
+                    no_ephemeris: s.no_ephemeris,
+                });
                 let signals = s
                     .signals
                     .into_iter()
@@ -572,12 +759,15 @@ impl Qc {
                         } else {
                             0.0
                         };
+                        let above = s.signals_above.get(&code).copied().unwrap_or(0);
                         (
                             code,
                             SignalQc {
                                 observations: n,
                                 completeness,
                                 strength: strength.stats(),
+                                coverage: (with_orbits && expected > 0)
+                                    .then(|| above as f64 / expected as f64),
                             },
                         )
                     })
@@ -606,6 +796,7 @@ impl Qc {
                         slips: s.slips,
                         flagged: s.flagged,
                         multipath,
+                        coverage,
                     },
                 )
             })

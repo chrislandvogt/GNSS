@@ -219,3 +219,116 @@ R01  22000000.000   117000000.000   22000000.000    91000000.000
     // No channel for R01, so no slips or multipath can be computed.
     assert!(s.multipath.is_empty());
 }
+
+/// Hobart (HOB2), ECEF metres, near enough.
+const HOB2: [f64; 3] = [-3_950_072.0, 2_522_415.0, -4_311_638.0];
+
+/// Elevation in degrees, worked independently of the crate: geodetic
+/// latitude by Bowring's formula, then the up component.
+fn elevation(station: [f64; 3], sat: [f64; 3]) -> f64 {
+    let (a, f) = (6_378_137.0_f64, 1.0 / 298.257_223_563);
+    let b = a * (1.0 - f);
+    let e2 = f * (2.0 - f);
+    let ep2 = e2 / (1.0 - e2);
+    let [x, y, z] = station;
+    let p = (x * x + y * y).sqrt();
+    let theta = libm::atan2(z * a, p * b);
+    let (st, ct) = (libm::sin(theta), libm::cos(theta));
+    let lat = libm::atan2(z + ep2 * b * st * st * st, p - e2 * a * ct * ct * ct);
+    let lon = libm::atan2(y, x);
+    let up = [
+        libm::cos(lat) * libm::cos(lon),
+        libm::cos(lat) * libm::sin(lon),
+        libm::sin(lat),
+    ];
+    let d = [sat[0] - x, sat[1] - y, sat[2] - z];
+    let r = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    libm::asin((up[0] * d[0] + up[1] * d[1] + up[2] * d[2]) / r).to_degrees()
+}
+
+#[test]
+fn elevation_coverage_counts_what_was_in_the_sky() {
+    use gnss_rinex_io::orbit::Orbits;
+
+    // RTKLIB's GPS positions at 00:00:01 and every 15 minutes, from the
+    // navigation test file; the day is a Sunday, so seconds of week are
+    // seconds of day.
+    let mut sky: Vec<(usize, u8, f64)> = Vec::new();
+    for line in include_str!("data/nav/rtklib.txt").lines() {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        if !f[0].starts_with("HOB2") || !f[1].starts_with('G') {
+            continue;
+        }
+        let k = (f[2].parse::<f64>().unwrap() as usize - 1) / 900;
+        let p = [3, 4, 5].map(|i| f[i].parse::<f64>().unwrap());
+        sky.push((k, f[1][1..].parse().unwrap(), elevation(HOB2, p)));
+    }
+    assert!(sky.iter().all(|s| (s.2 - 10.0).abs() > 0.1), "{sky:?}");
+    let above: Vec<_> = sky.iter().filter(|s| s.2 >= 10.0).collect();
+    let below = sky.len() - above.len();
+    assert!(!above.is_empty() && below > 0, "{sky:?}");
+
+    // Observations of every satellite in the sky (above the horizon or
+    // not) at every epoch but one, and the first above the cutoff missing.
+    let skip = (above[0].0, above[0].1);
+    let mut text = format!(
+        "     3.04           OBSERVATION DATA    G                   RINEX VERSION / TYPE
+{:14.4}{:14.4}{:14.4}                  APPROX POSITION XYZ
+G    2 C1C L1C                                              SYS / # / OBS TYPES
+                                                            END OF HEADER
+",
+        HOB2[0], HOB2[1], HOB2[2]
+    );
+    let missing_epoch = 5;
+    let mut written_above = 0;
+    let mut written_below = 0;
+    for k in (0..12).filter(|&k| k != missing_epoch) {
+        let sats: Vec<_> = sky
+            .iter()
+            .filter(|s| s.0 == k && (s.0, s.1) != skip)
+            .collect();
+        let t = 1 + 900 * k;
+        text.push_str(&format!(
+            "> 2025 06 15 {:02} {:02} {:10.7}  0 {:2}\n",
+            t / 3600,
+            t % 3600 / 60,
+            (t % 60) as f64,
+            sats.len()
+        ));
+        for s in sats {
+            text.push_str(&format!("G{:02}  20000000.000   100000000.000\n", s.1));
+            if s.2 >= 10.0 {
+                written_above += 1;
+            } else {
+                written_below += 1;
+            }
+        }
+    }
+    let mut reader = read_obs(text.as_bytes()).unwrap();
+    let nav = gnss_rinex_io::read_nav(
+        &include_bytes!("data/nav/HOB200AUS_R_20251660000_excerpt_MN.rnx")[..],
+    )
+    .unwrap();
+    let mut qc = Qc::new(reader.header(), QcOptions::default())
+        .with_orbits(Orbits::new(nav.ephemerides), HOB2);
+    while let Some(epoch) = reader.next_epoch().unwrap() {
+        qc.add(&epoch);
+    }
+    let r = qc.finish();
+    assert_eq!(r.expected_epochs, Some(12));
+    let g = &r.systems[&'G'];
+    let c = g.coverage.unwrap();
+    // Expected: every satellite above the cutoff at every expected epoch,
+    // the missing one included.
+    assert_eq!(c.expected, above.len());
+    assert_eq!(c.tracked, written_above);
+    assert_eq!(c.below_cutoff, written_below);
+    assert_eq!((c.unhealthy, c.no_ephemeris), (0, 0));
+    assert!((c.ratio().unwrap() - written_above as f64 / above.len() as f64).abs() < 1e-12);
+    assert!(
+        (g.signals["L1C"].coverage.unwrap() - written_above as f64 / above.len() as f64).abs()
+            < 1e-12
+    );
+    // No orbits for GLONASS in a GPS-only file: nothing to say.
+    assert!(!r.systems.contains_key(&'R'));
+}
