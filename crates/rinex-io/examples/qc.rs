@@ -38,6 +38,9 @@ fn main() {
         if let Some(v) = env("QC_GF_RATE") {
             options.gf_metres_per_second = v;
         }
+        if let Some(v) = env("QC_MW_MIN") {
+            options.mw_min_cycles = v;
+        }
         let mut qc = Qc::new(reader.header(), options);
         if let (false, Some(position)) = (ephemerides.is_empty(), reader.header().approx_position) {
             qc = qc.with_orbits(Orbits::new(ephemerides.clone()), position);
@@ -82,11 +85,12 @@ fn main() {
                 .max()
                 .map(|n| n.checked_div(s.slips).unwrap_or(n));
             println!(
-                "  {letter}: {} sats, pair {:?}, slips {} (flagged {}), o/slip {:?}, {}",
+                "  {letter}: {} sats, pair {:?}, slips {} (flagged {}, outliers {}), o/slip {:?}, {}",
                 s.satellites,
                 s.pair,
                 s.slips,
                 s.flagged,
+                s.outliers,
                 obs_per_slip,
                 mp.join(", ")
             );

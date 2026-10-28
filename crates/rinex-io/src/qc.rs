@@ -20,7 +20,13 @@
 //!   - a loss-of-lock flag on either phase, counted separately as
 //!     receiver-flagged.
 //!
-//!   A slip ends the arc and starts a new one.
+//!   A jump is a slip only if the next epoch confirms it: on the
+//!   combination that jumped, it follows on from the jump more closely
+//!   than from the arc. A jump that doesn't persist (code multipath
+//!   in Melbourne-Wübbena, a noisy epoch) is an **outlier**: counted, and
+//!   left out of the arc's slip statistics and multipath. So is one before
+//!   a gap or the arc's end, which nothing confirms. A slip ends the arc
+//!   and starts a new one at the epoch that jumped.
 //! - **Multipath**, MP1 and MP2 as teqc defines them: the code minus a
 //!   combination of both phases that cancels geometry and ionosphere, less
 //!   its mean over each arc; reported as the RMS over arcs of at least
@@ -53,6 +59,9 @@ pub struct QcOptions {
     /// is a slip.
     pub mw_sigmas: f64,
     /// Melbourne-Wübbena: the least jump, in wide-lane cycles, that's a slip.
+    /// Two by default: code multipath wanders by about one, and a real slip
+    /// of one wide-lane cycle moves the geometry-free combination by a
+    /// fifth of a metre, which that test sees.
     pub mw_min_cycles: f64,
     /// Geometry-free: the step, in metres, that's a slip, plus
     /// `gf_metres_per_second` for each second between epochs (for the
@@ -72,7 +81,7 @@ impl Default for QcOptions {
         Self {
             gap_seconds: None,
             mw_sigmas: 4.0,
-            mw_min_cycles: 1.0,
+            mw_min_cycles: 2.0,
             gf_metres: 0.03,
             gf_metres_per_second: 0.0005,
             min_arc_epochs: 10,
@@ -166,6 +175,9 @@ pub struct Coverage {
     pub tracked: usize,
     /// Satellite-epochs tracked below the cutoff.
     pub below_cutoff: usize,
+    /// Slips found above the cutoff (teqc reports these apart: below
+    /// it, ionospheric noise approaches the smallest slips).
+    pub slips_above_cutoff: usize,
     /// Satellite-epochs tracked whose ephemeris says they're unhealthy.
     pub unhealthy: usize,
     /// Satellite-epochs tracked with no ephemeris for the time.
@@ -203,6 +215,8 @@ pub struct SystemQc {
     pub slips: usize,
     /// Losses of lock the receiver flagged.
     pub flagged: usize,
+    /// Epochs that jumped without the next confirming a slip.
+    pub outliers: usize,
     /// Multipath by band.
     pub multipath: BTreeMap<u8, Multipath>,
     /// Elevation coverage, given orbits.
@@ -218,6 +232,8 @@ pub struct SatelliteQc {
     pub slips: usize,
     /// Losses of lock the receiver flagged.
     pub flagged: usize,
+    /// Epochs that jumped without the next confirming a slip.
+    pub outliers: usize,
 }
 
 /// The metrics for a file.
@@ -284,6 +300,18 @@ impl MpArc {
     }
 }
 
+/// One epoch's combinations for a satellite.
+#[derive(Debug, Clone, Copy)]
+struct Point {
+    time: GnssTime,
+    /// Melbourne-Wübbena, wide-lane cycles.
+    mw: f64,
+    /// Geometry-free phase, metres.
+    gf: f64,
+    /// Multipath on each band, metres, before removing the arc's mean.
+    mp: [f64; 2],
+}
+
 /// A satellite's current arc on its system's pair.
 #[derive(Debug, Clone, Copy)]
 struct Arc {
@@ -297,6 +325,86 @@ struct Arc {
     /// The geometry-free rate, m/s, from the last two epochs, if known.
     gf_rate: Option<f64>,
     mp: [MpArc; 2],
+    /// An epoch that jumped, waiting for the next to confirm it.
+    pending: Option<Point>,
+}
+
+impl Arc {
+    fn start(signals: [(usize, usize); 2], p: &Point) -> Self {
+        let mut arc = Self {
+            signals,
+            count: 0,
+            last: p.time,
+            mw_mean: 0.0,
+            mw_m2: 0.0,
+            gf: p.gf,
+            gf_rate: None,
+            mp: [MpArc::default(); 2],
+            pending: None,
+        };
+        arc.push(p);
+        arc
+    }
+
+    /// Adds an epoch that continues the arc.
+    fn push(&mut self, p: &Point) {
+        if self.count > 0 {
+            let dt = p.time.seconds_since(self.last);
+            if dt > 0.0 {
+                self.gf_rate = Some((p.gf - self.gf) / dt);
+            }
+        }
+        self.count += 1;
+        let delta = p.mw - self.mw_mean;
+        self.mw_mean += delta / self.count as f64;
+        self.mw_m2 += delta * (p.mw - self.mw_mean);
+        self.gf = p.gf;
+        self.last = p.time;
+        self.add_mp(&p.mp);
+    }
+
+    fn add_mp(&mut self, mp: &[f64; 2]) {
+        for (acc, v) in self.mp.iter_mut().zip(mp) {
+            acc.add(*v);
+        }
+    }
+
+    /// How far, in wide-lane cycles, Melbourne-Wübbena may stray from the
+    /// arc's mean.
+    fn mw_limit(&self, o: &QcOptions) -> f64 {
+        let sigma = (self.mw_m2 / self.count.saturating_sub(1).max(1) as f64).sqrt();
+        (o.mw_sigmas * sigma).max(o.mw_min_cycles)
+    }
+
+    /// The geometry-free value's offset from its prediction from the
+    /// arc's last value and rate, so the ionosphere's steady drift isn't
+    /// taken for a slip.
+    fn gf_offset(&self, p: &Point) -> f64 {
+        p.gf - (self.gf + self.gf_rate.unwrap_or(0.0) * p.time.seconds_since(self.last))
+    }
+
+    /// Whether an epoch jumps off the arc, on either combination.
+    fn jumps(&self, p: &Point, o: &QcOptions) -> bool {
+        self.count >= 2
+            && ((p.mw - self.mw_mean).abs() > self.mw_limit(o)
+                || self.gf_offset(p).abs() > gf_limit(o, p.time.seconds_since(self.last)))
+    }
+
+    /// Whether `now` confirms the jump at `p`: on a combination `p` jumped
+    /// on, `now` follows on from `p` more closely than from the arc.
+    fn confirms(&self, p: &Point, now: &Point, o: &QcOptions) -> bool {
+        let mw = (p.mw - self.mw_mean).abs() > self.mw_limit(o)
+            && (now.mw - p.mw).abs() < (now.mw - self.mw_mean).abs();
+        let from_p = now.gf - (p.gf + self.gf_rate.unwrap_or(0.0) * now.time.seconds_since(p.time));
+        let gf = self.gf_offset(p).abs() > gf_limit(o, p.time.seconds_since(self.last))
+            && from_p.abs() < self.gf_offset(now).abs();
+        mw || gf
+    }
+}
+
+/// The geometry-free step, in metres, that's a jump after `dt` seconds.
+fn gf_limit(o: &QcOptions, dt: f64) -> f64 {
+    o.gf_metres + o.gf_metres_per_second * dt
 }
 
 #[derive(Debug, Default)]
@@ -304,6 +412,7 @@ struct SatState {
     epochs: usize,
     slips: usize,
     flagged: usize,
+    outliers: usize,
     arc: Option<Arc>,
 }
 
@@ -314,8 +423,10 @@ struct SystemState {
     signals: BTreeMap<String, (usize, Running)>,
     slips: usize,
     flagged: usize,
+    outliers: usize,
     mp: [(f64, usize); 2],
     tracked: usize,
+    slips_above: usize,
     below_cutoff: usize,
     unhealthy: usize,
     no_ephemeris: usize,
@@ -587,65 +698,63 @@ impl Qc {
             let gf = phase_a - phase_b;
             let alpha = (fa / fb) * (fa / fb);
             let k = 2.0 / (alpha - 1.0);
-            let mp = [
-                ca.value - (1.0 + k) * phase_a + k * phase_b,
-                cb.value - (alpha * k) * phase_a + (alpha * k - 1.0) * phase_b,
-            ];
+            let point = Point {
+                time,
+                mw,
+                gf,
+                mp: [
+                    ca.value - (1.0 + k) * phase_a + k * phase_b,
+                    cb.value - (alpha * k) * phase_a + (alpha * k - 1.0) * phase_b,
+                ],
+            };
+            let options = &self.options;
 
             // Does this epoch continue the arc?
-            let mut new_arc = false;
-            if let Some(arc) = &state.arc {
+            let mut continues = false;
+            if let Some(arc) = state.arc.as_mut() {
                 let dt = time.seconds_since(arc.last);
                 if dt > gap_limit || dt <= 0.0 || arc.signals != signals {
                     // A gap, or a change of tracked signal: a new arc.
-                    new_arc = true;
                 } else if flagged(la) || flagged(lb) {
                     state.flagged += 1;
                     system.flagged += 1;
-                    new_arc = true;
-                } else if arc.count >= 2 {
-                    let sigma = (arc.mw_m2 / (arc.count - 1) as f64).sqrt();
-                    let mw_jump = (mw - arc.mw_mean).abs()
-                        > (self.options.mw_sigmas * sigma).max(self.options.mw_min_cycles);
-                    // Predicted from the last value and rate, so the
-                    // ionosphere's steady drift isn't taken for a slip.
-                    let predicted = arc.gf + arc.gf_rate.unwrap_or(0.0) * dt;
-                    let gf_jump = (gf - predicted).abs()
-                        > self.options.gf_metres + self.options.gf_metres_per_second * dt;
-                    if mw_jump || gf_jump {
+                } else {
+                    continues = true;
+                    let mut held = arc.pending.take();
+                    if let Some(p) = held.take_if(|p| arc.confirms(p, &point, options)) {
+                        // The last epoch's jump persists: a slip there.
                         state.slips += 1;
                         system.slips += 1;
-                        new_arc = true;
+                        let elevation = self
+                            .sky
+                            .as_mut()
+                            .and_then(|sky| sky.elevation(sv, self.time_system.to_gps(p.time)));
+                        if elevation.is_some_and(|(e, _)| e >= options.elevation_cutoff) {
+                            system.slips_above += 1;
+                        }
+                        let old = std::mem::replace(arc, Arc::start(signals, &p));
+                        finish_arc(old, system, options.min_arc_epochs);
+                        arc.push(&point);
+                    } else {
+                        // An outlier, if anything was held.
+                        if held.is_some() {
+                            state.outliers += 1;
+                            system.outliers += 1;
+                        }
+                        if arc.jumps(&point, options) {
+                            arc.pending = Some(point);
+                        } else {
+                            arc.push(&point);
+                        }
                     }
                 }
             }
-            if new_arc && let Some(arc) = state.arc.take() {
-                finish_arc(&arc, system, self.options.min_arc_epochs);
-            }
-            let arc = state.arc.get_or_insert(Arc {
-                signals,
-                count: 0,
-                last: time,
-                mw_mean: 0.0,
-                mw_m2: 0.0,
-                gf,
-                gf_rate: None,
-                mp: [MpArc::default(); 2],
-            });
-            if arc.count > 0 {
-                let dt = time.seconds_since(arc.last);
-                if dt > 0.0 {
-                    arc.gf_rate = Some((gf - arc.gf) / dt);
+            if !continues {
+                if let Some(arc) = state.arc.take() {
+                    state.outliers += usize::from(arc.pending.is_some());
+                    finish_arc(arc, system, options.min_arc_epochs);
                 }
-            }
-            arc.count += 1;
-            let delta = mw - arc.mw_mean;
-            arc.mw_mean += delta / arc.count as f64;
-            arc.mw_m2 += delta * (mw - arc.mw_mean);
-            arc.gf = gf;
-            arc.last = time;
-            for (acc, v) in arc.mp.iter_mut().zip(mp) {
-                acc.add(v);
+                state.arc = Some(Arc::start(signals, &point));
             }
         }
     }
@@ -657,7 +766,8 @@ impl Qc {
             if let Some(arc) = state.1.arc.take()
                 && let Some(system) = self.systems.get_mut(&state.0.system)
             {
-                finish_arc(&arc, system, options.min_arc_epochs);
+                state.1.outliers += usize::from(arc.pending.is_some());
+                finish_arc(arc, system, options.min_arc_epochs);
             }
         }
         let mut ticks = self.epoch_ticks;
@@ -747,6 +857,7 @@ impl Qc {
                     expected,
                     tracked: s.tracked,
                     below_cutoff: s.below_cutoff,
+                    slips_above_cutoff: s.slips_above,
                     unhealthy: s.unhealthy,
                     no_ephemeris: s.no_ephemeris,
                 });
@@ -795,6 +906,7 @@ impl Qc {
                         pair,
                         slips: s.slips,
                         flagged: s.flagged,
+                        outliers: s.outliers,
                         multipath,
                         coverage,
                     },
@@ -811,6 +923,7 @@ impl Qc {
                         epochs: s.epochs,
                         slips: s.slips,
                         flagged: s.flagged,
+                        outliers: s.outliers,
                     },
                 )
             })
@@ -830,7 +943,10 @@ impl Qc {
     }
 }
 
-fn finish_arc(arc: &Arc, system: &mut SystemState, min_epochs: usize) {
+/// Ends an arc: its multipath into its system's, and a jump left
+/// unconfirmed counted as an outlier.
+fn finish_arc(arc: Arc, system: &mut SystemState, min_epochs: usize) {
+    system.outliers += usize::from(arc.pending.is_some());
     if arc.count < min_epochs.max(2) {
         return;
     }

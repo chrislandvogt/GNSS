@@ -329,8 +329,8 @@ fn qc(cli: &Cli, args: &QcArgs) -> Result<u8, Failure> {
                     || "no dual-frequency pair, so no slips or multipath".to_owned(),
                     |p| {
                         format!(
-                            "{p}: {} slips, {} flagged by the receiver",
-                            s.slips, s.flagged
+                            "{p}: {} slips, {} flagged by the receiver, {} outliers",
+                            s.slips, s.flagged, s.outliers
                         )
                     },
                 );
@@ -345,10 +345,11 @@ fn qc(cli: &Cli, args: &QcArgs) -> Result<u8, Failure> {
                         format!("{:.1}%", 100.0 * r)
                     });
                     println!(
-                        "           above {}°: {} of {} satellite-epochs tracked ({ratio}); {} below; {} unhealthy; {} with no ephemeris",
+                        "           above {}°: {} of {} satellite-epochs tracked ({ratio}), {} slips; {} below; {} unhealthy; {} with no ephemeris",
                         c.cutoff,
                         c.tracked,
                         c.expected,
+                        c.slips_above_cutoff,
                         c.below_cutoff,
                         c.unhealthy,
                         c.no_ephemeris

@@ -38,6 +38,7 @@ fn satellite(
     slips: &[(usize, f64, f64)],
     lli_at: Option<usize>,
     x_mode: bool,
+    spike_at: Option<usize>,
 ) -> String {
     let t = k as f64 * STEP;
     let range = 2.2e7 + 1000.0 * f64::from(prn) + 120.0 * t;
@@ -58,7 +59,10 @@ fn satellite(
     } else {
         0.0
     };
-    let c1 = range + iono + multipath;
+    // A one-epoch code error of 5 m: about 3 wide-lane cycles in
+    // Melbourne-Wübbena, and nothing in the geometry-free phase.
+    let spike = if spike_at == Some(k) { 5.0 } else { 0.0 };
+    let c1 = range + iono + multipath + spike;
     let c2 = range + gamma * iono;
     let p1 = (range - iono) / l1 + n1;
     let p2 = (range - gamma * iono) / l2 + n2;
@@ -82,7 +86,8 @@ fn satellite(
 }
 
 /// The file: G01 throughout; G02 with slips and a flag; G03 switching
-/// tracking mode halfway. Epochs 60 to 79 are missing.
+/// tracking mode halfway, with a code spike at epoch 20. Epochs 60 to 79
+/// are missing.
 fn rinex() -> String {
     let mut text = String::from(
         "     3.04           OBSERVATION DATA    G                   RINEX VERSION / TYPE
@@ -103,14 +108,14 @@ G    8 C1C L1C S1C C2W L2W S2W C1X L1X                      SYS / # / OBS TYPES
             minute / 60,
             minute % 60
         ));
-        for (prn, slips, lli, x) in [
-            (1, &[][..], None, false),
-            (2, &g02_slips[..], Some(110), false),
-            (3, &[][..], None, k >= 30),
+        for (prn, slips, lli, x, spike) in [
+            (1, &[][..], None, false, None),
+            (2, &g02_slips[..], Some(110), false, None),
+            (3, &[][..], None, k >= 30, Some(20)),
         ] {
             text.push_str(&format!(
                 "G{prn:02}{}\n",
-                satellite(prn, k, slips, lli, x).trim_end()
+                satellite(prn, k, slips, lli, x, spike).trim_end()
             ));
         }
     }
@@ -155,9 +160,12 @@ fn completeness_and_gaps() {
 #[test]
 fn slips_are_found_where_they_are() {
     let r = qc(&rinex(), QcOptions::default());
-    // G01 is clean through the gap; G03's change of signal isn't a slip.
+    // G01 is clean through the gap; G03's change of signal isn't a slip,
+    // and its code spike is an outlier: the next epoch is back on the arc.
     assert_eq!(r.satellites[&sv(1)].slips, 0);
     assert_eq!(r.satellites[&sv(3)].slips, 0);
+    assert_eq!(r.satellites[&sv(3)].outliers, 1);
+    assert_eq!(r.satellites[&sv(2)].outliers, 0);
     // G02: the 5-cycle slip and the 1-1 slip, and the flag counted apart.
     assert_eq!(r.satellites[&sv(2)].slips, 2);
     assert_eq!(r.satellites[&sv(2)].flagged, 1);
@@ -323,7 +331,10 @@ G    2 C1C L1C                                              SYS / # / OBS TYPES
     assert_eq!(c.expected, above.len());
     assert_eq!(c.tracked, written_above);
     assert_eq!(c.below_cutoff, written_below);
-    assert_eq!((c.unhealthy, c.no_ephemeris), (0, 0));
+    assert_eq!(
+        (c.unhealthy, c.no_ephemeris, c.slips_above_cutoff),
+        (0, 0, 0)
+    );
     assert!((c.ratio().unwrap() - written_above as f64 / above.len() as f64).abs() < 1e-12);
     assert!(
         (g.signals["L1C"].coverage.unwrap() - written_above as f64 / above.len() as f64).abs()

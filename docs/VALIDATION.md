@@ -172,6 +172,30 @@ The differences from PROJ come from PROJ rounding each node's shift to single pr
 - At least one is fully public and doubles as the worked example in the docs.
 - Pilot projects are included with permission, and are never published without consent.
 
+### D8 RINEX quality control (ingest)
+
+The QC definitions are in `gnss_rinex_io::qc`'s documentation. They're checked three ways:
+
+- **Synthetic files** with known multipath, slips (5 cycles; 1-1), a loss-of-lock flag, a one-epoch code spike, a data gap and a change of tracking mode (`crates/rinex-io/tests/qc.rs`).
+- **An independent Python implementation** of the same definitions. It agrees exactly with ours, on every system's slips, flags, outliers and multipath, for three GA daily files (SWTC, EML2 and 5MGB, 15 June 2025).
+- **teqc** (2019Feb25), run as `teqc +qc -nav N,G` on MOBS (Melbourne, 5 January 2020, RINEX 2.11, GPS and GLONASS), against `gnss qc --nav N --nav G`. teqc reads only RINEX 2, so this is the one file compared.
+
+| Metric (MOBS, above 10°) | teqc | Ours | Why they differ |
+|---|---|---|---|
+| GPS satellite-epochs possible | 24,507 | 24,478 expected | 0.1%: orbit and elevation details |
+| GPS complete (L1, L2, C1, P2) | 24,378 | 24,378 with L2 | — |
+| GLONASS satellite-epochs possible | 18,063 | 18,133 expected | 0.4% |
+| GPS MP1 / MP2 | 0.329 / 0.222 m | 0.343 / 0.220 m | teqc takes out a 50-point moving average, and only above 10°; we take out each arc's mean, at all elevations |
+| GLONASS MP1 / MP2 | 0.483 / 0.260 m | 0.524 / 0.274 m | As above |
+| GPS slips (above 10°, all) | 1, 11 | 8, 30 | teqc's ionosphere test signals a slip at over 4 m/min, so it can't see a 1-1 slip (5 cm on GPS); our geometry-free test can. Below 10°, ionospheric noise approaches that size, so we report slips above the cutoff apart |
+| GLONASS slips (above 10°, all) | 2, 3 | 3, 9 | As above |
+
+The comparison changed our definitions. On MOBS, the first version found 62 GPS slips, and two kinds were false:
+- jumps of about one wide-lane cycle in Melbourne-Wübbena, with nothing in the geometry-free phase. That's code multipath, since a real slip of one wide-lane cycle moves the geometry-free phase by a fifth of a metre;
+- one-epoch excursions.
+
+The Melbourne-Wübbena test now needs 2 cycles, and a jump must be confirmed by the next epoch, or it's counted as an outlier and left out of the multipath too.
+
 ## 4. Truth
 
 - **CORS truth.** GA-published coordinates and velocities, propagated to the observation epoch. A vector's truth is the difference of the propagated positions. The truth's own uncertainty is carried into every comparison.

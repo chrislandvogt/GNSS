@@ -86,6 +86,8 @@ pub struct Coverage {
     pub ratio: Option<f64>,
     /// Satellite-epochs tracked below the cutoff.
     pub below_cutoff: usize,
+    /// Slips found above the cutoff.
+    pub slips_above_cutoff: usize,
     /// Satellite-epochs tracked that the ephemeris says are unhealthy.
     pub unhealthy: usize,
     /// Satellite-epochs tracked with no ephemeris for the time.
@@ -108,6 +110,8 @@ pub struct SystemQc {
     pub slips: usize,
     /// See `slips`.
     pub flagged: usize,
+    /// Epochs that jumped on the pair without the next confirming a slip.
+    pub outliers: usize,
     /// Multipath RMS by band, metres, such as `MP1`.
     pub multipath: Vec<(String, f64)>,
     /// Elevation coverage, given orbits for the system.
@@ -204,6 +208,7 @@ pub fn check_file<R: BufRead>(reader: R, orbits: Option<Orbits>) -> Result<FileQ
                 pair: s.pair.map(|(a, b)| format!("L{a}/L{b}")),
                 slips: s.slips,
                 flagged: s.flagged,
+                outliers: s.outliers,
                 multipath: s
                     .multipath
                     .iter()
@@ -215,6 +220,7 @@ pub fn check_file<R: BufRead>(reader: R, orbits: Option<Orbits>) -> Result<FileQ
                     tracked: c.tracked,
                     ratio: c.ratio(),
                     below_cutoff: c.below_cutoff,
+                    slips_above_cutoff: c.slips_above_cutoff,
                     unhealthy: c.unhealthy,
                     no_ephemeris: c.no_ephemeris,
                 }),
