@@ -152,10 +152,13 @@ impl Ephemeris {
     }
 
     /// How far from its reference time, in seconds, the ephemeris is used.
+    /// BeiDou's is 2 hours, not RTKLIB's 6: against CODE's precise orbits,
+    /// its errors stay within 9 m for 2 hours and reach 200 m by 6
+    /// (VALIDATION.md, D8).
     pub fn validity(&self) -> f64 {
         match self.sv().system {
             'E' => 14_400.0,
-            'C' => 21_600.0,
+            'C' => 7_200.0,
             'R' => 1_800.0,
             'S' => 360.0,
             _ => 7_200.0,

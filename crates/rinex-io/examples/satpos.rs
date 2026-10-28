@@ -1,7 +1,7 @@
 //! Broadcast satellite positions every 300 s for a day, from navigation
 //! files: `satpos YYYY-MM-DD NAV...`. Prints satellite, GPS seconds of
-//! week, ECEF x y z (m), clock (s) and health, for comparing with another
-//! implementation.
+//! week, ECEF x y z (m), clock (s), health and the ephemeris's age (s,
+//! from its reference time), for comparing with another implementation.
 
 #![allow(clippy::print_stdout, clippy::unwrap_used)]
 
@@ -26,16 +26,17 @@ fn main() {
         let t = GnssTime::from_ticks(start.ticks() + (k * 300 + offset) * TICKS_PER_SECOND);
         let sow = t.ticks().rem_euclid(week) as f64 / TICKS_PER_SECOND as f64;
         for sv in orbits.satellites().collect::<Vec<_>>() {
-            if let Some(p) = orbits.position(sv, t) {
+            if let (Some(p), Some(e)) = (orbits.position(sv, t), orbits.ephemeris(sv, t)) {
                 println!(
-                    "{}{:02} {sow:.1} {:.4} {:.4} {:.4} {:.12e} {}",
+                    "{}{:02} {sow:.1} {:.4} {:.4} {:.4} {:.12e} {} {:.0}",
                     sv.system,
                     sv.prn,
                     p.position[0],
                     p.position[1],
                     p.position[2],
                     p.clock,
-                    u8::from(!p.healthy)
+                    u8::from(!p.healthy),
+                    t.seconds_since(e.toe())
                 );
             }
         }

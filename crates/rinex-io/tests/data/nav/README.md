@@ -26,3 +26,11 @@ Where we differ from RTKLIB, on purpose:
   set to I/NAV doesn't. The excerpt has no such case.
 - BeiDou-3's GEO satellites (C59 to C62) are beyond this RTKLIB build's
   satellites, so they aren't in the excerpt; C01 tests the GEO case.
+- A BeiDou ephemeris is used for 2 hours from its reference time; RTKLIB's
+  allows 6. Against CODE's precise orbits, BeiDou's broadcast orbits stay
+  within 9 m for 2 hours and are 200 m off by 6.
+
+`compare_sp3.py` compares broadcast positions with precise orbits from any
+SP3 file, by system and by the ephemeris's age. The results for 15 June
+2025, against CODE's multi-GNSS final orbits, are in
+`docs/VALIDATION.md` (D8).

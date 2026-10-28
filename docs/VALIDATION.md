@@ -172,7 +172,25 @@ The differences from PROJ come from PROJ rounding each node's shift to single pr
 - At least one is fully public and doubles as the worked example in the docs.
 - Pilot projects are included with permission, and are never published without consent.
 
-### D8 RINEX quality control (ingest)
+### D8 RINEX ingest: broadcast orbits and quality control
+
+**Broadcast orbits** (`gnss_rinex_io::orbit`) are checked two ways:
+- **Against RTKLIB 2.5.1:** positions to 0.1 mm and clocks to 1e-14 s, every system, in RINEX 2 and 3 (`crates/rinex-io/tests/nav.rs`).
+- **Against precise orbits:** CODE's multi-GNSS final orbits (`COD0MGXFIN_20251660000_01D_05M_ORB.SP3`; Dach et al. 2026, CODE final product series for the IGS, AIUB, DOI 10.48620/97775). The broadcast ephemerides are from the 38 GA stations' navigation files on 15 June 2025, every 5 minutes, healthy satellites only (`compare_sp3.py` in `crates/rinex-io/tests/data/nav`).
+
+| System | Satellite-epochs | RMS | 95% | Max |
+|---|---|---|---|---|
+| GPS | 5,766 | 1.72 m | 2.50 m | 3.48 m |
+| GLONASS | 2,759 | 5.66 m | 8.92 m | 14.74 m |
+| Galileo | 4,859 | 0.93 m | 1.13 m | 5.73 m |
+| BeiDou | 7,633 | 1.63 m | 2.77 m | 8.89 m |
+| QZSS | 864 | 1.84 m | 3.01 m | 3.39 m |
+
+The broadcast orbits are for the antenna (GLONASS's for the centre of mass) and the precise ones for the centre of mass, so some of the difference is that offset. GLONASS's broadcast orbits are the least accurate, as expected.
+
+The comparison changed one thing. BeiDou's ephemerides had been used for 6 hours from their reference time, as RTKLIB does, and their errors grew past 200 m. Within 2 hours, the most is 9 m; Galileo's stay within 2 m for their 4 hours. So BeiDou's validity is now 2 hours.
+
+**Quality control:**
 
 The QC definitions are in `gnss_rinex_io::qc`'s documentation. They're checked three ways:
 
