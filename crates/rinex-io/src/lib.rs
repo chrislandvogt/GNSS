@@ -18,6 +18,7 @@ mod obs;
 pub mod occupation;
 pub mod orbit;
 pub mod qc;
+mod rewrite;
 pub mod signal;
 mod text;
 mod time;
@@ -28,6 +29,7 @@ pub use error::RinexError;
 pub use header::{Antenna, ObsHeader, ObsTypes, Receiver, Version};
 pub use nav::{NavFile, read_nav};
 pub use obs::{Epoch, EpochFlag, ObsReader, Observation, SatObservations, Sv};
+pub use rewrite::{HeaderPatch, rewrite_obs};
 pub use time::{GnssTime, TICKS_PER_SECOND, TimeSystem};
 
 use crinex::Crinex;
@@ -69,19 +71,23 @@ impl<R: BufRead> LineSource for Source<R> {
 ///
 /// In a compressed file, error line numbers count lines of the restored
 /// RINEX file.
-pub fn read_obs<R: BufRead>(mut reader: R) -> Result<ObsReader<R>, RinexError> {
+pub fn read_obs<R: BufRead>(reader: R) -> Result<ObsReader<R>, RinexError> {
+    ObsReader::new(open_source(reader)?)
+}
+
+/// An observation file's lines, restored if it's Hatanaka-compressed.
+pub(crate) fn open_source<R: BufRead>(mut reader: R) -> Result<Source<R>, RinexError> {
     refuse_compressed(&mut reader)?;
     let mut lines = Lines::new(reader);
     let mut first = Vec::new();
     if !lines.read(&mut first)? {
         return Err(RinexError::at(1, "the file is empty"));
     }
-    let source = if text::label(&first) == b"CRINEX VERS   / TYPE" {
+    Ok(if text::label(&first) == b"CRINEX VERS   / TYPE" {
         Source::Compact(Box::new(Crinex::new(lines, &first)?))
     } else {
         Source::Plain(lines, Some(first))
-    };
-    ObsReader::new(source)
+    })
 }
 
 /// Refuses a gzip- or Unix-compressed file, which has to be decompressed

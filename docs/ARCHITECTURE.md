@@ -838,6 +838,8 @@ The CLI is the same core compiled natively. It's used for scripting and CI, the 
 gnss init <dir> --pack au
 gnss import rinex <files...> [--mark <id>]   # occupations from the headers; new marks added
 gnss import fieldlog <files...>
+gnss reconcile [--fix --by <name>]   # headers against occupations; overlays for what differs
+gnss export-rinex [--output <dir>]   # corrected plain RINEX for delivery
 gnss qc <files...> [--nav <files>]   # RINEX equipment, completeness, gaps, slips, multipath, elevation coverage
 gnss import vectors <file> [--format dynaml|starnet|tdef|rtklib|csv]   # guessed if not given
 gnss import control <file> [--format dynaml|csv|sinex]

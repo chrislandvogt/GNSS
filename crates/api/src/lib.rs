@@ -13,6 +13,7 @@ pub mod folder;
 pub mod ingest;
 pub mod jobs;
 pub mod project;
+pub mod reconcile;
 pub mod rinex;
 
 /// Version of the core.

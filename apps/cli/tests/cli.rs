@@ -510,3 +510,53 @@ fn import_rinex_makes_occupations_and_marks() {
     assert_eq!(o.status.code(), Some(1));
     assert!(stderr(&o).contains("raw/MOBS0050.20o"), "{}", stderr(&o));
 }
+
+#[test]
+fn reconcile_fixes_headers_and_exports_corrected_rinex() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("p");
+    ok(root.path(), &["init", path(&project)], 0);
+    let crx = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../crates/rinex-io/tests/data/rinex/SWTC00AUS_20251660000.rnx.crx"
+    );
+    ok(&project, &["import", "rinex", crx], 0);
+    let agree = stdout(&ok(&project, &["reconcile"], 0));
+    assert!(agree.contains("Every header agrees"), "{agree}");
+
+    // The field log says 1.6 m, not the header's 1.931 m.
+    let occupation = project.join("occupations/2025-06-15-SWTC00AUS-A.toml");
+    let text = fs::read_to_string(&occupation).unwrap();
+    fs::write(&occupation, text.replace("value = 1.931", "value = 1.6")).unwrap();
+    let differ = stdout(&ok(&project, &["reconcile"], 2));
+    assert!(
+        differ.contains("antenna height: the header says 1.9310 m, the occupation 1.6000 m"),
+        "{differ}"
+    );
+    let o = gnss(&project, &["reconcile", "--fix"]);
+    assert_ne!(o.status.code(), Some(0), "--fix needs --by");
+    let fixed = json(&ok(
+        &project,
+        &["reconcile", "--fix", "--by", "CL", "--json"],
+        0,
+    ));
+    assert_eq!(fixed["findings"], serde_json::json!([]));
+    let id = fixed["overlays_written"][0].as_str().unwrap();
+    assert!(project.join(format!("overlays/{id}.toml")).is_file());
+
+    ok(&project, &["export-rinex"], 0);
+    let out = fs::read_to_string(project.join("results/rinex/SWTC00AUS_20251660000.rnx")).unwrap();
+    assert!(out.contains(
+        "        1.6000        0.0000        0.0000                  ANTENNA: DELTA H/E/N"
+    ));
+    // The overlay is named in the comments, which run over several records.
+    let comments: String = out
+        .lines()
+        .filter(|l| l.ends_with("COMMENT"))
+        .map(|l| l[..60].to_owned())
+        .collect();
+    assert!(
+        comments.contains(&format!("Corrected by overlay {id} (CL)")),
+        "{comments}"
+    );
+}
