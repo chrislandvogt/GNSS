@@ -398,6 +398,7 @@ dependencies = [
  "gnss-model",
  "gnss-pipeline",
  "gnss-report",
+ "gnss-rinex-io",
  "gnss-store",
  "libm",
  "nalgebra",
@@ -518,6 +519,7 @@ dependencies = [
 name = "gnss-rinex-io"
 version = "0.1.0"
 dependencies = [
+ "libm",
  "thiserror",
  "wasm-bindgen-test",
 ]

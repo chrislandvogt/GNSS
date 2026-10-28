@@ -36,6 +36,14 @@ These suites are capable but cost thousands of dollars per seat, are closed, and
 | georinex | Python RINEX reader | Reference for parser behaviour |
 | Anubis | RINEX quality checking (a teqc replacement) | Reference for QC metrics |
 
+## Scientific packages
+
+| Tool | Who | How we relate to it |
+|---|---|---|
+| Bernese GNSS Software | AIUB, University of Bern | Licensed (research or commercial), so its code can't be used or shipped. A user with a licence can run it as an independent reference for baselines and networks. Its analysis centre's products are another matter (below). |
+| CODE products | AIUB, University of Bern | Final, rapid, ultra-rapid and multi-GNSS orbits, clocks, ERPs, biases, ionosphere and troposphere, free over HTTPS with a citation. The oracle for our broadcast orbits (VALIDATION.md, D8) and a product source for M7. |
+| GAMIT/GLOBK | MIT | Free for research and education under its own licence; a reference only |
+
 ## Free online services
 
 | Service | Operator | How we relate to it |

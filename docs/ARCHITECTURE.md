@@ -94,7 +94,7 @@ Every crate except `engine-host` compiles to both native code and WebAssembly. C
 | `adjust` | Least squares, statistics, reliability, VCE, uncertainty, loops | nalgebra, libm; its own block-sparse solver and distributions (D-025) |
 | `formats` | Parsers and writers for exchange formats | quick-xml, csv; its own SQLite file writer for GeoPackage (D-026) |
 | `antennas` | The antenna catalogue: IGS antenna and radome codes, reference points, drawings and calibrated pairs (`data/antennas`), and sourced slant-height geometry | serde_json, toml; the IGS files are built in |
-| `rinex-io` | RINEX observation files (2.11, 3.0x, 4.0x) and Hatanaka decompression, read a line at a time; header extraction, QC | none: our own reader (D-027) |
+| `rinex-io` | RINEX observation files (2.11, 3.0x, 4.0x) and Hatanaka decompression, read a line at a time; navigation files and broadcast orbits; header extraction, QC | none: our own reader (D-027) |
 | `fetch` | Source registry, download, cache, data packs | reqwest (uses the browser's fetch in the web app), sha2 |
 | `engine` | Engine and module host traits, job and result types | none of note |
 | `engine-rtklib` | Config generation, output parsing | none of note |
@@ -836,8 +836,9 @@ The CLI is the same core compiled natively. It's used for scripting and CI, the 
 
 ```
 gnss init <dir> --pack au
-gnss import rinex <files...>
+gnss import rinex <files...> [--mark <id>]   # occupations from the headers; new marks added
 gnss import fieldlog <files...>
+gnss qc <files...> [--nav <files>]   # RINEX equipment, completeness, gaps, slips, multipath, elevation coverage
 gnss import vectors <file> [--format dynaml|starnet|tdef|rtklib|csv]   # guessed if not given
 gnss import control <file> [--format dynaml|csv|sinex]
 gnss fetch                      # CORS data, products and ANTEX for all occupations

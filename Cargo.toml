@@ -18,6 +18,7 @@ gnss-datum = { path = "crates/datum" }
 gnss-formats = { path = "crates/formats" }
 gnss-antennas = { path = "crates/antennas" }
 gnss-model = { path = "crates/model" }
+gnss-rinex-io = { path = "crates/rinex-io" }
 gnss-pipeline = { path = "crates/pipeline" }
 gnss-report = { path = "crates/report" }
 gnss-store = { path = "crates/store" }

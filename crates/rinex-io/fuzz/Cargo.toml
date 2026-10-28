@@ -35,3 +35,10 @@ path = "fuzz_targets/crinex.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "nav"
+path = "fuzz_targets/nav.rs"
+test = false
+doc = false
+bench = false

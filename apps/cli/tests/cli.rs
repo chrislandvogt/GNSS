@@ -399,3 +399,114 @@ fn errors_are_plain_and_change_nothing() {
     assert_eq!(fs::read_dir(project.join("raw")).unwrap().count(), 0);
     assert_eq!(fs::read_to_string(project.join("raw.lock")).unwrap(), "");
 }
+
+#[test]
+fn qc_reads_plain_and_compressed_rinex_alike() {
+    let dir = tempfile::tempdir().unwrap();
+    let rinex = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../crates/rinex-io/tests/data/rinex/SWTC00AUS_20251660000.rnx"
+    );
+    let crx = format!("{rinex}.crx");
+    let plain = json(&ok(dir.path(), &["qc", "--json", rinex], 0));
+    let compressed = json(&ok(dir.path(), &["qc", "--json", &crx], 0));
+    assert_eq!(plain[0]["qc"], compressed[0]["qc"]);
+    let qc = &plain[0]["qc"];
+    assert_eq!(qc["marker"], "SWTC00AUS");
+    assert_eq!(qc["antenna"], "LEIAS10");
+    assert_eq!(qc["epochs"], 6);
+    assert_eq!(qc["interval"], 30.0);
+    assert!(qc["antenna_note"].is_null(), "{qc}");
+    let gps = qc["systems"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["system"] == "GPS")
+        .unwrap();
+    assert_eq!(gps["pair"], "L1/L2");
+
+    let human = stdout(&ok(dir.path(), &["qc", rinex], 0));
+    assert!(human.contains("LEICA GR30 with LEIAS10 NONE"), "{human}");
+    assert!(
+        human.contains("6 of 6 epochs (100.0%) every 30 s"),
+        "{human}"
+    );
+
+    // With a navigation file, elevation coverage: here everything above
+    // 10° that the file's ephemerides cover was tracked.
+    let nav = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../crates/rinex-io/tests/data/nav/HOB200AUS_R_20251660000_excerpt_MN.rnx"
+    );
+    let with_nav = json(&ok(dir.path(), &["qc", "--json", rinex, "--nav", nav], 0));
+    let systems = with_nav[0]["qc"]["systems"].as_array().unwrap();
+    let gps = systems.iter().find(|s| s["system"] == "GPS").unwrap();
+    assert_eq!(gps["coverage"]["cutoff"], 10.0);
+    assert_eq!(gps["coverage"]["expected"], 12);
+    assert_eq!(gps["coverage"]["ratio"], 1.0);
+    assert!(plain[0]["qc"]["systems"][0]["coverage"].is_null());
+    let human = stdout(&ok(dir.path(), &["qc", rinex, "--nav", nav], 0));
+    assert!(
+        human.contains("above 10°: 12 of 12 satellite-epochs tracked (100.0%)"),
+        "{human}"
+    );
+    let o = gnss(dir.path(), &["qc", rinex, "--nav", rinex]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(
+        stderr(&o).contains("not a navigation file"),
+        "{}",
+        stderr(&o)
+    );
+
+    let not_rinex = dir.path().join("notes.txt");
+    fs::write(&not_rinex, "hello\n").unwrap();
+    let o = gnss(dir.path(), &["qc", path(&not_rinex)]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(
+        stderr(&o).contains("notes.txt: line 1: a RINEX file starts"),
+        "{}",
+        stderr(&o)
+    );
+}
+
+#[test]
+fn import_rinex_makes_occupations_and_marks() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("p");
+    ok(root.path(), &["init", path(&project)], 0);
+    let data = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../crates/rinex-io/tests/data/rinex"
+    );
+    let swtc = format!("{data}/SWTC00AUS_20251660000.rnx.crx");
+    let mobs = format!("{data}/MOBS0050.20o");
+    let o = json(&ok(
+        &project,
+        &["import", "rinex", "--json", &swtc, &mobs],
+        0,
+    ));
+    let ids: Vec<&str> = o["occupations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["2020-01-05-MOBS-A", "2025-06-15-SWTC00AUS-A"]);
+    assert_eq!(o["marks_added"], serde_json::json!(["MOBS", "SWTC00AUS"]));
+    let occupation =
+        fs::read_to_string(project.join("occupations/2025-06-15-SWTC00AUS-A.toml")).unwrap();
+    assert!(
+        occupation.contains("rinex = [\"raw/SWTC00AUS_20251660000.rnx.crx\"]"),
+        "{occupation}"
+    );
+    assert!(
+        fs::read_to_string(project.join("raw.lock"))
+            .unwrap()
+            .contains("raw/MOBS0050.20o")
+    );
+
+    // Again: the raw file exists, and nothing changes.
+    let o = gnss(&project, &["import", "rinex", &mobs]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stderr(&o).contains("raw/MOBS0050.20o"), "{}", stderr(&o));
+}

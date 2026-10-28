@@ -99,6 +99,9 @@ pub struct ObsHeader {
     pub leap_seconds: Option<i32>,
     /// The comments, in order.
     pub comments: Vec<String>,
+    /// GLONASS frequency channels by satellite number (`GLONASS SLOT /
+    /// FRQ #`), which set each satellite's FDMA frequencies.
+    pub glonass_channels: BTreeMap<u8, i8>,
 }
 
 /// A header being read: the records seen so far, and continuation state.
@@ -170,6 +173,7 @@ impl HeaderBuilder {
                 last_epoch: None,
                 leap_seconds: None,
                 comments: Vec::new(),
+                glonass_channels: BTreeMap::new(),
             },
             common_count: 0,
             system_types: None,
@@ -232,6 +236,21 @@ impl HeaderBuilder {
             }
             b"# / TYPES OF OBSERV" => self.common_types(line, line_no)?,
             b"SYS / # / OBS TYPES" => self.system_types(line, line_no)?,
+            b"GLONASS SLOT / FRQ #" => {
+                // Up to 8 a line: a satellite (A1, I2), a space, a channel (I2).
+                for i in 0..8 {
+                    let at = 4 + 7 * i;
+                    let slot = cols(line, at + 1, at + 3);
+                    let channel = number::<i8>(line, at + 4, at + 6);
+                    if let (Some(b'R'), Ok(Ok(slot)), Some(channel)) = (
+                        cols(line, at, at + 1).first(),
+                        std::str::from_utf8(slot).map(|s| s.trim().parse::<u8>()),
+                        channel,
+                    ) {
+                        h.glonass_channels.insert(slot, channel);
+                    }
+                }
+            }
             _ => {}
         }
         Ok(false)
@@ -333,7 +352,7 @@ impl HeaderBuilder {
 }
 
 /// `2.11`, `3.04` or `4.01` as a version.
-fn parse_version(text: &str) -> Option<Version> {
+pub(crate) fn parse_version(text: &str) -> Option<Version> {
     let (major, minor) = text.split_once('.').unwrap_or((text, "0"));
     let major: u8 = major.trim().parse().ok()?;
     let minor_digits: String = minor.chars().take(2).collect();
@@ -468,6 +487,20 @@ E    4 C1C L1C C5Q L5Q                                      SYS / # / OBS TYPES
         );
         // The rest of LEAP SECONDS is optional, and often absent.
         assert_eq!(h.leap_seconds, Some(18));
+    }
+
+    #[test]
+    fn glonass_channels_read() {
+        let text = RINEX3.replace(
+            "    30.000                                                  INTERVAL",
+            " 24 R01  1 R02 -4 R03  5 R04  6 R05  1 R06 -4 R07  5 R08  6 GLONASS SLOT / FRQ #
+    R09 -2 R10 -7                                           GLONASS SLOT / FRQ #
+    30.000                                                  INTERVAL",
+        );
+        let h = read(&text).unwrap();
+        assert_eq!(h.glonass_channels.len(), 10);
+        assert_eq!(h.glonass_channels.get(&2), Some(&-4));
+        assert_eq!(h.glonass_channels.get(&10), Some(&-7));
     }
 
     #[test]

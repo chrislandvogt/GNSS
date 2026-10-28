@@ -291,14 +291,20 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 
 - [x] Read RINEX 2.11, 3.0x and 4.0x observation files, including Hatanaka compression. Our own reader (`gnss_rinex_io::read_obs`), not the `rinex` crate, which panicked on 27 of 38 GA CORS files (D-027). The decompressor matches CRX2RNX byte for byte; both are fuzzed.
 - [x] Header extraction: marker, receiver, antenna and radome, antenna deltas (H/E/N), approximate position, interval, time span and observation types. Header records in events (a new site occupation) update it.
-- [ ] Occupation detection: split and merge files, and detect gaps and multiple occupations within one file.
+- [x] Occupation detection (`gnss_rinex_io::occupation`) and `gnss import rinex`:
+  - a file is split where the set-up changes: a new site (epoch flag 3), a moving antenna (flag 2, whose epochs aren't imported), or header records that change the marker, equipment or antenna height;
+  - files of one set-up that follow on within 5 minutes are joined, as hourly files are;
+  - gaps are kept with the occupation, with a note on any over 15 minutes, since a set-up again over the same mark without a new header looks the same.
+
+  The import puts the files in `raw/` and `raw.lock`, writes an occupation file for each, and adds new marks to `marks.toml` with the headers' positions. It checks everything before writing anything. An antenna moved to another mark without a new header can't be seen from the headers; that needs positions from the data (M9).
 - [ ] Header reconciliation against field logs (this feeds M9). Write corrected RINEX on export, and never overwrite raw files.
-- [ ] QC metrics:
-  - [ ] Observations per satellite and signal, and completeness.
-  - [ ] Cycle slips (geometry-free and Melbourne-Wübbena).
-  - [ ] Multipath (code minus carrier).
-  - [ ] SNR statistics, elevation coverage and data gaps.
-  - [ ] Check all of these against Anubis and teqc-style reference outputs.
+- [x] QC metrics (`gnss_rinex_io::qc`, `gnss qc`), with their definitions in the module's documentation:
+  - [x] Observations per satellite and signal, and completeness.
+  - [x] Cycle slips (geometry-free and Melbourne-Wübbena), and the receiver's loss-of-lock flags.
+  - [x] Multipath (code minus carrier), as teqc's MP1 and MP2.
+  - [x] SNR statistics, elevation coverage and data gaps. Elevation coverage (`gnss qc --nav`) takes satellites from broadcast orbits: what the orbits put above the cutoff, healthy, against what was tracked, per system and per signal.
+  - [x] Check all of these against Anubis and teqc-style reference outputs. Done against teqc on a RINEX 2 file (VALIDATION.md, D8): coverage within 0.4%, complete observations equal, multipath within the definitions' difference. The comparison found false slips from code multipath, now fixed (slips are confirmed by the next epoch). Also checked: synthetic data, and an independent Python implementation that agrees exactly on three daily files. Anubis, for RINEX 3 and the other systems, is left for now: its download needs a registered account.
+- [x] Read RINEX 2.11, 3.0x and 4.0x navigation files (`gnss_rinex_io::read_nav`), and compute broadcast satellite positions for GPS, GLONASS, Galileo, BeiDou (GEO included), QZSS, NavIC and SBAS (`gnss_rinex_io::orbit`). They match RTKLIB's to 0.1 mm on GA files, and CODE's multi-GNSS precise orbits to 0.9 to 1.8 m RMS (GLONASS 5.7 m), once BeiDou's ephemerides were limited to 2 hours (VALIDATION.md, D8). Fuzzed. GLONASS frequency channels come from the navigation file where a RINEX 2 header has none, so its slips and multipath can be found.
 - [ ] Read large files in slices rather than whole, so a 24 h, 1 Hz file ingests in the browser within its target. The reader works a line at a time from any `BufRead`, and restores a daily 30 s file in about 0.6 s natively; the browser's reading of a `File` in slices, and its timing, are still to do.
 - [ ] Open receiver formats (UBX, SBF, Unicore, NovAtel, RTCM3): decide between running `convbin` from RTKLIB-EX, as another WebAssembly module, and our own Rust decoders (D-020).
 
@@ -316,6 +322,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [ ] GA GNSS Data Repository (Web API, S3 and SFTP) for CORS RINEX and site logs.
   - [ ] State CORS networks, where they're openly available.
   - [ ] IGS product mirrors that don't need a login.
+  - [ ] CODE (AIUB, the Bernese team's analysis centre): final, rapid, ultra-rapid and multi-GNSS orbits, clocks, ERPs, biases and ionosphere maps, over HTTPS without a login (`https://www.aiub.unibe.ch/download`), with the citation AIUB asks for. Reachable where the IGS's own mirrors weren't, so a good first source.
   - [ ] ANTEX (igs20.atx).
 - [ ] Nearest-CORS suggestions ranked by distance and by data availability in the occupation window.
 - [ ] Products: broadcast navigation, plus precise orbits and clocks (final, rapid or ultra-rapid, chosen by latency). Record product versions in provenance.

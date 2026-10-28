@@ -10,8 +10,10 @@
 pub mod build;
 pub mod export;
 pub mod folder;
+pub mod ingest;
 pub mod jobs;
 pub mod project;
+pub mod rinex;
 
 /// Version of the core.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

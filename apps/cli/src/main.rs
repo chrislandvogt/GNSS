@@ -62,6 +62,20 @@ enum Command {
     Export(ExportArgs),
     /// Leave an observation out of the adjustment, with a reason.
     Exclude(ExcludeArgs),
+    /// Check RINEX observation files: equipment, completeness, gaps, cycle
+    /// slips and multipath, and with navigation files, elevation coverage.
+    Qc(QcArgs),
+}
+
+#[derive(Args)]
+struct QcArgs {
+    /// The files, plain or Hatanaka-compressed RINEX 2, 3 or 4.
+    #[arg(required = true)]
+    files: Vec<PathBuf>,
+    /// Navigation files (RINEX 2, 3 or 4) for elevation coverage: how much
+    /// of what was above the cutoff was tracked.
+    #[arg(long, value_name = "FILE")]
+    nav: Vec<PathBuf>,
 }
 
 #[derive(Args)]
@@ -85,6 +99,23 @@ enum ImportCommand {
     Vectors(ImportArgs<VectorFormat>),
     /// Control: DynaML stations, CSV or SINEX.
     Control(ImportArgs<ControlFormat>),
+    /// RINEX observation files: each set-up found in them becomes an
+    /// occupation, and marks not yet in marks.toml are added.
+    Rinex(RinexArgs),
+}
+
+#[derive(Args)]
+struct RinexArgs {
+    /// The files, plain or Hatanaka-compressed RINEX 2, 3 or 4.
+    #[arg(required = true)]
+    files: Vec<PathBuf>,
+    /// The mark every file was on, instead of their headers' marker names.
+    #[arg(long)]
+    mark: Option<String>,
+    /// Files of one set-up are one occupation if the next starts within
+    /// this many seconds of the last ending.
+    #[arg(long, value_name = "SECONDS", default_value_t = 300.0)]
+    join: f64,
 }
 
 #[derive(Args)]
@@ -238,11 +269,161 @@ fn dispatch(cli: &Cli) -> Result<u8, Failure> {
             let allowed = [Format::Dynaml, Format::CsvControl, Format::Sinex];
             import(cli, format, &allowed, args)
         }
+        Command::Import(ImportCommand::Rinex(args)) => import_rinex(cli, args),
         Command::Adjust(args) => adjust(cli, args),
         Command::Report(args) => report(cli, args),
         Command::Export(args) => export_results(cli, args),
         Command::Exclude(args) => exclude(cli, args),
+        Command::Qc(args) => qc(cli, args),
     }
+}
+
+fn qc(cli: &Cli, args: &QcArgs) -> Result<u8, Failure> {
+    let open = |path: &PathBuf| {
+        std::fs::File::open(path)
+            .map(std::io::BufReader::new)
+            .map_err(|e| format!("{}: {e}", path.display()))
+    };
+    let mut ephemerides = Vec::new();
+    for path in &args.nav {
+        ephemerides.extend(
+            gnss_api::rinex::read_nav(open(path)?)
+                .map_err(|e| format!("{}: {e}", path.display()))?,
+        );
+    }
+    let orbits = (!args.nav.is_empty()).then(|| gnss_api::rinex::Orbits::new(ephemerides));
+    let mut reports = Vec::new();
+    for path in &args.files {
+        let report = gnss_api::rinex::check_file(open(path)?, orbits.clone())
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        reports.push((path.display().to_string(), report));
+    }
+    let json: Vec<_> = reports
+        .iter()
+        .map(|(file, r)| serde_json::json!({ "file": file, "qc": r }))
+        .collect();
+    print(cli, &json, || {
+        for (file, r) in &reports {
+            println!("{file}: {} (RINEX {})", r.marker, r.version);
+            let radome = r.radome.as_deref().unwrap_or("NONE");
+            println!("  {} with {} {}", r.receiver, r.antenna, radome);
+            if let Some(note) = &r.antenna_note {
+                println!("  note: {note}");
+            }
+            if let Some([h, e, n]) = r.antenna_delta {
+                println!("  antenna height {h:.4} m (east {e:.4}, north {n:.4})");
+            }
+            let span = match (&r.first, &r.last) {
+                (Some(a), Some(b)) => format!("{a} to {b} {}", r.time_system),
+                _ => "no epochs".to_owned(),
+            };
+            println!("  {span}");
+            let completeness = r
+                .expected_epochs
+                .filter(|&e| e > 0)
+                .map(|e| format!(" ({:.1}%)", 100.0 * r.epochs as f64 / e as f64))
+                .unwrap_or_default();
+            println!(
+                "  {} of {} epochs{completeness} every {} s; {} gaps; {} events",
+                r.epochs,
+                r.expected_epochs.map_or("?".to_owned(), |e| e.to_string()),
+                r.interval.map_or("?".to_owned(), |i| i.to_string()),
+                r.gaps.len(),
+                r.events
+            );
+            for (from, to, seconds) in &r.gaps {
+                println!("    gap {from} to {to} ({seconds} s)");
+            }
+            if let Some(note) = &r.coverage_note {
+                println!("  note: {note}");
+            }
+            for s in &r.systems {
+                let mp: Vec<String> = s
+                    .multipath
+                    .iter()
+                    .map(|(name, rms)| format!("{name} {rms:.3} m"))
+                    .collect();
+                let pair = s.pair.as_deref().map_or_else(
+                    || "no dual-frequency pair, so no slips or multipath".to_owned(),
+                    |p| {
+                        format!(
+                            "{p}: {} slips, {} flagged by the receiver, {} outliers",
+                            s.slips, s.flagged, s.outliers
+                        )
+                    },
+                );
+                let mp = if mp.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {}", mp.join(", "))
+                };
+                println!("  {:8} {:3} satellites; {pair}{mp}", s.system, s.satellites);
+                if let Some(c) = &s.coverage {
+                    let ratio = c.ratio.map_or("nothing expected".to_owned(), |r| {
+                        format!("{:.1}%", 100.0 * r)
+                    });
+                    println!(
+                        "           above {}°: {} of {} satellite-epochs tracked ({ratio}), {} slips; {} below; {} unhealthy; {} with no ephemeris",
+                        c.cutoff,
+                        c.tracked,
+                        c.expected,
+                        c.slips_above_cutoff,
+                        c.below_cutoff,
+                        c.unhealthy,
+                        c.no_ephemeris
+                    );
+                }
+            }
+        }
+    })?;
+    Ok(0)
+}
+
+fn import_rinex(cli: &Cli, args: &RinexArgs) -> Result<u8, Failure> {
+    let folder = Folder::open(&cli.project)?;
+    let mut files = Vec::new();
+    for path in &args.files {
+        let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .ok_or_else(|| format!("{} isn't a file", path.display()))?;
+        files.push((name, bytes));
+    }
+    let options = gnss_api::ingest::IngestOptions {
+        mark: args.mark.clone(),
+        join_s: args.join,
+        ..Default::default()
+    };
+    let report = gnss_api::ingest::import_rinex(&mut folder.store(), &files, &options)
+        .map_err(|e| e.to_string())?;
+    print(cli, &report, || {
+        for o in &report.occupations {
+            let interval = o.interval.map_or("?".to_owned(), |i| i.to_string());
+            println!(
+                "{}: {} from {} to {}, {} epochs every {interval} s ({})",
+                o.id,
+                o.mark,
+                o.start,
+                o.end,
+                o.epochs,
+                o.files.join(", ")
+            );
+            for note in &o.notes {
+                println!("  note: {note}");
+            }
+        }
+        if !report.marks_added.is_empty() {
+            println!(
+                "Added to marks.toml: {} (check their names and positions)",
+                report.marks_added.join(", ")
+            );
+        }
+        for note in &report.notes {
+            println!("note: {note}");
+        }
+    })?;
+    Ok(0)
 }
 
 /// Prints `value` as JSON with `--json`, and otherwise runs `human`.

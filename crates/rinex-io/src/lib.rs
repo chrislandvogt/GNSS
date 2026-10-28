@@ -3,8 +3,9 @@
 //! See `docs/ARCHITECTURE.md` (section 3) for this crate's place in the
 //! design. It reads RINEX 2.11, 3.0x and 4.0x observation files, plain or
 //! Hatanaka-compressed, a line at a time, so a whole day at 1 Hz never has
-//! to be in memory at once. It never panics on what it reads: anything
-//! malformed is an error naming its line (D-027).
+//! to be in memory at once. It reads navigation files (2.11 to 4.0x) too,
+//! for broadcast orbits ([`orbit`]). It never panics on what it reads:
+//! anything malformed is an error naming its line (D-027).
 
 #![cfg_attr(not(test), warn(clippy::indexing_slicing))]
 
@@ -12,7 +13,12 @@ mod crinex;
 mod error;
 mod header;
 mod lines;
+pub mod nav;
 mod obs;
+pub mod occupation;
+pub mod orbit;
+pub mod qc;
+pub mod signal;
 mod text;
 mod time;
 
@@ -20,6 +26,7 @@ use std::io::{BufRead, Write};
 
 pub use error::RinexError;
 pub use header::{Antenna, ObsHeader, ObsTypes, Receiver, Version};
+pub use nav::{NavFile, read_nav};
 pub use obs::{Epoch, EpochFlag, ObsReader, Observation, SatObservations, Sv};
 pub use time::{GnssTime, TICKS_PER_SECOND, TimeSystem};
 
@@ -63,6 +70,23 @@ impl<R: BufRead> LineSource for Source<R> {
 /// In a compressed file, error line numbers count lines of the restored
 /// RINEX file.
 pub fn read_obs<R: BufRead>(mut reader: R) -> Result<ObsReader<R>, RinexError> {
+    refuse_compressed(&mut reader)?;
+    let mut lines = Lines::new(reader);
+    let mut first = Vec::new();
+    if !lines.read(&mut first)? {
+        return Err(RinexError::at(1, "the file is empty"));
+    }
+    let source = if text::label(&first) == b"CRINEX VERS   / TYPE" {
+        Source::Compact(Box::new(Crinex::new(lines, &first)?))
+    } else {
+        Source::Plain(lines, Some(first))
+    };
+    ObsReader::new(source)
+}
+
+/// Refuses a gzip- or Unix-compressed file, which has to be decompressed
+/// first.
+pub(crate) fn refuse_compressed<R: BufRead>(reader: &mut R) -> Result<(), RinexError> {
     let head = reader
         .fill_buf()
         .map_err(|e| RinexError::Io(e.to_string()))?;
@@ -78,17 +102,7 @@ pub fn read_obs<R: BufRead>(mut reader: R) -> Result<ObsReader<R>, RinexError> {
             "this file is Unix-compressed (.Z); decompress it first",
         ));
     }
-    let mut lines = Lines::new(reader);
-    let mut first = Vec::new();
-    if !lines.read(&mut first)? {
-        return Err(RinexError::at(1, "the file is empty"));
-    }
-    let source = if text::label(&first) == b"CRINEX VERS   / TYPE" {
-        Source::Compact(Box::new(Crinex::new(lines, &first)?))
-    } else {
-        Source::Plain(lines, Some(first))
-    };
-    ObsReader::new(source)
+    Ok(())
 }
 
 /// Restores a Hatanaka-compressed file to RINEX, a line at a time. The
