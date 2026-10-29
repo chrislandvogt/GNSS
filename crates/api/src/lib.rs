@@ -9,6 +9,7 @@
 
 pub mod build;
 pub mod export;
+pub mod fetch;
 pub mod folder;
 pub mod ingest;
 pub mod jobs;

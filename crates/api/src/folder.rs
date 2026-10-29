@@ -8,7 +8,7 @@
 //! the rest is loaded.
 
 use gnss_antennas::Catalogue;
-use gnss_model::{Issue, MarkFile, Occupation, Overlay};
+use gnss_model::{DataFiles, Issue, MarkFile, Occupation, Overlay};
 use gnss_store::{ProjectPath, Store, StoreError};
 
 use crate::project::{Project, ProjectError};
@@ -180,5 +180,6 @@ pub fn json_schemas() -> Vec<(&'static str, String)> {
             "overlay.schema.json",
             pretty(schemars::schema_for!(Overlay)),
         ),
+        ("data.schema.json", pretty(schemars::schema_for!(DataFiles))),
     ]
 }

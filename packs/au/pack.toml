@@ -173,3 +173,54 @@ url = "https://s3-ap-southeast-2.amazonaws.com/geoid/AUSGeoid/AUSGeoid2020_20180
 sha256 = "1e8d87a0404f8f26f53dc6e15b85d972edd7be8fad3612cfd666beaafdd50f5a"
 bytes = 247277168
 browser = "relay" # no cross-origin headers, checked 2026-10-19
+
+# Data sources (M7, ARCHITECTURE.md section 13). `hosts` lists every host a
+# source's files come from, redirects included: the relay forwards only to
+# these. `attribution` goes into reports word for word.
+
+[[sources]]
+id = "ga-archive"
+name = "Geoscience Australia GNSS Data Repository"
+kind = "ga-archive"
+url = "https://data.gnss.ga.gov.au/api/v1/rinexFiles"
+# The Web API, and the archive's signed links to its files.
+hosts = ["data.gnss.ga.gov.au", "geodesy-archive-permanent-storage-prod.s3.ap-southeast-2.amazonaws.com"]
+browser = "direct" # checked 2026-10-15
+licence = "CC BY 4.0, Geoscience Australia"
+attribution = "CORS data from Geoscience Australia's GNSS Data Repository (https://gnss.ga.gov.au), CC BY 4.0."
+# Broadcast navigation files are the same whichever station logged them; these
+# stations publish mixed-constellation (_MN) files.
+nav_stations = ["TID1", "STR1", "SYDN", "MOBS", "PERT", "DARW", "TOW2", "ALIC"]
+
+[[sources]]
+id = "ga-sites"
+name = "Geoscience Australia CORS sites"
+kind = "ga-sites"
+url = "https://gws.geodesy.ga.gov.au/corsSites"
+hosts = ["gws.geodesy.ga.gov.au"]
+browser = "relay" # not checked
+licence = "CC BY 4.0, Geoscience Australia"
+attribution = "CORS site information from Geoscience Australia's GNSS site log service, CC BY 4.0."
+
+[[sources]]
+id = "code"
+name = "CODE (Center for Orbit Determination in Europe), AIUB"
+kind = "code"
+url = "https://download.aiub.unibe.ch"
+# AIUB's download host redirects to its object store.
+hosts = ["download.aiub.unibe.ch", "zhw-b.s3.cloud.switch.ch"]
+browser = "relay" # no cross-origin headers, checked 2026-10-29
+licence = "Free to use with citation; redistribution not stated"
+# The citations CODE asks for are per product series; products.rs adds them.
+attribution = "Orbits, clocks and Earth rotation from CODE, Astronomical Institute, University of Bern (Dach et al. 2026)."
+
+[[sources]]
+id = "igs-files"
+name = "IGS station files"
+kind = "files"
+url = "https://files.igs.org/pub/station/general/"
+hosts = ["files.igs.org"]
+browser = "relay" # no cross-origin headers, checked 2026-10-15
+licence = "IGS data and products are free to use"
+attribution = "Antenna calibrations from the International GNSS Service (igs20.atx)."
+files = ["igs20.atx"]

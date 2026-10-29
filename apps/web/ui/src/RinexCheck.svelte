@@ -57,7 +57,7 @@
 <section>
   <h2>Check a RINEX file</h2>
   <p class="muted">
-    RINEX 2, 3 or 4, plain or Hatanaka-compressed (not gzipped), or raw data from an open receiver format (u-blox,
+    RINEX 2, 3 or 4, plain, Hatanaka-compressed or gzipped, or raw data from an open receiver format (u-blox,
     Septentrio, NovAtel, Unicore, RTCM and others), converted to RINEX 3.04 with RTKLIB-EX's convbin. Navigation files
     add elevation coverage: how much of what was above 10° was tracked.
   </p>

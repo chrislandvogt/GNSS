@@ -11,6 +11,7 @@
 
 mod crinex;
 mod error;
+mod gz;
 mod header;
 mod lines;
 pub mod nav;
@@ -26,6 +27,7 @@ mod time;
 use std::io::{BufRead, Write};
 
 pub use error::RinexError;
+pub use gz::{Decoded, decoded};
 pub use header::{Antenna, ObsHeader, ObsTypes, Receiver, Version};
 pub use nav::{NavFile, read_nav};
 pub use obs::{Epoch, EpochFlag, ObsReader, Observation, SatObservations, Sv};
@@ -67,18 +69,18 @@ impl<R: BufRead> LineSource for Source<R> {
 }
 
 /// Opens a RINEX observation file, plain or Hatanaka-compressed (`.crx`,
-/// `.??d`), and reads its header. Its epochs are then read one at a time.
+/// `.??d`), gzipped or not, and reads its header. Its epochs are then read
+/// one at a time.
 ///
 /// In a compressed file, error line numbers count lines of the restored
 /// RINEX file.
-pub fn read_obs<R: BufRead>(reader: R) -> Result<ObsReader<R>, RinexError> {
+pub fn read_obs<R: BufRead>(reader: R) -> Result<ObsReader<Decoded<R>>, RinexError> {
     ObsReader::new(open_source(reader)?)
 }
 
-/// An observation file's lines, restored if it's Hatanaka-compressed.
-pub(crate) fn open_source<R: BufRead>(mut reader: R) -> Result<Source<R>, RinexError> {
-    refuse_compressed(&mut reader)?;
-    let mut lines = Lines::new(reader);
+/// An observation file's lines, gunzipped and restored if it's compressed.
+pub(crate) fn open_source<R: BufRead>(reader: R) -> Result<Source<Decoded<R>>, RinexError> {
+    let mut lines = Lines::new(decoded(reader)?);
     let mut first = Vec::new();
     if !lines.read(&mut first)? {
         return Err(RinexError::at(1, "the file is empty"));
@@ -90,32 +92,11 @@ pub(crate) fn open_source<R: BufRead>(mut reader: R) -> Result<Source<R>, RinexE
     })
 }
 
-/// Refuses a gzip- or Unix-compressed file, which has to be decompressed
-/// first.
-pub(crate) fn refuse_compressed<R: BufRead>(reader: &mut R) -> Result<(), RinexError> {
-    let head = reader
-        .fill_buf()
-        .map_err(|e| RinexError::Io(e.to_string()))?;
-    if head.starts_with(&[0x1f, 0x8b]) {
-        return Err(RinexError::at(
-            1,
-            "this file is gzip-compressed (.gz); decompress it first",
-        ));
-    }
-    if head.starts_with(&[0x1f, 0x9d]) {
-        return Err(RinexError::at(
-            1,
-            "this file is Unix-compressed (.Z); decompress it first",
-        ));
-    }
-    Ok(())
-}
-
 /// Restores a Hatanaka-compressed file to RINEX, a line at a time. The
 /// output is byte for byte what CRX2RNX 4.1.0 writes. Returns the number of
 /// lines written.
 pub fn decompress<R: BufRead, W: Write>(reader: R, mut out: W) -> Result<u64, RinexError> {
-    let mut lines = Lines::new(reader);
+    let mut lines = Lines::new(decoded(reader)?);
     let mut first = Vec::new();
     if !lines.read(&mut first)? || text::label(&first) != b"CRINEX VERS   / TYPE" {
         return Err(RinexError::at(

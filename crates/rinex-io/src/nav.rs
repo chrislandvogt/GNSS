@@ -33,10 +33,9 @@ struct Record {
     message: Option<String>,
 }
 
-/// Reads a navigation file.
-pub fn read_nav<R: BufRead>(mut reader: R) -> Result<NavFile, RinexError> {
-    crate::refuse_compressed(&mut reader)?;
-    let mut lines = Lines::new(reader);
+/// Reads a navigation file, gzipped or not.
+pub fn read_nav<R: BufRead>(reader: R) -> Result<NavFile, RinexError> {
+    let mut lines = Lines::new(crate::decoded(reader)?);
     let mut buf = Vec::new();
     if !lines.read(&mut buf)? {
         return Err(RinexError::at(1, "the file is empty"));

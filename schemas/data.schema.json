@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DataFiles",
+  "description": "`data.toml`: the files the project uses from outside it, such as CORS\nobservations and precise orbits, as fetched into the shared download\ncache. It records exactly which files were used, by hash, and the\nattribution their licences ask for.",
+  "type": "object",
+  "properties": {
+    "attributions": {
+      "description": "What reports must say about the data, word for word.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "file": {
+      "description": "The files, sorted by what they're for, then by name.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/DataFile"
+      }
+    },
+    "schema": {
+      "description": "The schema version: 1 (`SCHEMA`), raised only when a migration is needed.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema"
+  ],
+  "$defs": {
+    "DataFile": {
+      "description": "A file from outside the project.",
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "Its size in bytes.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "fetched": {
+          "description": "When it was downloaded, in UTC.",
+          "type": "string"
+        },
+        "licence": {
+          "description": "The data's licence.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The file's name, as published.",
+          "type": "string"
+        },
+        "note": {
+          "description": "Anything to know, such as rapid orbits used because finals weren't\nout yet.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "purpose": {
+          "description": "What it's for, such as `SYDN observations, 2025-06-15 03:05:00 to\n2025-06-15 05:15:00 GPS`.",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "The file's SHA-256, in hex: its key in the download cache.",
+          "type": "string"
+        },
+        "source": {
+          "description": "The source's id in the jurisdiction pack.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Where it came from.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "purpose",
+        "name",
+        "source",
+        "sha256",
+        "bytes",
+        "url",
+        "fetched",
+        "licence"
+      ]
+    }
+  }
+}

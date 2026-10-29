@@ -16,7 +16,7 @@
 //
 // Usage: node tests/app.mjs
 import { createHash } from 'node:crypto'
-import { crc32 } from 'node:zlib'
+import { crc32, gzipSync } from 'node:zlib'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -172,9 +172,20 @@ try {
   await page.getByTestId('rinex-nav').setInputFiles(path.join(RINEX, 'nav/HOB200AUS_R_20251660000_excerpt_MN.rnx'))
   await page.getByRole('button', { name: 'Check', exact: true }).click()
   const checked = await page.getByTestId('rinex-result').innerText()
+  const table = await page.getByTestId('rinex-result').locator('table').innerText()
   if (!checked.includes('SWTC') || !/Coverage above 10°/.test(checked)) throw new Error(`unexpected RINEX check:\n${checked}`)
   const timing = await page.getByTestId('rinex-timing').innerText()
   console.log(`checked a Hatanaka-compressed RINEX file with navigation: ${timing}`)
+
+  // The same file gzipped, as archives publish it: the core gunzips it.
+  const gz = path.join(scratch, 'SWTC00AUS_20251660000.crx.gz')
+  writeFileSync(gz, gzipSync(readFileSync(path.join(RINEX, 'rinex/SWTC00AUS_20251660000.rnx.crx'))))
+  await page.getByTestId('rinex-obs').setInputFiles(gz)
+  await page.getByRole('button', { name: 'Check', exact: true }).click()
+  await page.getByTestId('rinex-result').filter({ hasText: 'SWTC' }).waitFor()
+  if (await page.getByTestId('rinex-converted').count()) throw new Error('a gzipped RINEX file was taken for raw data')
+  if ((await page.getByTestId('rinex-result').locator('table').innerText()) !== table) throw new Error('the gzipped file checked differently')
+  console.log('checked the same file gzipped: identical')
 
   // Raw u-blox data: converted with convbin, then checked with its own navigation.
   await page.getByTestId('rinex-nav').setInputFiles([])

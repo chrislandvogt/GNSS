@@ -25,6 +25,10 @@ allow = [
     "MPL-2.0",
     "CC0-1.0",
     "BSL-1.0",
+    # A permissive licence for data: Mozilla's list of root certificates
+    # (webpki-roots, webpki-root-certs), which the downloader's TLS falls
+    # back on where the platform has no trust store (M7).
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.93
 # The allow list is policy, not a description of today's dependencies.

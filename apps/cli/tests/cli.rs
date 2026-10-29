@@ -560,3 +560,54 @@ fn reconcile_fixes_headers_and_exports_corrected_rinex() {
         "{comments}"
     );
 }
+
+#[test]
+fn fetch_plans_what_the_occupations_need() {
+    // Offline: named stations and --dry-run touch no network.
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("p");
+    ok(root.path(), &["init", path(&project)], 0);
+    let data = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../crates/rinex-io/tests/data/rinex"
+    );
+    let swtc = format!("{data}/SWTC00AUS_20251660000.rnx.crx");
+    ok(&project, &["import", "rinex", &swtc], 0);
+    let cache = root.path().join("cache");
+    let o = json(&ok(
+        &project,
+        &[
+            "fetch",
+            "--json",
+            "--dry-run",
+            "--precise",
+            "--cors",
+            "sydn,STR1",
+            "--cache",
+            path(&cache),
+        ],
+        0,
+    ));
+    let needs: Vec<&str> = o["needs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| n.as_str().unwrap())
+        .collect();
+    // GPS time: the file starts at 00:00:00 GPS, 23:59:42 UTC.
+    assert_eq!(
+        needs[0], "STR1 observations, 2025-06-15 00:00:00 to 2025-06-15 00:07:30 GPS",
+        "{needs:?}"
+    );
+    assert!(needs[1].starts_with("SYDN observations"), "{needs:?}");
+    for n in [
+        "navigation data, 2025-06-15",
+        "orbit product, 2025-06-15",
+        "igs20.atx",
+    ] {
+        assert!(needs.contains(&n), "{n} in {needs:?}");
+    }
+    // Nothing was fetched or recorded.
+    assert!(!cache.exists());
+    assert!(!project.join("data.toml").exists());
+}
