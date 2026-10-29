@@ -9,14 +9,18 @@ import path from 'node:path'
 
 const ui = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const root = path.resolve(ui, '../../..')
-const engines = [{ id: 'rtklib-ex', module: 'rnx2rtkp.wasm' }]
+// Both RTKLIB-EX modules are built in engine-modules/rtklib-ex (D-020).
+const engines = [
+  { id: 'rtklib-ex', dir: 'rtklib-ex', module: 'rnx2rtkp.wasm' },
+  { id: 'convbin', dir: 'rtklib-ex', module: 'convbin.wasm' },
+]
 const pinned = {}
 
-for (const { id, module } of engines) {
-  const dist = path.join(root, 'engine-modules', id, 'dist')
+for (const { id, dir, module } of engines) {
+  const dist = path.join(root, 'engine-modules', dir, 'dist')
   const src = path.join(dist, module)
   if (!existsSync(src)) {
-    console.error(`missing ${src}: build it with engine-modules/${id}/build.sh`)
+    console.error(`missing ${src}: build it with engine-modules/${dir}/build.sh`)
     process.exit(1)
   }
   const expected = readFileSync(`${src}.sha256`, 'utf8').split(/\s+/)[0]
@@ -25,12 +29,12 @@ for (const { id, module } of engines) {
     console.error(`${src}: sha256 ${actual} doesn't match ${expected}`)
     process.exit(1)
   }
-  const dest = path.join(ui, 'public/engines', id)
+  const dest = path.join(ui, 'public/engines', dir)
   mkdirSync(dest, { recursive: true })
   for (const file of [module, 'build-info.json', 'LICENSE-RTKLIB.txt']) {
     copyFileSync(path.join(dist, file), path.join(dest, file))
   }
-  pinned[id] = { url: `engines/${id}/${module}`, sha256: actual }
+  pinned[id] = { url: `engines/${dir}/${module}`, sha256: actual }
   console.log(`engine ${id}: ${module} sha256 ${actual}`)
 }
 

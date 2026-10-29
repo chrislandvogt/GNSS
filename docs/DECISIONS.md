@@ -201,13 +201,27 @@ The tool shows the difference from adjusting directly in GDA2020, so the shortcu
 **Revisit:** with benchmark evidence (M10), and possibly enable it for same-brand baselines.
 
 ### D-020 Decoding open receiver formats
-**Status:** Open
+**Status:** Accepted
 
-**Options:**
-- **Call `convbin` from RTKLIB-EX** for UBX, SBF, Unicore, NovAtel and RTCM3. Fast to ship.
-- **Native Rust decoders.** Fuzzable and better integrated, but more work.
+**Decision:** open receiver formats are converted to RINEX 3.04 by RTKLIB-EX's `convbin`, built from the same pinned source and toolchain as `rnx2rtkp` into a second WASI module (`convbin.wasm`). The RINEX it writes is then read by our own reader, like any other. This covers u-blox (UBX), Septentrio (SBF), NovAtel, Unicore, RTCM 2 and 3, Javad, Hemisphere, BINEX, Trimble RT17, Swift, SkyTraq and NVS.
 
-**Decide by:** M6.
+**Why:**
+- **It's almost free.** The build, the WASI shim, the reproducibility checks and the engine workers already exist for `rnx2rtkp`. `convbin` needs no change beyond the same `system()` stub. The module is 1 MB.
+- **It's reproducible and the same everywhere.** Built twice from different paths, the module has the same hash. On RTKLIB's samples of RTCM 3, u-blox, NovAtel, Javad and Hemisphere data, the module's RINEX matches a native build byte for byte, except for the record holding the time of conversion. CI checks it under wasmtime and in Chromium, Firefox and WebKit.
+- **It's RTKLIB's own decoding.** Processing is RTKLIB-EX too (D-023), so conversion and processing agree on signals, flags and half-cycle handling.
+- **Our own decoders are a lot of work for little gain now.** A dozen binary formats, several barely documented, each needing real logs to test against.
+
+**Alternatives:**
+- **Our own Rust decoders.** Fuzzable and integrated (slices, no whole-file copy), but months of work and no better output. Worth it for one format at a time if `convbin` gets that format wrong or it becomes a bottleneck.
+
+**Consequences:**
+- Raw files are converted in an engine worker. For now the worker holds the whole raw file and its RINEX in memory, as `rnx2rtkp` runs do; reading inputs in slices comes in M8 with the engine driver.
+- `convbin` is C, so it isn't fuzzed by us, but it runs in a WebAssembly instance per conversion: a crash fails that conversion only.
+- RTCM carries no GPS week, so it needs the approximate date it was logged.
+- SBF and Unicore aren't yet tested against real logs: RTKLIB ships no samples, and no openly licensed ones turned up. Real logs from users would close that gap.
+- The CLI gets conversion when the native engine host does (M8).
+
+**Revisit:** if a format needs a fix `convbin` won't take upstream, or conversion becomes a bottleneck.
 
 ### D-021 Contributions use DCO sign-off
 **Status:** Proposed
@@ -254,7 +268,7 @@ The tool shows the difference from adjusting directly in GDA2020, so the shortcu
 - **Wrap the web app in Tauri later.** Still possible, since the UI would be the same, if browser limits turn out to matter. Not planned.
 
 **Consequences:**
-- Supersedes D-002, D-013 and D-016, and the sidecar execution model in D-003. Ginan (D-004) runs natively, in the CLI and server, unless a WebAssembly build proves practical; the web app reaches it through a local CLI or an agency server. If `convbin` is chosen (D-020), it also runs as a WebAssembly module.
+- Supersedes D-002, D-013 and D-016, and the sidecar execution model in D-003. Ginan (D-004) runs natively, in the CLI and server, unless a WebAssembly build proves practical; the web app reaches it through a local CLI or an agency server. `convbin` (D-020) also runs as a WebAssembly module.
 - D-005's "separate process" boundary carries over to engine modules: they're built separately and talk to our code only through files and arguments. Confirm this reading before shipping any copyleft module.
 - Editing a project folder in place needs Chrome or Edge. Other browsers keep projects in browser storage, which the browser can evict, so the app requests persistent storage and treats the folder or an exported zip as the durable copy.
 - WebAssembly is slower than native code, and an instance's memory is limited to 4 GB at most. So the core trims and decimates RINEX before the engine sees it, and very large jobs can go to the CLI. The core's maths runs single-threaded in the browser, because shared-memory threads currently need a nightly Rust toolchain and cross-origin isolation headers. The web performance targets are set from the spike's measurements.

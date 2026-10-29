@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build RTKLIB-EX's rnx2rtkp as a WASI module, and optionally natively.
+# Build RTKLIB-EX's rnx2rtkp (the engine) and convbin (raw receiver data to
+# RINEX) as WASI modules, and optionally natively.
 #
 # Usage:
 #   WASI_SDK_PATH=/opt/wasi-sdk ./build.sh            # WebAssembly module only
@@ -13,9 +14,10 @@
 #
 # Outputs, in $OUT:
 #   rnx2rtkp.wasm          the engine module
-#   rnx2rtkp.wasm.sha256   its checksum
+#   convbin.wasm           the converter module
+#   *.wasm.sha256          their checksums
 #   build-info.json        what was built, from what, with which flags
-#   rnx2rtkp-native        with --native
+#   *-native               with --native
 #   LICENSE-RTKLIB.txt     RTKLIB's BSD-2 licence, which must ship with the module
 set -euo pipefail
 
@@ -38,13 +40,23 @@ for arg in "$@"; do
   esac
 done
 
-# Same source list and defines as upstream's app/consapp/rnx2rtkp/gcc/makefile.
-SOURCES=(
+# Same source lists and defines as upstream's makefiles,
+# app/consapp/rnx2rtkp/gcc/makefile and app/consapp/convbin/gcc/makefile.
+RNX2RTKP_SOURCES=(
   app/consapp/rnx2rtkp/rnx2rtkp.c
   src/rtkcmn.c src/trace.c src/rinex.c src/rtkpos.c src/postpos.c src/solution.c
   src/lambda.c src/geoid.c src/sbas.c src/preceph.c src/pntpos.c src/ephemeris.c
   src/options.c src/ppp.c src/ppp_ar.c src/rtcm.c src/rtcm2.c src/rtcm3.c
   src/rtcm3e.c src/ionex.c src/tides.c src/sofa.c
+)
+CONVBIN_SOURCES=(
+  app/consapp/convbin/convbin.c
+  src/rtkcmn.c src/trace.c src/rinex.c src/sbas.c src/preceph.c src/rcvraw.c src/convrnx.c
+  src/rtcm.c src/rtcm2.c src/rtcm3.c src/rtcm3e.c src/pntpos.c src/ephemeris.c src/ionex.c
+  src/sofa.c
+  src/rcv/novatel.c src/rcv/ublox.c src/rcv/crescent.c src/rcv/skytraq.c src/rcv/javad.c
+  src/rcv/nvs.c src/rcv/binex.c src/rcv/rt17.c src/rcv/septentrio.c src/rcv/swiftnav.c
+  src/rcv/unicore.c
 )
 DEFINES=(-DTRACE -DENAGLO -DENAQZS -DENAGAL -DENACMP -DENAIRN -DNFREQ=4 -DNEXOBS=3)
 # -w: this is third-party code; we don't patch its warnings.
@@ -76,22 +88,27 @@ cd "$RTKLIB_SRC"
 # --stack-first puts the stack below the data, so a stack overflow traps
 # instead of silently overwriting globals. 8 MiB matches a typical native stack.
 WASM_LDFLAGS=(-Wl,--stack-first -Wl,-z,stack-size=8388608)
-"$clang_wasi" --target=wasm32-wasip1 --sysroot="$WASI_SDK_PATH/share/wasi-sysroot" \
-  "${CFLAGS[@]}" "${SOURCES[@]}" "$HERE/wasi_compat.c" -lm "${WASM_LDFLAGS[@]}" \
-  -o "$OUT/rnx2rtkp.wasm"
-
-if [ "$native" = 1 ]; then
-  "$CC" "${CFLAGS[@]}" "${SOURCES[@]}" -lm -o "$OUT/rnx2rtkp-native"
-fi
-
-cp license.txt "$OUT/LICENSE-RTKLIB.txt"
-digest="$(sha256sum "$OUT/rnx2rtkp.wasm" | cut -d' ' -f1)"
+build() { # name, sources...
+  local name="$1"; shift
+  "$clang_wasi" --target=wasm32-wasip1 --sysroot="$WASI_SDK_PATH/share/wasi-sysroot" \
+    "${CFLAGS[@]}" "$@" "$HERE/wasi_compat.c" -lm "${WASM_LDFLAGS[@]}" \
+    -o "$OUT/$name.wasm"
+  if [ "$native" = 1 ]; then
+    "$CC" "${CFLAGS[@]}" "$@" -lm -o "$OUT/$name-native"
+  fi
+  sha256sum "$OUT/$name.wasm" | cut -d' ' -f1
+}
+digest="$(build rnx2rtkp "${RNX2RTKP_SOURCES[@]}")"
 echo "$digest  rnx2rtkp.wasm" > "$OUT/rnx2rtkp.wasm.sha256"
+convbin_digest="$(build convbin "${CONVBIN_SOURCES[@]}")"
+echo "$convbin_digest  convbin.wasm" > "$OUT/convbin.wasm.sha256"
+cp license.txt "$OUT/LICENSE-RTKLIB.txt"
 
 cat > "$OUT/build-info.json" <<EOF
 {
   "module": "rnx2rtkp.wasm",
   "sha256": "$digest",
+  "modules": { "rnx2rtkp.wasm": "$digest", "convbin.wasm": "$convbin_digest" },
   "rtklib": { "repo": "$RTKLIB_REPO", "tag": "$RTKLIB_TAG", "commit": "$RTKLIB_COMMIT" },
   "wasi_sdk": "$sdk_version",
   "clang": "$("$clang_wasi" --version | head -1)",
@@ -102,3 +119,4 @@ cat > "$OUT/build-info.json" <<EOF
 EOF
 
 echo "rnx2rtkp.wasm  sha256 $digest"
+echo "convbin.wasm   sha256 $convbin_digest"

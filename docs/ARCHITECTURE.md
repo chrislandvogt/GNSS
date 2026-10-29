@@ -388,6 +388,7 @@ Native-only engines (Ginan, section 9.4) run as separate processes, which only t
 ### 9.3 RTKLIB-EX module
 
 - **Build.** `rnx2rtkp` is compiled in CI from a pinned RTKLIB-EX tag to a single WASI module (`wasm32-wasip1`) with wasi-sdk, and its checksum is published. The web app serves it as a static asset, and the CLI embeds it. The only change RTKLIB-EX needs is a stub for `system()`, which it uses only to decompress inputs. The M0 spike confirmed the build: its results matched native builds byte for byte on 19 GA baselines, and were identical in Chromium, Firefox, WebKit and wasmtime ([report](spikes/m0-engine.md)).
+- **Conversion.** `convbin` is built the same way into a second module, `convbin.wasm`, which converts open receiver formats (UBX, SBF, NovAtel, Unicore, RTCM and others) to RINEX 3.04 for our reader (D-020).
 - **Hosts.** In the browser, each engine worker runs the module through a small WASI shim. File reads are served from the input files in slices, so large files are never copied into memory whole, and outputs are collected in memory. Natively, wasmtime runs the module with a preopened temporary directory.
 - **Inputs.**
   - Before each run, the driver trims each RINEX file to the overlap window and decimates it to the processing interval. RTKLIB keeps every epoch in its window in memory, so trimming and decimating keep a run well within WebAssembly's memory limit (4 GB at most per instance, and less on some devices).

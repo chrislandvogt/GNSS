@@ -76,3 +76,12 @@ export function rtklibPool(): EnginePool {
   pool ??= new EnginePool('rtklib-ex')
   return pool
 }
+
+let converters: EnginePool | null = null
+
+/** The convbin pool, for raw receiver data, created on first use. One
+ *  worker: conversions are one file at a time. */
+export function convbinPool(): EnginePool {
+  converters ??= new EnginePool('convbin', 1)
+  return converters
+}
