@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import Adjustment from './Adjustment.svelte'
+  import RinexCheck from './RinexCheck.svelte'
   import { detectCapabilities } from './lib/capabilities'
   import { core } from './lib/core'
   import { download } from './lib/download'
@@ -201,6 +202,8 @@
   </header>
 
   <Adjustment />
+
+  <RinexCheck />
 
   <details class="diagnostics">
   <summary>Diagnostics: browser features, project storage and the baseline engine</summary>

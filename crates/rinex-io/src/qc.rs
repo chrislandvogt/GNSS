@@ -16,7 +16,10 @@
 //!     least `mw_min_cycles`) from the arc's running mean;
 //!   - geometry-free: the phase difference between the bands, in metres,
 //!     stepping by more than `gf_metres` plus `gf_metres_per_second` times
-//!     the time since the last epoch;
+//!     the time since the last epoch, from where its rate (averaged over
+//!     about 30 s, so the last step's alone at 30 s and slower) predicts;
+//!     on a noisy arc, more than `gf_sigmas` times its scatter, so phase
+//!     noise at low elevations and high rates isn't taken for slips;
 //!   - a loss-of-lock flag on either phase, counted separately as
 //!     receiver-flagged.
 //!
@@ -69,6 +72,10 @@ pub struct QcOptions {
     pub gf_metres: f64,
     /// See `gf_metres`.
     pub gf_metres_per_second: f64,
+    /// Geometry-free: on a noisy arc, how many times its scatter (the RMS
+    /// of its offsets from their predictions) is a slip, if that's more
+    /// than `gf_metres`.
+    pub gf_sigmas: f64,
     /// Arcs shorter than this many epochs don't count towards multipath.
     pub min_arc_epochs: usize,
     /// The elevation, in degrees, above which satellites are expected to
@@ -84,6 +91,7 @@ impl Default for QcOptions {
             mw_min_cycles: 2.0,
             gf_metres: 0.03,
             gf_metres_per_second: 0.0005,
+            gf_sigmas: 4.0,
             min_arc_epochs: 10,
             elevation_cutoff: 10.0,
         }
@@ -322,8 +330,12 @@ struct Arc {
     mw_mean: f64,
     mw_m2: f64,
     gf: f64,
-    /// The geometry-free rate, m/s, from the last two epochs, if known.
+    /// The geometry-free rate, m/s, if known.
     gf_rate: Option<f64>,
+    /// The sum of squares of the arc's geometry-free offsets from their
+    /// predictions, and how many: its scatter.
+    gf_sq: f64,
+    gf_n: usize,
     mp: [MpArc; 2],
     /// An epoch that jumped, waiting for the next to confirm it.
     pending: Option<Point>,
@@ -339,6 +351,8 @@ impl Arc {
             mw_m2: 0.0,
             gf: p.gf,
             gf_rate: None,
+            gf_sq: 0.0,
+            gf_n: 0,
             mp: [MpArc::default(); 2],
             pending: None,
         };
@@ -350,8 +364,21 @@ impl Arc {
     fn push(&mut self, p: &Point) {
         if self.count > 0 {
             let dt = p.time.seconds_since(self.last);
+            if self.gf_rate.is_some() {
+                let off = self.gf_offset(p);
+                self.gf_sq += off * off;
+                self.gf_n += 1;
+            }
             if dt > 0.0 {
-                self.gf_rate = Some((p.gf - self.gf) / dt);
+                // Averaged over about 30 s, so at high rates the phase
+                // noise in each step doesn't throw the prediction off;
+                // at 30 s and slower, the last step alone.
+                let step = (p.gf - self.gf) / dt;
+                let weight = (dt / GF_RATE_SECONDS).min(1.0);
+                self.gf_rate = Some(match self.gf_rate {
+                    Some(rate) => rate + (step - rate) * weight,
+                    None => step,
+                });
             }
         }
         self.count += 1;
@@ -387,7 +414,7 @@ impl Arc {
     fn jumps(&self, p: &Point, o: &QcOptions) -> bool {
         self.count >= 2
             && ((p.mw - self.mw_mean).abs() > self.mw_limit(o)
-                || self.gf_offset(p).abs() > gf_limit(o, p.time.seconds_since(self.last)))
+                || self.gf_offset(p).abs() > self.gf_limit(o, p.time.seconds_since(self.last)))
     }
 
     /// Whether `now` confirms the jump at `p`: on a combination `p` jumped
@@ -396,15 +423,27 @@ impl Arc {
         let mw = (p.mw - self.mw_mean).abs() > self.mw_limit(o)
             && (now.mw - p.mw).abs() < (now.mw - self.mw_mean).abs();
         let from_p = now.gf - (p.gf + self.gf_rate.unwrap_or(0.0) * now.time.seconds_since(p.time));
-        let gf = self.gf_offset(p).abs() > gf_limit(o, p.time.seconds_since(self.last))
+        let gf = self.gf_offset(p).abs() > self.gf_limit(o, p.time.seconds_since(self.last))
             && from_p.abs() < self.gf_offset(now).abs();
         mw || gf
     }
 }
 
-/// The geometry-free step, in metres, that's a jump after `dt` seconds.
-fn gf_limit(o: &QcOptions, dt: f64) -> f64 {
-    o.gf_metres + o.gf_metres_per_second * dt
+/// Over how many seconds the geometry-free rate is averaged.
+const GF_RATE_SECONDS: f64 = 30.0;
+
+impl Arc {
+    /// The geometry-free step, in metres, that's a jump after `dt` seconds:
+    /// `gf_sigmas` times the arc's scatter once it has 10 epochs, but at
+    /// least `gf_metres`, and `gf_metres_per_second` more for each second.
+    fn gf_limit(&self, o: &QcOptions, dt: f64) -> f64 {
+        let scatter = if self.gf_n >= 10 {
+            (self.gf_sq / self.gf_n as f64).sqrt()
+        } else {
+            0.0
+        };
+        (o.gf_sigmas * scatter).max(o.gf_metres) + o.gf_metres_per_second * dt
+    }
 }
 
 #[derive(Debug, Default)]
@@ -456,7 +495,25 @@ pub struct Qc {
 struct Sky {
     orbits: Orbits,
     station: Station,
-    cache: BTreeMap<Sv, [(i64, Elevation); 2]>,
+    /// By [`slot`]: a satellite's two latest steps.
+    cache: Vec<[(i64, Elevation); 2]>,
+}
+
+/// A satellite's place in [`Sky`]'s cache: one for each system letter and
+/// PRN, so finding it is indexing, not a search (it's looked up for every
+/// satellite at every epoch).
+fn slot(sv: Sv) -> usize {
+    let system = match sv.system {
+        'G' => 0,
+        'R' => 1,
+        'E' => 2,
+        'C' => 3,
+        'J' => 4,
+        'I' => 5,
+        'S' => 6,
+        _ => 7,
+    };
+    system * 256 + usize::from(sv.prn)
 }
 
 /// An elevation in degrees and whether the satellite is healthy, if
@@ -473,7 +530,7 @@ const SKY_STEP: i64 = 30 * TICKS_PER_SECOND;
 impl Sky {
     /// A satellite's elevation and health at a multiple of the step.
     fn at_step(&mut self, sv: Sv, step: i64) -> Elevation {
-        let slots = self.cache.entry(sv).or_insert([(i64::MIN, None); 2]);
+        let slots = self.cache.get_mut(slot(sv))?;
         if let Some((_, v)) = slots.iter().find(|(s, _)| *s == step) {
             return *v;
         }
@@ -574,7 +631,7 @@ impl Qc {
         self.sky = Station::new(position).map(|station| Sky {
             orbits,
             station,
-            cache: BTreeMap::new(),
+            cache: vec![[(i64::MIN, None); 2]; 8 * 256],
         });
         self
     }
@@ -795,8 +852,12 @@ impl Qc {
                 .satellites()
                 .filter(|sv| self.plan.contains_key(&sv.system))
                 .collect();
+            let cutoff = options.elevation_cutoff;
             for sv in svs {
                 let count = expected.entry(sv.system).or_default();
+                // Epoch by epoch, but with the orbits looked at once a step
+                // of the elevation grid, as `Sky::elevation` would.
+                let mut held: Option<(i64, Elevation, Elevation)> = None;
                 for k in 0..n {
                     let Some(t) = i64::try_from(k)
                         .ok()
@@ -805,11 +866,26 @@ impl Qc {
                     else {
                         break;
                     };
-                    let t = self.time_system.to_gps(GnssTime::from_ticks(t));
-                    if sky
-                        .elevation(sv, t)
-                        .is_some_and(|(e, ok)| ok && e >= options.elevation_cutoff)
-                    {
+                    let t = self.time_system.to_gps(GnssTime::from_ticks(t)).ticks();
+                    let g = t.div_euclid(SKY_STEP);
+                    let into = t.rem_euclid(SKY_STEP);
+                    let (e0, e1) = match held {
+                        Some((at, e0, e1)) if at == g => (e0, e1),
+                        _ => {
+                            let e0 = sky.at_step(sv, g);
+                            let e1 = sky.at_step(sv, g.saturating_add(1));
+                            held = Some((g, e0, e1));
+                            (e0, e1)
+                        }
+                    };
+                    let up = match (e0, e1) {
+                        (Some((e, ok)), _) if into == 0 => ok && e >= cutoff,
+                        (Some((a, h0)), Some((b, h1))) => {
+                            h0 && h1 && a + (b - a) * (into as f64 / SKY_STEP as f64) >= cutoff
+                        }
+                        _ => false,
+                    };
+                    if up {
                         *count += 1;
                     }
                 }

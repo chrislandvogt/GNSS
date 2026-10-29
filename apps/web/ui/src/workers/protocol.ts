@@ -90,6 +90,56 @@ export interface ExportedFile {
   data: ArrayBuffer
 }
 
+/** One system's QC (gnss_api::rinex::SystemQc). */
+export interface RinexSystemQc {
+  system: string
+  satellites: number
+  satellite_epochs: number
+  pair: string | null
+  slips: number
+  flagged: number
+  outliers: number
+  multipath: [string, number][]
+  coverage: {
+    cutoff: number
+    expected: number
+    tracked: number
+    ratio: number | null
+    below_cutoff: number
+    slips_above_cutoff: number
+    unhealthy: number
+    no_ephemeris: number
+  } | null
+}
+
+/** A RINEX file's QC (gnss_api::rinex::FileQc). */
+export interface RinexQc {
+  marker: string
+  version: string
+  receiver: string
+  antenna: string
+  radome: string | null
+  antenna_note: string | null
+  antenna_delta: [number, number, number] | null
+  time_system: string
+  first: string | null
+  last: string | null
+  interval: number | null
+  epochs: number
+  expected_epochs: number | null
+  gaps: [string, string, number][]
+  events: number
+  coverage_note: string | null
+  systems: RinexSystemQc[]
+}
+
+/** A RINEX check: the QC, how big the file was and how long it took. */
+export interface RinexChecked {
+  qc: RinexQc
+  bytes: number
+  seconds: number
+}
+
 export type CoreRequest =
   | { id: number; type: 'info' }
   | { id: number; type: 'hash'; data: ArrayBuffer }
@@ -102,6 +152,7 @@ export type CoreRequest =
   | { id: number; type: 'zip-export'; files: ProjectFileData[] }
   | { id: number; type: 'zip-import'; data: ArrayBuffer }
   | { id: number; type: 'check-project'; files: ProjectFileData[] }
+  | { id: number; type: 'check-rinex'; file: File; nav: File[] }
 
 export type CoreResponse =
   | { id: number; ok: true; result: unknown }
