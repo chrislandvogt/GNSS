@@ -65,6 +65,30 @@ enum Command {
     /// Check RINEX observation files: equipment, completeness, gaps, cycle
     /// slips and multipath, and with navigation files, elevation coverage.
     Qc(QcArgs),
+    /// Check the occupations' RINEX headers against the occupations (the
+    /// field record), as corrected by overlays; with --fix, write overlays
+    /// for what an overlay can correct.
+    Reconcile(ReconcileArgs),
+    /// Write the occupations' RINEX files as plain RINEX, with their
+    /// overlays applied, for delivery.
+    ExportRinex(ExportRinexArgs),
+}
+
+#[derive(Args)]
+struct ReconcileArgs {
+    /// Write overlays that make the headers agree with the occupations.
+    #[arg(long, requires = "by")]
+    fix: bool,
+    /// Who's making the corrections, for the overlays.
+    #[arg(long)]
+    by: Option<String>,
+}
+
+#[derive(Args)]
+struct ExportRinexArgs {
+    /// The folder to write to (default results/rinex/).
+    #[arg(long)]
+    output: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -275,6 +299,8 @@ fn dispatch(cli: &Cli) -> Result<u8, Failure> {
         Command::Export(args) => export_results(cli, args),
         Command::Exclude(args) => exclude(cli, args),
         Command::Qc(args) => qc(cli, args),
+        Command::Reconcile(args) => reconcile(cli, args),
+        Command::ExportRinex(args) => export_rinex(cli, args),
     }
 }
 
@@ -421,6 +447,97 @@ fn import_rinex(cli: &Cli, args: &RinexArgs) -> Result<u8, Failure> {
         }
         for note in &report.notes {
             println!("note: {note}");
+        }
+    })?;
+    Ok(0)
+}
+
+fn reconcile(cli: &Cli, args: &ReconcileArgs) -> Result<u8, Failure> {
+    let folder = Folder::open(&cli.project)?;
+    let mut store = folder.store();
+    let mut fixed = Vec::new();
+    if args.fix {
+        let (stamp, _, _) = now();
+        let now = gnss_api::reconcile::Timestamp::parse(&stamp).map_err(|e| e.to_string())?;
+        let by = args.by.as_deref().unwrap_or_default();
+        fixed = gnss_api::reconcile::fix(&mut store, by, now).map_err(|e| e.to_string())?;
+    }
+    let findings = gnss_api::reconcile::reconcile(&store).map_err(|e| e.to_string())?;
+    print(
+        cli,
+        &serde_json::json!({ "overlays_written": fixed, "findings": findings }),
+        || {
+            for id in &fixed {
+                println!("Wrote overlays/{id}.toml.");
+            }
+            if findings.is_empty() {
+                println!("Every header agrees with its occupation.");
+            }
+            for f in &findings {
+                let hint = if f.fixable {
+                    " (gnss reconcile --fix corrects it)"
+                } else {
+                    ""
+                };
+                println!(
+                    "{} {}: {}: the header says {}, the occupation {}{hint}",
+                    f.occupation, f.file, f.what, f.header, f.occupation_value
+                );
+            }
+        },
+    )?;
+    Ok(if findings.is_empty() { 0 } else { TESTS_FAILED })
+}
+
+/// A RINEX file's name once it's plain RINEX: `.crx` to `.rnx`, and a
+/// RINEX 2 `.yyd` to `.yyo`.
+fn plain_name(name: &str) -> String {
+    if let Some(stem) = name.strip_suffix(".crx") {
+        return if stem.ends_with(".rnx") {
+            stem.to_owned()
+        } else {
+            format!("{stem}.rnx")
+        };
+    }
+    let bytes = name.as_bytes();
+    if let [.., b'.', a, b, b'd'] = bytes
+        && a.is_ascii_digit()
+        && b.is_ascii_digit()
+    {
+        return format!("{}o", &name[..name.len() - 1]);
+    }
+    name.to_owned()
+}
+
+fn export_rinex(cli: &Cli, args: &ExportRinexArgs) -> Result<u8, Failure> {
+    let folder = Folder::open(&cli.project)?;
+    let store = folder.store();
+    let loaded = gnss_api::folder::load(&store).map_err(|e| e.to_string())?;
+    let out_dir = args
+        .output
+        .clone()
+        .unwrap_or_else(|| folder.results().join("rinex"));
+    let mut files: Vec<&String> = loaded.occupations.iter().flat_map(|o| &o.rinex).collect();
+    files.sort();
+    files.dedup();
+    let mut written = Vec::new();
+    for file in files {
+        let bytes =
+            gnss_api::reconcile::corrected_rinex(&store, file).map_err(|e| e.to_string())?;
+        let name = plain_name(file.trim_start_matches("raw/"));
+        let path = out_dir.join(&name);
+        folder.write(&path, &bytes)?;
+        let corrected = loaded.overlays.iter().any(|o| &o.file == file);
+        written.push(serde_json::json!({ "file": file, "written": path, "corrected": corrected }));
+    }
+    print(cli, &written, || {
+        for w in &written {
+            let note = if w["corrected"] == true {
+                " (corrected)"
+            } else {
+                ""
+            };
+            println!("Wrote {}{note}.", w["written"].as_str().unwrap_or_default());
         }
     })?;
     Ok(0)

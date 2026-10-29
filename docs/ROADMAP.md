@@ -297,7 +297,10 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - gaps are kept with the occupation, with a note on any over 15 minutes, since a set-up again over the same mark without a new header looks the same.
 
   The import puts the files in `raw/` and `raw.lock`, writes an occupation file for each, and adds new marks to `marks.toml` with the headers' positions. It checks everything before writing anything. An antenna moved to another mark without a new header can't be seen from the headers; that needs positions from the data (M9).
-- [ ] Header reconciliation against field logs (this feeds M9). Write corrected RINEX on export, and never overwrite raw files.
+- [x] Header reconciliation against field logs (this feeds M9). Write corrected RINEX on export, and never overwrite raw files.
+  - `gnss reconcile` compares each occupation, the field record, with its files' headers as corrected by overlays: the marker and mark, the antenna, radome and receiver codes and serial numbers, the ARP height (from a slant height through the antenna catalogue), and the span.
+  - `--fix --by` writes an overlay per file for what an overlay can correct, with the evidence as its reason. Serial numbers and spans are left for a person.
+  - `gnss export-rinex` writes every occupation's files as plain RINEX with their overlays applied, a `COMMENT` naming each overlay. The raw files are never touched.
 - [x] QC metrics (`gnss_rinex_io::qc`, `gnss qc`), with their definitions in the module's documentation:
   - [x] Observations per satellite and signal, and completeness.
   - [x] Cycle slips (geometry-free and Melbourne-Wübbena), and the receiver's loss-of-lock flags.
