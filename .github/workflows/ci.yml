@@ -162,20 +162,24 @@ jobs:
           echo "WASI_SDK_PATH=$RUNNER_TEMP/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux" >> "$GITHUB_ENV"
       - name: Build the module
         run: engine-modules/rtklib-ex/build.sh
-      - name: Check the module hash is reproduced
+      - name: Check the module hashes are reproduced
         working-directory: engine-modules/rtklib-ex/dist
-        run: grep ' rnx2rtkp.wasm$' ../golden.sha256 | sha256sum -c -
+        run: grep '\.wasm$' ../golden.sha256 | sha256sum -c -
       - name: Install wasmtime
         run: |
           curl -sSfL "https://github.com/bytecodealliance/wasmtime/releases/download/v${WASMTIME_VERSION}/wasmtime-v${WASMTIME_VERSION}-x86_64-linux.tar.xz" \
             | tar xJ -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/wasmtime-v${WASMTIME_VERSION}-x86_64-linux" >> "$GITHUB_PATH"
       - name: Smoke test against RTKLIB's test data
-        run: engine-modules/rtklib-ex/smoke-test.sh
+        run: |
+          engine-modules/rtklib-ex/smoke-test.sh
+          engine-modules/rtklib-ex/smoke-test-convbin.sh
       - name: Add RTKLIB's test data for the web app's end-to-end test
         run: |
           mkdir -p engine-modules/rtklib-ex/dist/testdata
           cp engine-modules/rtklib-ex/.src/rtklib/test/data/rinex/{07590920.05o,30400920.05n,30400920.05o} \
+            engine-modules/rtklib-ex/dist/testdata/
+          cp engine-modules/rtklib-ex/.src/rtklib/test/data/rcvraw/ubx_20080526.ubx \
             engine-modules/rtklib-ex/dist/testdata/
       - uses: actions/upload-artifact@v6
         with:

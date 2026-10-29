@@ -27,6 +27,8 @@ import { serve } from './static-server.mjs'
 const ui = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const SAMPLE = path.resolve(ui, '../../../crates/formats/tests/data/dynaml')
 const RINEX = path.resolve(ui, '../../../crates/rinex-io/tests/data')
+// RTKLIB's u-blox sample, copied there by CI's engine-module job.
+const UBX = path.resolve(ui, '../../../engine-modules/rtklib-ex/dist/testdata/ubx_20080526.ubx')
 const REQUIRED = ['Secure context', 'WebAssembly', 'WebAssembly SIMD', 'Web workers', 'Browser storage (OPFS)', 'Offline use (service worker)']
 
 // A zip of stored entries, as an archiver might make one.
@@ -173,6 +175,16 @@ try {
   if (!checked.includes('SWTC') || !/Coverage above 10°/.test(checked)) throw new Error(`unexpected RINEX check:\n${checked}`)
   const timing = await page.getByTestId('rinex-timing').innerText()
   console.log(`checked a Hatanaka-compressed RINEX file with navigation: ${timing}`)
+
+  // Raw u-blox data: converted with convbin, then checked with its own navigation.
+  await page.getByTestId('rinex-nav').setInputFiles([])
+  await page.getByTestId('rinex-obs').setInputFiles(UBX)
+  if ((await page.getByTestId('rinex-raw-format').inputValue()) !== 'ubx') throw new Error('the UBX file wasn\'t recognised')
+  await page.getByRole('button', { name: 'Check', exact: true }).click()
+  await page.getByTestId('rinex-converted').filter({ hasText: 'ubx_20080526.obs' }).waitFor()
+  const rawChecked = await page.getByTestId('rinex-result').innerText()
+  if (!/242 of 242 epochs/.test(rawChecked) || !/GPS\s+9\b/.test(rawChecked)) throw new Error(`unexpected check of the converted file:\n${rawChecked}`)
+  console.log('converted raw u-blox data with convbin and checked it: 242 epochs, 9 GPS satellites')
 
   // 5. Offline: wait for the service worker to finish caching, then reload
   //    with no network and load the engine from the cache.

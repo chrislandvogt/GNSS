@@ -312,7 +312,10 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - The web app's "Check a RINEX file" panel works this way: the core worker reads the `File` in 4 MiB slices (`FileReaderSync`), so the file is never whole in memory.
   - A day of SYDN at 1 Hz (1.2 GB) takes 13.5 s in Chromium (target 30 s), or 18.9 s with elevation coverage from 38 navigation files; natively, 6.8 s and 9.3 s (target 10 s).
   - This needed an observation parser that doesn't allocate, and slip tests that hold at 1 Hz (VALIDATION.md, D8).
-- [ ] Open receiver formats (UBX, SBF, Unicore, NovAtel, RTCM3): decide between running `convbin` from RTKLIB-EX, as another WebAssembly module, and our own Rust decoders (D-020).
+- [x] Open receiver formats (UBX, SBF, Unicore, NovAtel, RTCM3): `convbin` from RTKLIB-EX, as a second WebAssembly module (D-020).
+  - Built from the same pinned source and toolchain as `rnx2rtkp`, reproducibly (`engine-modules/rtklib-ex`). Its RINEX matches a native build on RTKLIB's samples of RTCM 3, u-blox, NovAtel, Javad and Hemisphere data, under wasmtime and in the browsers.
+  - The web app's "Check a RINEX file" panel converts a raw file first, then checks it with its own navigation data; the RINEX can be downloaded.
+  - SBF and Unicore aren't yet tested on real logs. The CLI gets conversion with the native engine host (M8).
 
 **Exit criteria:**
 - The benchmark corpus ingests with QC metrics within tolerance of the reference tools.

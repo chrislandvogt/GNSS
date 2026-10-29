@@ -1,6 +1,6 @@
 # RTKLIB-EX engine module
 
-RTKLIB-EX's `rnx2rtkp`, compiled to a single WebAssembly (WASI) module. The web app runs it in engine workers, and the CLI runs the same module with wasmtime (see [ARCHITECTURE.md](../../docs/ARCHITECTURE.md#93-rtklib-ex-module) and decision D-023).
+RTKLIB-EX's `rnx2rtkp` (the engine) and `convbin` (raw receiver data to RINEX), each compiled to a single WebAssembly (WASI) module. The web app runs them in engine workers, and the CLI will run the same modules with wasmtime (see [ARCHITECTURE.md](../../docs/ARCHITECTURE.md#93-rtklib-ex-module) and decisions D-020 and D-023).
 
 ## Pinned versions
 
@@ -17,21 +17,27 @@ The pins live in `build.sh`. Changing any of them changes the module hash, which
 Install [wasi-sdk](https://github.com/WebAssembly/wasi-sdk) 34, then:
 
 ```bash
-WASI_SDK_PATH=/opt/wasi-sdk ./build.sh            # dist/rnx2rtkp.wasm
-WASI_SDK_PATH=/opt/wasi-sdk ./build.sh --native   # also dist/rnx2rtkp-native, for comparisons
+WASI_SDK_PATH=/opt/wasi-sdk ./build.sh            # dist/rnx2rtkp.wasm and dist/convbin.wasm
+WASI_SDK_PATH=/opt/wasi-sdk ./build.sh --native   # also *-native builds, for comparisons
 ```
 
-The script clones RTKLIB-EX at the pinned tag into `.src/` (or uses `RTKLIB_SRC`), checks the commit, and writes the module, its SHA-256 and a `build-info.json` to `dist/`.
+The script clones RTKLIB-EX at the pinned tag into `.src/` (or uses `RTKLIB_SRC`), checks the commit, and writes the modules, their SHA-256s and a `build-info.json` to `dist/`.
 
-The build is reproducible. With wasi-sdk 34.0, `rnx2rtkp.wasm` has this SHA-256 whatever directory it's built in:
+The build is reproducible. With wasi-sdk 34.0, the modules have these SHA-256s whatever directory they're built in (`golden.sha256`, checked in CI):
 
 ```
-ff6b24e0d6c7c3b536f14ef70584caab5963800252abf017dd102beb29ab9eaa
+ff6b24e0d6c7c3b536f14ef70584caab5963800252abf017dd102beb29ab9eaa  rnx2rtkp.wasm
+1bf9945d4c478b8a4dc01b688aecaa7dbb618c5f8acec88ff00ae472961af8c1  convbin.wasm
 ```
+
+## Testing
+
+- `smoke-test.sh` runs one of upstream's `rnx2rtkp` test cases under wasmtime and checks the solution's hash.
+- `smoke-test-convbin.sh` converts RTKLIB's samples of RTCM 3, u-blox, NovAtel, Javad and Hemisphere data under wasmtime and checks each RINEX file's hash (`golden-convbin.sha256`), leaving out the `PGM / RUN BY / DATE` record, which holds the time of conversion. The golden hashes come from a native build, so they also show the module converts exactly as native code does.
 
 ## How the build differs from upstream
 
-- **The same sources and defines as upstream's `rnx2rtkp` makefile.** RTKLIB-EX itself isn't patched.
+- **The same sources and defines as upstream's `rnx2rtkp` and `convbin` makefiles.** RTKLIB-EX itself isn't patched.
 - **`wasi_compat.c` supplies `system()`.** WASI has no shell. RTKLIB only calls `system()` to run gzip, tar or crx2rnx on compressed inputs. The stub always fails, so a compressed file is reported as unreadable rather than silently skipped. The engine driver always passes uncompressed RINEX.
 - **The stack is 8 MiB and placed first** (`--stack-first`), so a stack overflow traps instead of corrupting memory.
 - **The maths library is wasi-libc's, which is derived from musl.** A native build linked against musl gives byte-identical output to the module. Builds linked against glibc don't: their maths functions round some results differently in the last bit, and on kinematic data that changes RTKLIB's fix decisions. So a native build isn't a reference for the module. See the [M0 spike report](../../docs/spikes/m0-engine.md).
@@ -40,6 +46,7 @@ ff6b24e0d6c7c3b536f14ef70584caab5963800252abf017dd102beb29ab9eaa
 
 ```bash
 wasmtime run --dir . dist/rnx2rtkp.wasm -k static.conf -o out.pos rover.obs base.obs nav.rnx
+wasmtime run --dir . dist/convbin.wasm -r ubx -os -o rover.obs -n rover.nav rover.ubx
 ```
 
 The module only sees the directories the host grants it. Input and output paths must be inside them.
