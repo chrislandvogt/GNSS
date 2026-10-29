@@ -6,6 +6,7 @@ import init, {
   buildTarget,
   catalogue,
   checkProject,
+  checkRinex,
   exportResults,
   hashFile,
   projectToml,
@@ -17,6 +18,10 @@ import init, {
 import type { CoreRequest, CoreResponse, ExportedFile, ProjectFileData, WorkerScope } from './protocol'
 
 const scope = self as unknown as WorkerScope<CoreRequest, CoreResponse>
+
+// Reads parts of a File synchronously: workers only, and not in TypeScript's
+// DOM library.
+declare const FileReaderSync: { new (): { readAsArrayBuffer(blob: Blob): ArrayBuffer } }
 const ready = init()
 
 const asBytes = (files: ProjectFileData[]) => files.map((f) => ({ path: f.path, data: new Uint8Array(f.data) }))
@@ -77,6 +82,19 @@ scope.onmessage = async ({ data: request }) => {
       case 'check-project':
         reply(JSON.parse(checkProject(asBytes(request.files))))
         break
+      case 'check-rinex': {
+        // The file is read a slice at a time as the core asks for it, so a
+        // whole day at 1 Hz is never in memory.
+        const reader = new FileReaderSync()
+        const file = request.file
+        const slice = (offset: number, length: number) =>
+          new Uint8Array(reader.readAsArrayBuffer(file.slice(offset, offset + length)))
+        const nav = request.nav.map((f) => new Uint8Array(reader.readAsArrayBuffer(f)))
+        const start = performance.now()
+        const qc = JSON.parse(checkRinex(file.size, slice, nav))
+        reply({ qc, bytes: file.size, seconds: (performance.now() - start) / 1000 })
+        break
+      }
     }
   } catch (err) {
     scope.postMessage({ id: request.id, ok: false, error: err instanceof Error ? err.message : String(err) })

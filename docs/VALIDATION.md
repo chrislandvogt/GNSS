@@ -205,14 +205,24 @@ The QC definitions are in `gnss_rinex_io::qc`'s documentation. They're checked t
 | GLONASS satellite-epochs possible | 18,063 | 18,133 expected | 0.4% |
 | GPS MP1 / MP2 | 0.329 / 0.222 m | 0.343 / 0.220 m | teqc takes out a 50-point moving average, and only above 10°; we take out each arc's mean, at all elevations |
 | GLONASS MP1 / MP2 | 0.483 / 0.260 m | 0.524 / 0.274 m | As above |
-| GPS slips (above 10°, all) | 1, 11 | 8, 30 | teqc's ionosphere test signals a slip at over 4 m/min, so it can't see a 1-1 slip (5 cm on GPS); our geometry-free test can. Below 10°, ionospheric noise approaches that size, so we report slips above the cutoff apart |
-| GLONASS slips (above 10°, all) | 2, 3 | 3, 9 | As above |
+| GPS slips (above 10°, all) | 1, 11 | 7, 22 | teqc's ionosphere test signals a slip at over 4 m/min, so it can't see a 1-1 slip (5 cm on GPS); our geometry-free test can. Below 10°, ionospheric noise approaches that size, so we report slips above the cutoff apart |
+| GLONASS slips (above 10°, all) | 2, 3 | 3, 7 | As above |
 
 The comparison changed our definitions. On MOBS, the first version found 62 GPS slips, and two kinds were false:
 - jumps of about one wide-lane cycle in Melbourne-Wübbena, with nothing in the geometry-free phase. That's code multipath, since a real slip of one wide-lane cycle moves the geometry-free phase by a fifth of a metre;
 - one-epoch excursions.
 
 The Melbourne-Wübbena test now needs 2 cycles, and a jump must be confirmed by the next epoch, or it's counted as an outlier and left out of the multipath too.
+
+**At 1 Hz.** A day of SYDN at 1 Hz (96 of GA's 15-minute files joined, 1.2 GB, five systems) found another false-slip problem. Galileo showed 1,912 slips there, against 10 in the same day's 30 s file. Every one was a geometry-free offset of 3 to 5 cm, just over the 3 cm limit. The rate predicting the next value came from the last two epochs only, so at 1 Hz their phase noise threw it off. Two changes followed:
+- the rate is averaged over about 30 s (at 30 s and slower, it's still the last step's);
+- on a noisy arc, a slip must exceed 4 times the arc's own geometry-free scatter, as the Melbourne-Wübbena test already did.
+
+With both, Galileo's 1 Hz day has 38 slips. Higher rates still see more short-lived events than a 30 s file does. A clean arc keeps the 3 cm limit, so a 1-1 slip is still found. The Python implementation follows both changes and agrees exactly with ours, on the three 30 s days and on two hours of the 1 Hz day.
+
+**Speed.** QC of the 1 Hz day takes 6.8 s natively and 13.5 s in Chromium, reading the `File` in 4 MiB slices. With 38 navigation files for coverage, it takes 9.3 s and 18.9 s. The targets are 10 s and 30 s (ARCHITECTURE.md section 20). Getting there needed two things:
+- an observation parser that doesn't allocate, which cut reading alone from 7.7 s to 4.7 s;
+- a coverage pass that looks at the orbits once per 30 s step rather than once per epoch.
 
 ## 4. Truth
 

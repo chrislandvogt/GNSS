@@ -11,6 +11,7 @@ import type {
   LoadedFile,
   ProjectFileData,
   ProjectSpec,
+  RinexChecked,
 } from '../workers/protocol'
 
 type Pending = { resolve: (value: unknown) => void; reject: (reason: Error) => void }
@@ -86,6 +87,11 @@ class CoreClient {
   /** The files in a project zip, checked: none escapes the project or is damaged. */
   zipImport(data: ArrayBuffer): Promise<ProjectFileData[]> {
     return this.call<ProjectFileData[]>({ type: 'zip-import', data }, [data])
+  }
+
+  /** Checks a RINEX observation file, read in slices, with navigation files for elevation coverage. */
+  checkRinex(file: File, nav: File[]): Promise<RinexChecked> {
+    return this.call<RinexChecked>({ type: 'check-rinex', file, nav })
   }
 
   /** Loads a project the way the CLI does and reports every problem, by file. */

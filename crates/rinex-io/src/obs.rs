@@ -400,25 +400,84 @@ fn optional_number(line: &[u8], start: usize, end: usize) -> Result<Option<f64>,
 /// One observation field, F14.3 then the indicator and strength digits,
 /// starting at a column. A blank value is no observation.
 fn field(line: &[u8], at: usize) -> Result<Option<Observation>, String> {
-    let value = text(line, at, at + 14);
-    if value.is_empty() {
+    let raw = cols(line, at, at + 14);
+    if raw.iter().all(|&b| b == b' ') {
         return Ok(None);
     }
+    let value = match fixed(raw) {
+        Some(v) => v,
+        None => parse_text(raw)?,
+    };
     let digit = |i: usize| {
         cols(line, at + i, at + i + 1)
             .first()
             .filter(|b| b.is_ascii_digit())
             .map(|b| b - b'0')
     };
-    let value: f64 = value.parse().map_err(|_| value.clone())?;
-    if !value.is_finite() {
-        return Err(value.to_string());
-    }
     Ok(Some(Observation {
         value,
         lli: digit(14),
         ssi: digit(15),
     }))
+}
+
+/// A field's value as the standard parser reads it, for what [`fixed`]
+/// doesn't take.
+fn parse_text(raw: &[u8]) -> Result<f64, String> {
+    let value = String::from_utf8_lossy(raw).trim().to_owned();
+    match value.parse::<f64>() {
+        Ok(v) if v.is_finite() => Ok(v),
+        _ => Err(value),
+    }
+}
+
+/// A plain decimal, such as `  20000000.123`, without allocating: what
+/// almost every observation is. The digits make an integer under 2^53 and
+/// the decimals an exact power of ten, so their quotient is correctly
+/// rounded: the same value `str::parse` gives. `None` for anything else
+/// (exponents, more than 15 digits, stray characters).
+fn fixed(raw: &[u8]) -> Option<f64> {
+    let start = raw.iter().position(|&b| b != b' ')?;
+    let end = raw.iter().rposition(|&b| b != b' ')? + 1;
+    let mut body = raw.get(start..end)?;
+    let negative = match body.first() {
+        Some(b'-') => true,
+        Some(b'+') => false,
+        _ => {
+            return digits(body);
+        }
+    };
+    body = body.get(1..)?;
+    digits(body).map(|v| if negative { -v } else { v })
+}
+
+fn digits(body: &[u8]) -> Option<f64> {
+    const POWERS: [f64; 16] = [
+        1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15,
+    ];
+    let mut mantissa: u64 = 0;
+    let mut count = 0usize;
+    let mut decimals: Option<usize> = None;
+    for &b in body {
+        match b {
+            b'0'..=b'9' => {
+                mantissa = mantissa * 10 + u64::from(b - b'0');
+                count += 1;
+                if let Some(d) = decimals.as_mut() {
+                    *d += 1;
+                }
+                if count > 15 {
+                    return None;
+                }
+            }
+            b'.' if decimals.is_none() => decimals = Some(0),
+            _ => return None,
+        }
+    }
+    if count == 0 {
+        return None;
+    }
+    Some(mantissa as f64 / POWERS.get(decimals.unwrap_or(0))?)
 }
 
 #[cfg(test)]
@@ -429,6 +488,48 @@ mod tests {
     use wasm_bindgen_test::wasm_bindgen_test as test;
 
     use super::{EpochFlag, Sv};
+
+    #[test]
+    fn fixed_point_values_read_as_the_standard_parser_reads_them() {
+        let cases = [
+            "  20000000.123",
+            "-12345678.901",
+            "        -0.001",
+            "0.5",
+            "  .5",
+            "5.",
+            "123456789012.345",
+            "+1.000",
+            "-0",
+            "99999999999.999",
+            "1e3",
+            "1.2.3",
+            "--1",
+            " - 1",
+            "",
+            "-",
+            ".",
+            "1234567890123456",
+        ];
+        for c in cases {
+            let ours = super::fixed(c.as_bytes());
+            let standard = c.trim().parse::<f64>().ok();
+            if let Some(v) = ours {
+                assert_eq!(Some(v.to_bits()), standard.map(f64::to_bits), "{c:?}");
+            }
+        }
+        // And a sweep of three-decimal values, bit for bit.
+        let mut x: u64 = 1;
+        for _ in 0..100_000 {
+            x = x.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            let text = format!("{:.3}", (x >> 20) as f64 / 1000.0 - 1.0e9);
+            assert_eq!(
+                super::fixed(text.as_bytes()).map(f64::to_bits),
+                text.parse::<f64>().ok().map(f64::to_bits),
+                "{text}"
+            );
+        }
+    }
     use crate::read_obs;
 
     #[test]

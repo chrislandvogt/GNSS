@@ -936,7 +936,7 @@ These are for an 8-core laptop. Web targets are for current Chrome or Edge, with
 
 The engine targets come from the M0 spike's measurements ([report](spikes/m0-engine.md)). With trimmed inputs, RTKLIB-EX took 1.2 to 2.3 s per 2-hour baseline in Chromium, 1.1 to 1.5 times native.
 
-The adjustment targets are met with a wide margin (section 10.4). A synthetic network of 1,000 marks and 3,000 vectors adjusts in 17 ms natively and 38 ms in Chromium, about 2.2 times native. 10,000 marks and 30,000 vectors take 0.3 s natively. CI checks the first target natively and in headless Chrome on every change. The ingest target stays provisional until M6.
+The adjustment targets are met with a wide margin (section 10.4). A synthetic network of 1,000 marks and 3,000 vectors adjusts in 17 ms natively and 38 ms in Chromium, about 2.2 times native. 10,000 marks and 30,000 vectors take 0.3 s natively. CI checks the first target natively and in headless Chrome on every change. Ingest and QC of a day at 1 Hz (1.2 GB of RINEX 3, five systems) take 6.8 s natively and 13.5 s in Chromium, which reads the file in 4 MiB slices; with elevation coverage from 38 navigation files, 9.3 s and 18.9 s (VALIDATION.md, D8).
 
 | Operation | Native CLI | Web app |
 |---|---|---|

@@ -26,6 +26,7 @@ import { serve } from './static-server.mjs'
 
 const ui = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const SAMPLE = path.resolve(ui, '../../../crates/formats/tests/data/dynaml')
+const RINEX = path.resolve(ui, '../../../crates/rinex-io/tests/data')
 const REQUIRED = ['Secure context', 'WebAssembly', 'WebAssembly SIMD', 'Web workers', 'Browser storage (OPFS)', 'Offline use (service worker)']
 
 // A zip of stored entries, as an archiver might make one.
@@ -164,7 +165,16 @@ try {
   await page.getByRole('button', { name: 'Survey', exact: true }).waitFor({ state: 'detached' })
   console.log(`project zip imported, checked (1 problem, by file), exported without its cache (${exported.bytes.length} bytes), not imported twice, removed`)
 
-  // 4. Offline: wait for the service worker to finish caching, then reload
+  // 4. A RINEX file checked in slices, with navigation for coverage.
+  await page.getByTestId('rinex-obs').setInputFiles(path.join(RINEX, 'rinex/SWTC00AUS_20251660000.rnx.crx'))
+  await page.getByTestId('rinex-nav').setInputFiles(path.join(RINEX, 'nav/HOB200AUS_R_20251660000_excerpt_MN.rnx'))
+  await page.getByRole('button', { name: 'Check', exact: true }).click()
+  const checked = await page.getByTestId('rinex-result').innerText()
+  if (!checked.includes('SWTC') || !/Coverage above 10°/.test(checked)) throw new Error(`unexpected RINEX check:\n${checked}`)
+  const timing = await page.getByTestId('rinex-timing').innerText()
+  console.log(`checked a Hatanaka-compressed RINEX file with navigation: ${timing}`)
+
+  // 5. Offline: wait for the service worker to finish caching, then reload
   //    with no network and load the engine from the cache.
   await page.evaluate(async () => {
     const registration = await navigator.serviceWorker.ready

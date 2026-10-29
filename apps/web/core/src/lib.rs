@@ -272,6 +272,65 @@ pub fn check_project(files: Vec<ProjectFile>) -> Result<Checked, String> {
     })
 }
 
+/// How much of a file is read at a time: what the page reads from a `File`
+/// in one go. A whole file is never in memory, only this much of it.
+pub const SLICE: usize = 4 << 20;
+
+/// A file read through `read(offset, length)`, which gives that part of it:
+/// in the browser, a slice of a `File`.
+pub struct Slices<F> {
+    read: F,
+    size: u64,
+    pos: u64,
+}
+
+impl<F: FnMut(u64, usize) -> Result<Vec<u8>, String>> Slices<F> {
+    /// A file of `size` bytes.
+    pub fn new(size: u64, read: F) -> Self {
+        Self { read, size, pos: 0 }
+    }
+}
+
+impl<F: FnMut(u64, usize) -> Result<Vec<u8>, String>> std::io::Read for Slices<F> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let left = self.size.saturating_sub(self.pos);
+        let want = usize::try_from(left).unwrap_or(usize::MAX).min(buf.len());
+        if want == 0 {
+            return Ok(0);
+        }
+        let bytes = (self.read)(self.pos, want).map_err(std::io::Error::other)?;
+        let n = bytes.len().min(want);
+        if n == 0 {
+            return Err(std::io::Error::other("the file ended before its size"));
+        }
+        if let (Some(dst), Some(src)) = (buf.get_mut(..n), bytes.get(..n)) {
+            dst.copy_from_slice(src);
+        }
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+/// Checks a RINEX observation file of `size` bytes read in slices through
+/// `read`, with navigation files (given whole: they're small) for elevation
+/// coverage.
+pub fn check_rinex<F: FnMut(u64, usize) -> Result<Vec<u8>, String>>(
+    size: u64,
+    read: F,
+    nav: &[Vec<u8>],
+) -> Result<gnss_api::rinex::FileQc, String> {
+    let mut ephemerides = Vec::new();
+    for (i, bytes) in nav.iter().enumerate() {
+        ephemerides.extend(
+            gnss_api::rinex::read_nav(&bytes[..])
+                .map_err(|e| format!("navigation file {}: {e}", i + 1))?,
+        );
+    }
+    let orbits = (!nav.is_empty()).then(|| gnss_api::rinex::Orbits::new(ephemerides));
+    let reader = std::io::BufReader::with_capacity(SLICE, Slices::new(size, read));
+    gnss_api::rinex::check_file(reader, orbits).map_err(|e| e.to_string())
+}
+
 #[cfg(target_arch = "wasm32")]
 mod bindings {
     use std::cell::RefCell;
@@ -286,6 +345,33 @@ mod bindings {
 
     fn json<T: serde::Serialize>(value: &T) -> Result<String, JsError> {
         serde_json::to_string(value).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Checks a RINEX observation file of `size` bytes, read in slices by
+    /// calling `read(offset, length)`, which returns a `Uint8Array`; `nav` is
+    /// an array of navigation files' bytes. The report as JSON.
+    #[wasm_bindgen(js_name = checkRinex)]
+    pub fn check_rinex(
+        size: f64,
+        read: &js_sys::Function,
+        nav: &js_sys::Array,
+    ) -> Result<String, JsError> {
+        let nav: Vec<Vec<u8>> = nav
+            .iter()
+            .map(|v| js_sys::Uint8Array::new(&v).to_vec())
+            .collect();
+        let slice = |offset: u64, length: usize| -> Result<Vec<u8>, String> {
+            let bytes = read
+                .call2(
+                    &JsValue::NULL,
+                    &JsValue::from_f64(offset as f64),
+                    &JsValue::from_f64(length as f64),
+                )
+                .map_err(|e| format!("reading the file: {e:?}"))?;
+            Ok(js_sys::Uint8Array::new(&bytes).to_vec())
+        };
+        let qc = super::check_rinex(size as u64, slice, &nav).map_err(|e| JsError::new(&e))?;
+        json(&qc)
     }
 
     /// Version of the core.
@@ -447,8 +533,55 @@ mod tests {
     use wasm_bindgen_test::wasm_bindgen_test as test;
 
     use super::{
-        ProjectFile, Session, catalogue, check_project, project_toml, zip_export, zip_import,
+        ProjectFile, SLICE, Session, catalogue, check_project, check_rinex, project_toml,
+        zip_export, zip_import,
     };
+
+    const SWTC: &[u8] = include_bytes!(
+        "../../../../crates/rinex-io/tests/data/rinex/SWTC00AUS_20251660000.rnx.crx"
+    );
+    const HOB2_NAV: &[u8] = include_bytes!(
+        "../../../../crates/rinex-io/tests/data/nav/HOB200AUS_R_20251660000_excerpt_MN.rnx"
+    );
+
+    #[test]
+    fn rinex_is_read_in_slices_with_the_same_result_as_whole() {
+        let whole = gnss_api::rinex::check_file(SWTC, None).unwrap();
+        let mut calls = Vec::new();
+        let sliced = check_rinex(
+            SWTC.len() as u64,
+            |offset, length| {
+                calls.push((offset, length));
+                let start = offset as usize;
+                Ok(SWTC[start..start + length].to_vec())
+            },
+            &[],
+        )
+        .unwrap();
+        assert_eq!(sliced, whole);
+        // Read once, in order, in slices no bigger than SLICE.
+        assert_eq!(calls.first(), Some(&(0, SWTC.len().min(SLICE))));
+        assert!(calls.iter().all(|&(_, n)| n <= SLICE));
+        // With a navigation file, coverage.
+        let with_nav = check_rinex(
+            SWTC.len() as u64,
+            |o, n| Ok(SWTC[o as usize..o as usize + n].to_vec()),
+            &[HOB2_NAV.to_vec()],
+        )
+        .unwrap();
+        assert!(with_nav.systems.iter().any(|s| s.coverage.is_some()));
+        // A short read, and a reader that fails, are errors, not panics.
+        let short = check_rinex(
+            SWTC.len() as u64 + 10,
+            |o, n| {
+                let start = (o as usize).min(SWTC.len());
+                Ok(SWTC[start..(start + n).min(SWTC.len())].to_vec())
+            },
+            &[],
+        );
+        assert!(short.is_err());
+        assert!(check_rinex(100, |_, _| Err("gone".into()), &[]).is_err());
+    }
 
     const STATIONS: &[u8] =
         include_bytes!("../../../../crates/formats/tests/data/dynaml/gnss-networkstn.xml");
