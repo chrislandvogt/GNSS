@@ -17,7 +17,7 @@
 //! it, so a slow or malformed client can't hold the relay up.
 
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -85,9 +85,21 @@ pub fn serve(listener: TcpListener, config: Arc<Config>, upstream: Arc<dyn Upstr
             } else {
                 handle(&stream, &config, upstream.as_ref())
             };
+            linger(&stream);
             busy.fetch_sub(1, Ordering::SeqCst);
         });
     }
+}
+
+/// Closes a connection gracefully: says it's done sending, then reads
+/// and drops what the client is still sending (at most 64 KiB, for at most
+/// a second). Closing a socket with unread input makes the system reset the
+/// connection, which can lose the answer just written: a request refused
+/// for an oversized head would reach the client as nothing.
+fn linger(stream: &TcpStream) {
+    let _ = stream.shutdown(Shutdown::Write);
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+    let _ = io::copy(&mut stream.take(64 * 1024), &mut io::sink());
 }
 
 /// A request's method, target and `Range` header.
@@ -337,7 +349,6 @@ impl Upstream for Network {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::net::Shutdown;
     use std::sync::Mutex;
 
     use super::*;
@@ -484,14 +495,13 @@ mod tests {
         );
         let answer = ask(&addr, "nonsense");
         assert!(answer.starts_with("HTTP/1.1 400"), "{answer}");
-        // A head over 8 KiB: answered 400 and closed, which the client may
-        // see as a reset while it's still sending. Either way, refused.
-        let mut stream = TcpStream::connect(&addr).unwrap();
-        let big = format!("GET /?url=x HTTP/1.1\r\nX: {}\r\n\r\n", "a".repeat(9000));
-        let _ = stream.write_all(big.as_bytes());
-        let mut out = String::new();
-        let _ = stream.read_to_string(&mut out);
-        assert!(out.is_empty() || out.starts_with("HTTP/1.1 400"), "{out}");
+        // A head over 8 KiB: answered 400, and the answer arrives whole,
+        // however much more the client sends.
+        let answer = ask(
+            &addr,
+            &format!("GET /?url=x HTTP/1.1\r\nX: {}\r\n\r\n", "a".repeat(9000)),
+        );
+        assert!(answer.starts_with("HTTP/1.1 400"), "{answer}");
         assert_eq!(fake.asked.lock().unwrap().len(), 1);
     }
 
