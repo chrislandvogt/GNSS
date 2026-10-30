@@ -30,6 +30,12 @@ pub struct Project {
     pub name: String,
     /// How to adjust.
     pub adjustment: AdjustmentSettings,
+    /// How to process baselines; the defaults unless given.
+    #[serde(
+        default,
+        skip_serializing_if = "gnss_engine_rtklib::Settings::is_default"
+    )]
+    pub processing: gnss_engine_rtklib::Settings,
     /// The files imported, in order.
     #[serde(default, rename = "import", skip_serializing_if = "Vec::is_empty")]
     pub imports: Vec<Import>,
@@ -275,6 +281,7 @@ impl Project {
             schema: SCHEMA,
             name: name.into(),
             adjustment,
+            processing: gnss_engine_rtklib::Settings::default(),
             imports: Vec::new(),
             edits: Vec::new(),
         }
@@ -284,6 +291,10 @@ impl Project {
     pub fn from_toml(text: &str) -> Result<Self, ProjectError> {
         let project: Project =
             toml::from_str(text).map_err(|e| ProjectError::File(e.to_string()))?;
+        project
+            .processing
+            .check()
+            .map_err(|e| ProjectError::File(e.to_string()))?;
         if project.schema != SCHEMA {
             return Err(ProjectError::File(format!(
                 "schema {} isn't one this version reads ({SCHEMA})",

@@ -69,7 +69,14 @@ fn schemas_name_the_fields_the_files_use() {
     assert_eq!(properties("marks.schema.json"), ["mark", "schema"]);
     assert_eq!(
         properties("project.schema.json"),
-        ["adjustment", "edit", "import", "name", "schema"]
+        [
+            "adjustment",
+            "edit",
+            "import",
+            "name",
+            "processing",
+            "schema"
+        ]
     );
     // deny_unknown_fields: editors flag a misspelt key.
     for (name, schema) in &schemas {

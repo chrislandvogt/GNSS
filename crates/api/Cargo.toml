@@ -12,6 +12,7 @@ publish.workspace = true
 gnss-adjust.workspace = true
 gnss-antennas.workspace = true
 gnss-datum.workspace = true
+gnss-engine-rtklib.workspace = true
 gnss-fetch.workspace = true
 gnss-formats.workspace = true
 gnss-model.workspace = true
