@@ -26,6 +26,10 @@
       "description": "The project's name, for the report.",
       "type": "string"
     },
+    "processing": {
+      "description": "How to process baselines; the defaults unless given.",
+      "$ref": "#/$defs/Settings"
+    },
     "schema": {
       "description": "The schema version: 1 (`SCHEMA`), raised only when a migration is needed.",
       "type": "integer",
@@ -88,6 +92,61 @@
       "additionalProperties": false,
       "required": [
         "frame"
+      ]
+    },
+    "Ambiguities": {
+      "description": "How integer ambiguities are resolved.",
+      "oneOf": [
+        {
+          "description": "Continuously, keeping them while satellites are tracked: the usual\nchoice for static work.",
+          "type": "string",
+          "const": "continuous"
+        },
+        {
+          "description": "Fixed and then held.",
+          "type": "string",
+          "const": "fix-and-hold"
+        },
+        {
+          "description": "Epoch by epoch.",
+          "type": "string",
+          "const": "instantaneous"
+        },
+        {
+          "description": "Not resolved: a float solution.",
+          "type": "string",
+          "const": "off"
+        }
+      ]
+    },
+    "Constellation": {
+      "description": "A constellation.",
+      "oneOf": [
+        {
+          "description": "GPS.",
+          "type": "string",
+          "const": "gps"
+        },
+        {
+          "description": "GLONASS.",
+          "type": "string",
+          "const": "glonass"
+        },
+        {
+          "description": "Galileo.",
+          "type": "string",
+          "const": "galileo"
+        },
+        {
+          "description": "BeiDou.",
+          "type": "string",
+          "const": "beidou"
+        },
+        {
+          "description": "QZSS.",
+          "type": "string",
+          "const": "qzss"
+        }
       ]
     },
     "EditRecord": {
@@ -162,6 +221,26 @@
         }
       ]
     },
+    "Frequencies": {
+      "description": "The frequencies used.",
+      "oneOf": [
+        {
+          "description": "L1 only, as single-frequency receivers give.",
+          "type": "string",
+          "const": "l1"
+        },
+        {
+          "description": "L1 and L2.",
+          "type": "string",
+          "const": "l1+l2"
+        },
+        {
+          "description": "L1, L2 and L5.",
+          "type": "string",
+          "const": "l1+l2+l5"
+        }
+      ]
+    },
     "Import": {
       "description": "A file imported into the project.",
       "type": "object",
@@ -208,6 +287,60 @@
         "file",
         "format"
       ]
+    },
+    "Settings": {
+      "description": "How baselines are processed: `[processing]` in `project.toml`.",
+      "type": "object",
+      "properties": {
+        "ambiguities": {
+          "description": "How integer ambiguities are resolved.",
+          "$ref": "#/$defs/Ambiguities",
+          "default": "continuous"
+        },
+        "constellations": {
+          "description": "The constellations used: \"gps\", \"glonass\", \"galileo\", \"beidou\" and\n\"qzss\".",
+          "type": "array",
+          "default": [
+            "gps",
+            "galileo",
+            "beidou"
+          ],
+          "items": {
+            "$ref": "#/$defs/Constellation"
+          }
+        },
+        "elevation_mask": {
+          "description": "Satellites below this elevation are left out, in degrees.",
+          "type": "number",
+          "format": "double",
+          "default": 15.0
+        },
+        "frequencies": {
+          "description": "The frequencies used.",
+          "$ref": "#/$defs/Frequencies",
+          "default": "l1+l2"
+        },
+        "glonass_ambiguities": {
+          "description": "Resolve GLONASS ambiguities too. Off by default: inter-frequency\nbiases between receiver brands make it unreliable (D-019).",
+          "type": "boolean",
+          "default": false
+        },
+        "ratio": {
+          "description": "The ratio test's threshold for accepting a fix.",
+          "type": "number",
+          "format": "double",
+          "default": 3.0
+        },
+        "snr_mask": {
+          "description": "Signals weaker than this are left out, in dB-Hz, if set.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

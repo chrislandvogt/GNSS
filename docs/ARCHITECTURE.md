@@ -251,6 +251,13 @@ Until the occupation model arrives (M5), a second-opinion project (M3) is `proje
 schema = 1
 name = "Bright control survey"
 
+[processing]                 # optional; these are the defaults
+elevation_mask = 15
+constellations = ["gps", "galileo", "beidou"]
+frequencies = "l1+l2"
+ambiguities = "continuous"   # or "fix-and-hold", "instantaneous", "off"
+ratio = 3.0
+
 [adjustment]
 frame = "GDA2020"
 datum = "constrained"        # or "minimal", or "fixed:MARK"
@@ -402,8 +409,9 @@ pos1-posmode      =static
 pos1-soltype      =combined
 pos1-frequency    =l1+l2
 pos1-elmask       =15            # degrees
-pos1-ionoopt      =brdc          # short baselines; longer ones use dual-freq or est-stec
-pos1-tropopt      =saas          # longer baselines use est-ztd
+pos1-tidecorr     =0             # 1 (solid Earth tides) from 10 km
+pos1-ionoopt      =brdc          # at every length for now: see below
+pos1-tropopt      =saas
 pos1-navsys       =41            # bitmask: gps(1) + gal(8) + bds(32)
 pos2-armode       =continuous
 pos2-gloarmode    =off           # see D-019
@@ -421,6 +429,12 @@ file-satantfile   =igs20.atx
 file-rcvantfile   =igs20.atx
 ```
 
+- **The atmosphere.** Estimating the ionosphere or troposphere on longer baselines did worse than modelling them in the M0 spike's data.
+  - Test: 2-hour sessions, GPS, Galileo and BeiDou, 26 to 50 km.
+  - `est-stec` left all three baselines float.
+  - `est-ztd` moved two fixes by 3 to 7 cm and lost the third.
+  - So the generator models them at every length, and the engine benchmark (M10) decides with reference coordinates.
+- **Settings.** `[processing]` in `project.toml` sets the elevation and SNR masks, constellations, frequencies, ambiguity resolution and its ratio threshold, and GLONASS ambiguities. Each run adds its direction, base position, orbits, satellite exclusions and ANTEX file (`gnss_engine_rtklib::config`).
 - **Header correctness matters.** Because `*` takes the antenna type and deltas from the RINEX header, the driver always feeds RTKLIB the *reconciled* RINEX (originals plus overlays), never the raw file.
 - **Frames.** RTKLIB has no concept of frames. Transforming the base coordinate into the orbit frame and epoch is our job (section 11.2).
 

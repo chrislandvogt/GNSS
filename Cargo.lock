@@ -443,6 +443,7 @@ dependencies = [
  "gnss-adjust",
  "gnss-antennas",
  "gnss-datum",
+ "gnss-engine-rtklib",
  "gnss-fetch",
  "gnss-formats",
  "gnss-model",
@@ -511,6 +512,13 @@ version = "0.1.0"
 [[package]]
 name = "gnss-engine-rtklib"
 version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "thiserror",
+ "toml",
+ "wasm-bindgen-test",
+]
 
 [[package]]
 name = "gnss-fetch"

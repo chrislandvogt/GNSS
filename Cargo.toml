@@ -24,6 +24,7 @@ gnss-pipeline = { path = "crates/pipeline" }
 gnss-report = { path = "crates/report" }
 gnss-store = { path = "crates/store" }
 gnss-relay = { path = "apps/relay" }
+gnss-engine-rtklib = { path = "crates/engine-rtklib" }
 hifitime = "4.3"
 js-sys = "0.3"
 # One maths library on every target (D-024).

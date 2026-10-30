@@ -75,6 +75,18 @@ fn project_files_round_trip() {
     let err = Project::from_toml(&minimal.replace("schema = 1", "schema = 2")).unwrap_err();
     assert!(err.to_string().contains("schema 2"), "{err}");
 
+    // Processing settings: left out while they're the defaults, and checked.
+    assert!(read.processing.is_default());
+    assert!(!read.to_toml().unwrap().contains("[processing]"));
+    let processed =
+        format!("{minimal}[processing]\nelevation_mask = 10\nconstellations = [\"gps\"]\n");
+    let read = Project::from_toml(&processed).unwrap();
+    assert_eq!(read.processing.elevation_mask, 10.0);
+    assert!(read.to_toml().unwrap().contains("[processing]"));
+    assert_eq!(Project::from_toml(&read.to_toml().unwrap()).unwrap(), read);
+    let err = Project::from_toml(&processed.replace("= 10", "= 95")).unwrap_err();
+    assert!(err.to_string().contains("elevation_mask"), "{err}");
+
     // A dynamic frame needs its epoch.
     let err = Project::from_toml(&minimal.replace("epoch = 2026.5\n", ""))
         .unwrap()

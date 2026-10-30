@@ -371,14 +371,18 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [x] Pin an RTKLIB-EX release (done in M0: v2.5.1).
   - [x] Build `rnx2rtkp` from source in CI as a single WASI module, using the build from the M0 spike (done in M0: `engine-modules/rtklib-ex`).
   - [ ] Publish its checksum, and record the version and hash in provenance.
-- [ ] Config generation from project settings ([details](ARCHITECTURE.md#93-rtklib-ex-module)):
-  - [ ] Static mode with a combined solution.
-  - [ ] Frequencies and constellations.
-  - [ ] Elevation and SNR masks.
-  - [ ] Ionosphere and troposphere options chosen by baseline length.
-  - [ ] Ambiguity resolution mode and thresholds.
-  - [ ] Antenna types, deltas and ANTEX.
-  - [ ] The base position from known coordinates.
+- [ ] Config generation from project settings ([details](ARCHITECTURE.md#93-rtklib-ex-module)). This is `gnss_engine_rtklib::config`, driven by `[processing]` in `project.toml`. Every option that changes a result is written, using RTKLIB-EX v2.5.1's option names.
+  - On the M0 spike's CNCD–SYDN baseline (9.7 km), the generated configuration gives a solution byte for byte identical to the spike's.
+  - [x] Static mode, with a combined, forward-only or backward-only solution per run.
+  - [x] Frequencies and constellations: GPS, Galileo and BeiDou on L1 and L2 by default.
+  - [x] Elevation and SNR masks.
+  - [ ] Ionosphere and troposphere options chosen by baseline length. Solid Earth tides are applied from 10 km. The atmosphere is modelled (broadcast ionosphere, Saastamoinen troposphere) at every length for now, because estimating it did worse on the spike's longer baselines:
+    - Estimating the ionosphere left all three 26 to 50 km baselines float.
+    - Estimating the troposphere moved two fixes by 3 to 7 cm and lost the third.
+    - Choosing by length needs the benchmark's reference coordinates (M10).
+  - [x] Ambiguity resolution mode and the ratio threshold. GLONASS ambiguities are off unless asked for (D-019).
+  - [x] Antenna types, deltas and ANTEX. Types, heights and offsets come from the reconciled RINEX headers; ANTEX is the pinned file, given uncompressed.
+  - [x] The base position from known coordinates (ECEF in the orbits' frame at the epoch), or the header's position when nothing better is known. The frame and epoch transformation is the driver's job.
 - [ ] Module hosts: a pool of engine workers in the browser and of wasmtime instances natively, with a fresh instance per run, timeouts, stderr capture and trap handling. Size the browser pool by memory as well as cores (about 90 MB per 2-hour run, 228 MB for a whole day at 30 s).
 - [ ] Before each run, trim each RINEX file to the overlap window and decimate it to the processing interval. This keeps runs within WebAssembly's memory limit and roughly halves their time in the browser (M0 spike).
 - [ ] Check that the navigation data covers every constellation being processed, and refuse to run otherwise. In the M0 spike, per-constellation navigation files silently degraded solutions.
