@@ -332,7 +332,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [ ] State CORS networks, where they're openly available.
   - [ ] IGS product mirrors that don't need a login. CODE covers precise products for now.
   - [x] CODE (AIUB, the Bernese team's analysis centre): final, rapid and ultra-rapid orbits, clocks and ERPs, and multi-GNSS (MGEX) finals, over HTTPS without a login, with the citation CODE asks for per series (`gnss_fetch::products`). Biases and ionosphere maps are named but not planned yet.
-  - [x] ANTEX (igs20.atx), from the IGS.
+  - [x] ANTEX from the IGS, as its weekly release `igs20_2434.atx.gz`, pinned so runs are repeatable (`gnss_fetch::plan::ANTEX`, D-028).
 - [x] Nearest-CORS suggestions ranked by distance and by data availability in the occupation window. Without `--cors`, `gnss fetch` takes the nearest public sites to each mark (`--nearest`, `--within`) whose archive listings cover the window, passing over those that don't for the next nearest, and says which it passed over (`Fetcher::choose_stations`).
 - [x] Products: broadcast navigation, plus precise orbits and clocks (final, rapid or ultra-rapid, chosen by latency). Record product versions in provenance.
   - Navigation files are mixed-constellation (`_MN`) only: from a station in use, else from the pack's list of stations that publish them, with a note saying which.
@@ -346,7 +346,12 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 - [ ] Browser access ([details](ARCHITECTURE.md#13-data-fetch)):
   - [x] Record for each source whether the web app can download from it directly. GA's Web API, archive downloads and site list can; `files.igs.org`, CODE's host and the AUSGeoid2020 grid host can't (checked 2026-10-15, 2026-10-29 and 2026-10-30).
   - [x] Relay (`apps/relay`, `gnss-relay`): optional and off by default, stateless, limited to pack-declared hosts, and with no logs. Self-hostable. It forwards `GET /?url=…` only for HTTPS URLs on hosts the packs declare, follows redirects itself and only to such hosts, passes `Range` on so downloads resume, adds cross-origin headers, and prints nothing but its start-up line. The fetcher routes sources a browser can't reach through it (`gnss_fetch::Route`; `gnss fetch --relay` to check one). Still to do: building it into `gnss serve`, which doesn't exist yet. The web app explains what the relay can see where it's turned on, and it's off unless the user turns it on.
-  - [ ] Confirm whether ANTEX and the AUSGeoid2020 grid may be redistributed with the app, so the Australian v1 workflow needs no relay.
+  - [x] Confirm whether ANTEX and the AUSGeoid2020 grid may be redistributed with the app, so the Australian v1 workflow needs no relay (D-028).
+    - AUSGeoid2020 (N and its uncertainty): CC BY 4.0, under GA's copyright notice.
+    - ANTEX: the IGS terms of use make its products open "without restriction", with attribution. They name no licence.
+    - [ ] Ask the IGS Antenna Working Group for written confirmation that the app may serve its ANTEX releases.
+    - The web app now serves the pinned ANTEX itself: the build downloads it from the IGS into `data/`, checking the SHA-256 the pack gives (`app_files`), and the browser's fetcher takes it from there with no relay (`Fetcher::app_data`).
+    - The AUSGeoid2020 grids join it once the browser uses them, in a compact form: GA's NTv2 files are 247 MB each.
 - [x] Use site logs to check CORS antenna and receiver history against RINEX headers (`gnss_fetch::sitelog`, `gnss_api::fetch::compare_header`): receiver and antenna types and serials, radome, and antenna height and offsets over the window, with equipment changes in the window flagged. Results go in `data.toml` and the report, and show in the CLI and web app. Checked live on 2026-10-30 against BANK, BLKT, CNCD and VLWD, which all agree.
 - [x] Respect data licences, and carry attribution (for example CC BY for GA data) into reports. `data.toml` records each file's licence and the attributions; the report's provenance lists the data from outside the project and quotes the attributions word for word.
 - [x] Read gzipped files (`gnss_rinex_io::decoded`), as archives publish them: observation and navigation files, plain or Hatanaka-compressed, natively and in the browser.

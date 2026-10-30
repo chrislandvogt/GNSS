@@ -24,3 +24,4 @@ Thumbs.db
 # Web app build inputs generated from the core and engine modules
 /apps/web/ui/src/generated/
 /apps/web/ui/public/engines/
+/apps/web/ui/public/data/

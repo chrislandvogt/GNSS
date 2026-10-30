@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use gnss_store::Store;
+use gnss_store::{Store, sha256_hex};
 
 use crate::FetchError;
 use crate::cache::{Cache, Entry, without_query};
@@ -106,6 +106,10 @@ pub struct Fetcher<'a, H: Http, S: Store> {
     pub options: Options,
     /// How sources are reached: directly, or some through a relay.
     pub route: Route,
+    /// In a browser, where the web app serves its own copies of files
+    /// (`Source::app_files`), such as `https://example.org/data/`. These are
+    /// taken from there rather than through the relay.
+    pub app_data: Option<String>,
 }
 
 impl<H: Http, S: Store> Fetcher<'_, H, S> {
@@ -509,6 +513,12 @@ impl<H: Http, S: Store> Fetcher<'_, H, S> {
             .ok_or(FetchError::NoSource(SourceKind::Files))?;
         let url = format!("{}{name}", source.url);
         let mut met = Met::from(&source);
+        if let Some(entry) = self.app_copy(&source, name, &url)? {
+            met.downloaded = true;
+            met.note = Some("the web app's copy".into());
+            met.files.push(entry);
+            return Ok(met);
+        }
         match self.obtain(&source, name, &url, None)? {
             Some((entry, downloaded)) => {
                 met.downloaded = downloaded;
@@ -517,6 +527,50 @@ impl<H: Http, S: Store> Fetcher<'_, H, S> {
             None => met.problem = Some(format!("{} has no {name}", source.name)),
         }
         Ok(met)
+    }
+}
+
+impl<H: Http, S: Store> Fetcher<'_, H, S> {
+    /// In a browser, a file the web app serves itself, if it isn't cached
+    /// already: downloaded from the app, checked against the pack's hash,
+    /// and recorded under the source's own URL, since the bytes are the
+    /// same.
+    fn app_copy(
+        &mut self,
+        source: &Source,
+        name: &str,
+        url: &str,
+    ) -> Result<Option<Entry>, FetchError> {
+        let (Some(base), Some(app)) = (
+            self.app_data.clone(),
+            source.app_files.iter().find(|f| f.name == name),
+        ) else {
+            return Ok(None);
+        };
+        if self.route == Route::Direct || self.cache.get(&source.id, name)?.is_some() {
+            return Ok(None);
+        }
+        let copy = format!("{base}{name}");
+        let data = self.http.get(&copy)?.ok_or_else(|| FetchError::Http {
+            url: copy.clone(),
+            message: "the web app doesn't have it".into(),
+        })?;
+        if data.len() as u64 != app.bytes || sha256_hex(&data) != app.sha256 {
+            return Err(FetchError::Http {
+                url: copy,
+                message: "not the file the pack names (its size or SHA-256 differs)".into(),
+            });
+        }
+        let entry = Entry {
+            source: source.id.clone(),
+            name: name.to_owned(),
+            sha256: String::new(),
+            bytes: 0,
+            url: url.to_owned(),
+            fetched: self.now.clone(),
+            licence: source.licence.clone(),
+        };
+        Ok(Some(self.cache.put(entry, &data)?))
     }
 }
 
@@ -604,7 +658,7 @@ mod tests {
             b"sp3".to_vec(),
         );
         fake.pages.insert(
-            "https://files.igs.org/pub/station/general/igs20.atx".into(),
+            "https://files.igs.org/pub/station/general/pcv_archive/igs20_2434.atx.gz".into(),
             b"atx".to_vec(),
         );
         fake
@@ -634,6 +688,7 @@ mod tests {
             now: "2026-10-29T00:00:00Z".into(),
             options: Options::default(),
             route: Route::Direct,
+            app_data: None,
         };
         let report = fetcher.fetch(&needs);
         assert_eq!(report.problems, []);
@@ -648,7 +703,7 @@ mod tests {
                 "SYDN00AUS_R_20251660000_01D_30S_MO.crx.gz",
                 // SYDN has no mixed navigation file, so a fallback's is used.
                 "STR100AUS_R_20251660000_01D_MN.rnx.gz",
-                "igs20.atx",
+                "igs20_2434.atx.gz",
                 "COD0OPSFIN_20251660000_01D_05M_ORB.SP3.gz",
             ]
         );
@@ -694,6 +749,7 @@ mod tests {
             now: "2026-10-29T00:00:00Z".into(),
             options: Options::default(),
             route: Route::Direct,
+            app_data: None,
         };
         let day = Day::parse("2025-06-15").unwrap();
         let report = fetcher.fetch(&[
@@ -735,6 +791,7 @@ mod tests {
             now: "2026-10-29T00:00:00Z".into(),
             options: Options::default(),
             route: Route::Direct,
+            app_data: None,
         };
         let ids: Vec<String> = fetcher.sites().unwrap().into_iter().map(|s| s.id).collect();
         assert_eq!(ids, ["STR1", "SYDN"]);
@@ -756,6 +813,7 @@ mod tests {
             now: "2026-10-29T00:00:00Z".into(),
             options: Options::default(),
             route: Route::Direct,
+            app_data: None,
         };
         // ZZZZ is nearest but has nothing; SYDN does; STR1 isn't needed.
         let window = Window::new(
@@ -799,6 +857,7 @@ mod tests {
             now: "2026-10-29T00:00:00Z".into(),
             options: Options::default(),
             route: Route::BrowserOnly,
+            app_data: None,
         };
         let day = Day::parse("2025-06-15").unwrap();
         let report = fetcher.fetch(&[
@@ -847,6 +906,7 @@ mod tests {
             now: "2026-10-29T00:00:00Z".into(),
             options: Options::default(),
             route: Route::Direct,
+            app_data: None,
         };
         let report = fetcher.fetch(&[Need::CorsObs {
             station: "SYDN".into(),
@@ -883,6 +943,7 @@ mod tests {
             now: "2026-10-29T00:00:00Z".into(),
             options: Options::default(),
             route: Route::Direct,
+            app_data: None,
         };
         let log = fetcher.site_log("sydn").unwrap().unwrap();
         assert_eq!(log.antennas[0].radome, "LEIT");
@@ -902,5 +963,74 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn a_browser_takes_files_the_web_app_serves_from_it() {
+        let pack = format!(
+            r#"[[sources]]
+id = "igs-files"
+name = "IGS"
+kind = "files"
+url = "https://files.example/"
+hosts = ["files.example"]
+browser = "relay"
+licence = "open"
+attribution = "IGS"
+files = ["a.atx"]
+
+[[sources.app_files]]
+name = "a.atx"
+sha256 = "{}"
+bytes = 3
+"#,
+            sha256_hex(b"atx")
+        );
+        let sources = read_sources(&pack).unwrap();
+        let mut http = Fake::default();
+        http.pages
+            .insert("https://app.example/data/a.atx".into(), b"atx".to_vec());
+        let mut fetcher = Fetcher {
+            sources: &sources,
+            http,
+            cache: Cache::new(MemoryStore::default()),
+            today: Day::parse("2026-10-29").unwrap(),
+            now: "2026-10-29T00:00:00Z".into(),
+            options: Options::default(),
+            route: Route::BrowserOnly,
+            app_data: Some("https://app.example/data/".into()),
+        };
+        let need = Need::File {
+            source: "igs-files".into(),
+            name: "a.atx".into(),
+        };
+        let report = fetcher.fetch(std::slice::from_ref(&need));
+        assert_eq!(report.problems, []);
+        let got = &report.fetched[0];
+        assert_eq!(got.note.as_deref(), Some("the web app's copy"));
+        // Recorded as the source's file, which it is.
+        assert_eq!(got.files[0].url, "https://files.example/a.atx");
+        assert_eq!(fetcher.http.gets, ["https://app.example/data/a.atx"]);
+        // Then from the cache.
+        assert!(!fetcher.fetch(std::slice::from_ref(&need)).fetched[0].downloaded);
+
+        // A copy that isn't the file is refused.
+        fetcher.cache = Cache::new(MemoryStore::default());
+        fetcher
+            .http
+            .pages
+            .insert("https://app.example/data/a.atx".into(), b"xyz".to_vec());
+        let report = fetcher.fetch(std::slice::from_ref(&need));
+        assert!(report.fetched.is_empty());
+        assert!(
+            report.problems[0].message.contains("SHA-256"),
+            "{:?}",
+            report.problems
+        );
+        // Natively, the source itself.
+        fetcher.route = Route::Direct;
+        fetcher.http.gets.clear();
+        let _ = fetcher.fetch(std::slice::from_ref(&need));
+        assert_eq!(fetcher.http.gets, ["https://files.example/a.atx"]);
     }
 }

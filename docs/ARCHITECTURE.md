@@ -728,7 +728,7 @@ The initial catalogue (M9):
   |---|---|
   | GA Web API, its archive downloads (observation and navigation files) and the `ga-gnss-data-rinex-v1` bucket | Direct |
   | GA's CORS site list and site logs (`gws.geodesy.ga.gov.au`, checked 2026-10-30) | Direct |
-  | `files.igs.org` (ANTEX, IGS station files) | Relay or data pack |
+  | `files.igs.org` (ANTEX, IGS station files) | Relay or data pack; the pinned ANTEX is served by the app itself (D-028) |
   | The AUSGeoid2020 grid and its uncertainty grid on Geoscience Australia's S3 host | Relay or data pack |
   | PROJ-data on GitHub: the GDA94 to GDA2020 grid, and AUSGeoid2020's N without its uncertainty, as GeoTIFF (checked 2026-10-19) | Direct |
   | The BKG and IGN IGS mirrors | Unknown: no response to the test |
@@ -742,7 +742,7 @@ The initial catalogue (M9):
 - **Navigation files must be mixed-constellation.** In the GA archive, many stations publish their daily broadcast navigation data as separate per-constellation files (GPS, Galileo, BeiDou, GLONASS, QZSS) rather than one mixed (`_MN`) file. A single per-constellation file leaves the engine without ephemerides for the other systems. In the M0 spike this silently produced degraded single-constellation solutions, or no solution at all. The planner therefore requests a mixed file, or merges a station's per-constellation files, and a check flags navigation data that doesn't cover every constellation being processed.
 - **The Australian v1 workflow should need no relay.**
   - RINEX and broadcast navigation files come directly from GA. For baselines up to about 20 km, broadcast orbits should be adequate: their errors contribute roughly 0.1 ppm, a couple of millimetres at 20 km. The benchmark checks this.
-  - ANTEX and the AUSGeoid2020 grid are served with the app, and cached on first use, if their licences allow redistribution (to confirm in M7). Otherwise they come through the relay or a data pack.
+  - ANTEX and the AUSGeoid2020 grids may be redistributed (D-028). The app serves the pinned ANTEX from `data/` beside the page, and the fetcher caches it on first use; the build downloads it and checks its hash. The geoid grids follow once the browser uses them.
   - Precise orbits, clocks and biases, needed for Ginan and long baselines in Phase 2, come through the relay or a data pack.
 - **In the browser.** The core worker runs the same fetcher. It makes its requests synchronously, which a dedicated worker may. Browser storage only answers asynchronously, so before a fetch the worker gives the core the cache's index, and its objects by name only; afterwards it saves what the fetch added. Downloads in the browser aren't resumable yet, and are held in memory until saved.
 - **Downloader.** Resumable, with checksums and retries with backoff. The CLI supports proxies through standard environment variables; the browser uses the system's proxy settings.

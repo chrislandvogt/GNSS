@@ -13,3 +13,9 @@
 
 /sw.js
   Cache-Control: no-cache
+
+# Files the app serves itself (D-028), pinned by name and hash. Served as
+# bytes, so no host decompresses a .gz on the way.
+/data/*
+  Content-Type: application/octet-stream
+  Cache-Control: public, max-age=31536000, immutable

@@ -102,7 +102,7 @@ struct FetchArgs {
     /// QZSS, where they're out.
     #[arg(long)]
     multi_gnss: bool,
-    /// Leave out the ANTEX file (igs20.atx).
+    /// Leave out the ANTEX file (igs20.atx, as the IGS's weekly release the pack pins).
     #[arg(long)]
     no_antex: bool,
     /// Minutes of CORS data either side of each occupation.
@@ -515,6 +515,8 @@ fn fetch(cli: &Cli, args: &FetchArgs) -> Result<u8, Failure> {
             Some(relay) => f::Route::Via(relay.clone()),
             None => f::Route::Direct,
         },
+        // Natively, every source is reached directly.
+        app_data: None,
     };
     let stations = if args.cors.is_empty() {
         Stations::Nearest {

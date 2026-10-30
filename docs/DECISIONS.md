@@ -383,3 +383,25 @@ Observation files are a fixed-column format, and Hatanaka's compression is publi
 
 **Revisit:** if `rinex` becomes robust and light enough that maintaining our own reader costs more than it saves. The reader sits behind our own types, so swapping is contained.
 
+
+### D-028 Redistribute ANTEX and AUSGeoid2020 with the web app, pinned
+**Status:** Accepted
+
+**Decision:** the web app serves the files the Australian workflow needs from its own origin, and does not send them through the relay. Each one is pinned by name and SHA-256 in the pack (`app_files`). The CLI uses the same pinned files. For ANTEX this is the IGS's weekly release `igs20_2434.atx.gz` (7.8 MB), not the moving `igs20.atx`. It comes from the IGS's archive of weekly releases (`pcv_archive/`). The current week sits in the main directory only until the next week is out, so an archived week is the one with a lasting URL. The AUSGeoid2020 grids may be served the same way once the browser uses them.
+
+**Why:** this answers the M7 question "can these be redistributed?". Checked on 2026-10-30:
+- **AUSGeoid2020**, both N and its uncertainty grid. Geoscience Australia's [copyright notice](https://www.ga.gov.au/copyright) licenses everything on its website under CC BY 4.0, unless an item carries its own statement. The grids are linked from GA's AUSGeoid2020 page with no statement of their own. PROJ-data redistributes N under CC BY 4.0. Attribution: "© Commonwealth of Australia (Geoscience Australia)".
+- **ANTEX.** The [IGS Data and Product Disclaimer and Terms of Use](https://igs.org/wp-content/uploads/2020/09/IGS-Data-and-Product-Disclaimer-and-Terms-of-Use-200805.pdf) (5 August 2020) says IGS products "have been made openly available for use without restriction, and continue to be offered free of cost or obligation". The one obligation it adds is to cite and attribute the IGS and its contributors, which the pack's attribution and the report do. It names no licence, so this rests on those terms rather than a standard licence. Written confirmation from the IGS Antenna Working Group is worth having, and is a task in M7.
+
+Pinning a weekly release makes runs repeatable. The moving file changes calibrations without its name changing, which a hash in `data.toml` would catch but couldn't explain.
+
+**Alternatives:**
+- **The relay for these files.** This is what the app did before. It leaves the Australian v1 workflow needing a relay, which the M7 exit criteria rule out, and the relay sees what's requested.
+- **The moving `igs20.atx`.** It's always current, but not repeatable, and the web app's copy would drift from it.
+
+**Consequences:**
+- The web build downloads each `app_files` entry from its source, checks its hash, and puts it in `data/`. The service worker doesn't precache these files. The fetcher takes them from there in the browser (`Fetcher::app_data`) and checks the hash again. `data.toml` records the source's own URL, since the bytes are identical.
+- Moving to a newer ANTEX week is a deliberate change: update `gnss_fetch::plan::ANTEX` and the pack together. The tests check they agree.
+- The AUSGeoid2020 GA grids are 247 MB each as NTv2. Before the browser uses the uncertainty grid it needs a compact form, as PROJ-data's 5.8 MB GeoTIFF of N shows is possible.
+
+**Revisit:** if the IGS adopts an explicit licence, or GA attaches one to the grids.

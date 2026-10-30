@@ -245,7 +245,8 @@ try {
   await page.getByTestId('fetch-cors').fill('SYDN')
   await page.getByTestId('fetch-data').getByRole('button', { name: 'Fetch', exact: true }).click()
   const fetched = await page.getByTestId('fetch-result').innerText()
-  if (!/2 files \(2 downloaded\)/.test(fetched) || !fetched.includes('SYDN00AUS_R_20251660000_01D_30S_MO.crx.gz')) {
+  // ANTEX comes from the app's own copy (data/), not the IGS or a relay.
+  if (!/3 files \(3 downloaded\)/.test(fetched) || !fetched.includes('SYDN00AUS_R_20251660000_01D_30S_MO.crx.gz') || !/igs20_2434\.atx\.gz/.test(fetched) || !fetched.includes("the web app's copy")) {
     throw new Error(`unexpected fetch:\n${fetched}`)
   }
   const logs = await page.getByTestId('site-logs').innerText()
@@ -258,9 +259,9 @@ try {
   // Again: everything from the download cache in browser storage.
   const before = asked.filter((u) => u.startsWith(S3)).length
   await page.getByTestId('fetch-data').getByRole('button', { name: 'Fetch', exact: true }).click()
-  await page.getByTestId('fetch-result').filter({ hasText: '2 files (0 downloaded)' }).waitFor()
+  await page.getByTestId('fetch-result').filter({ hasText: '3 files (0 downloaded)' }).waitFor()
   if (asked.filter((u) => u.startsWith(S3)).length !== before) throw new Error('fetched again what was cached')
-  console.log('fetched SYDN observations and navigation data from (routed) GA hosts into browser storage, then from the cache; checked the header against the site log')
+  console.log('fetched SYDN observations and navigation data from (routed) GA hosts, and ANTEX from the app itself, into browser storage, then from the cache; checked the header against the site log')
   await context.unroute(/^https:/)
 
   // 6. Offline: wait for the service worker to finish caching, then reload
