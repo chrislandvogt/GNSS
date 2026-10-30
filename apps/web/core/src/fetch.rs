@@ -32,8 +32,11 @@ pub struct FetchOptions {
     pub within_km: f64,
     /// Precise orbits, clocks and ERPs too (through the relay).
     pub precise: bool,
-    /// The ANTEX file too (through the relay).
+    /// The ANTEX file too: the web app's own copy.
     pub antex: bool,
+    /// Where the web app serves its copies of files (`Source::app_files`):
+    /// `data/` beside the page.
+    pub app_data: Option<String>,
     /// A relay for the sources a browser can't reach, if the user turned
     /// one on.
     pub relay: Option<String>,
@@ -134,6 +137,7 @@ pub fn fetch_data<H: Http>(
             Some(relay) if !relay.trim().is_empty() => Route::Via(relay.trim().to_owned()),
             _ => Route::BrowserOnly,
         },
+        app_data: options.app_data.clone(),
     };
     let stations = if options.cors.is_empty() {
         Stations::Nearest {
@@ -258,6 +262,7 @@ mod tests {
             within_km: 100.0,
             precise: true,
             antex: false,
+            app_data: Some("https://app.example/data/".into()),
             relay: None,
             now: "2026-10-30T09:00:00.000Z".into(),
         }

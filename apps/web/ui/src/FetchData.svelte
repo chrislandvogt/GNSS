@@ -1,8 +1,9 @@
 <script lang="ts">
   // Fetching what a project's occupations need (M7, ARCHITECTURE.md
   // section 13): CORS observations and navigation data straight from
-  // Geoscience Australia, which the browser can reach, and, only through a
-  // relay the user turns on, CODE's precise products and the ANTEX file.
+  // Geoscience Australia, which the browser can reach; the ANTEX file from
+  // the app's own copy (D-028); and, only through a relay the user turns
+  // on, CODE's precise products.
   // Files go into the download cache in browser storage; data.toml records
   // which were used.
   import { core } from './lib/core'
@@ -17,7 +18,7 @@
   let useRelay = $state(false)
   let relay = $state('http://127.0.0.1:8787')
   let precise = $state(false)
-  let antex = $state(false)
+  let antex = $state(true)
   let busy = $state(false)
   let error = $state('')
   let outcome = $state<FetchOutcome | null>(null)
@@ -37,7 +38,8 @@
         nearest,
         within_km: withinKm,
         precise: useRelay && precise,
-        antex: useRelay && antex,
+        antex,
+        app_data: new URL('data/', document.baseURI).href,
         relay: useRelay ? relay : null,
         now: new Date().toISOString(),
       })
@@ -56,7 +58,8 @@
   <h3>Fetch CORS data</h3>
   <p class="muted">
     Finds what the occupations need from outside the project: CORS observations over each occupation, and broadcast
-    navigation data, from Geoscience Australia's GNSS Data Repository. Files are kept in this browser's download cache,
+    navigation data, from Geoscience Australia's GNSS Data Repository, and antenna calibrations from the IGS, which
+    this app serves itself. Files are kept in this browser's download cache,
     shared by every project; <code>data.toml</code> records which were used, with their licences.
   </p>
   <p class="actions">
@@ -65,12 +68,12 @@
       <label>the nearest <input type="number" min="1" max="6" bind:value={nearest} /></label>
       <label>within <input type="number" min="1" max="1000" bind:value={withinKm} /> km</label>
     {/if}
+    <label><input type="checkbox" bind:checked={antex} data-testid="fetch-antex" /> ANTEX (igs20.atx, week 2434)</label>
   </p>
   <details>
-    <summary>Precise products and antenna calibrations (needs a relay)</summary>
+    <summary>Precise products (needs a relay)</summary>
     <p class="muted">
-      CODE's precise orbits and clocks, and the IGS's ANTEX file, come from hosts that don't let a web page download
-      from them. A relay (<code>gnss-relay</code>, which you or your organisation run) can fetch them on the app's
+      CODE's precise orbits and clocks come from a host that doesn't let a web page download from it. A relay (<code>gnss-relay</code>, which you or your organisation run) can fetch them on the app's
       behalf. <strong>A relay sees which files are requested</strong>: station names and dates, which hint at where and
       when a survey happened. It keeps no logs, but use one only where you'd trust it to see that. Or bring the files
       in a data pack (<code>gnss data export</code> on a connected machine).
@@ -81,7 +84,6 @@
     </p>
     <p class="actions">
       <label><input type="checkbox" bind:checked={precise} disabled={!useRelay} /> Precise orbits, clocks and ERPs</label>
-      <label><input type="checkbox" bind:checked={antex} disabled={!useRelay} /> ANTEX (igs20.atx)</label>
     </p>
   </details>
   <p class="actions"><button onclick={fetchData} disabled={busy}>{busy ? 'Fetching…' : 'Fetch'}</button></p>

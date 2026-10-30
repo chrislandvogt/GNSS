@@ -226,11 +226,20 @@ attribution = "Orbits, clocks and Earth rotation from CODE, Astronomical Institu
 
 [[sources]]
 id = "igs-files"
-name = "IGS station files"
+name = "IGS antenna calibrations (archive of weekly releases)"
 kind = "files"
-url = "https://files.igs.org/pub/station/general/"
+# The current week's release sits in general/ until the next one comes out,
+# then moves here, where releases stay.
+url = "https://files.igs.org/pub/station/general/pcv_archive/"
 hosts = ["files.igs.org"]
 browser = "relay" # no cross-origin headers, checked 2026-10-15
-licence = "IGS data and products are free to use"
-attribution = "Antenna calibrations from the International GNSS Service (igs20.atx)."
-files = ["igs20.atx"]
+licence = "IGS Data and Product Terms of Use (2020): open, without restriction, with attribution"
+attribution = "Antenna calibrations from the International GNSS Service (igs20.atx, week 2434)."
+# A weekly release, pinned (gnss_fetch::plan::ANTEX, D-028).
+files = ["igs20_2434.atx.gz"]
+
+# Served by the web app itself, so the browser needs no relay for it (D-028).
+[[sources.app_files]]
+name = "igs20_2434.atx.gz"
+sha256 = "f0d9ad51b0f5160929f8bb1e5ea78e6221b3d8f4241e923a21108a9601a1f4e5"
+bytes = 7762515

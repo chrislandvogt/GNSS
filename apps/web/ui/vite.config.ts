@@ -28,7 +28,11 @@ function precacheManifest(): Plugin {
       outDir = path.resolve(config.root, config.build.outDir)
     },
     closeBundle() {
-      const files = listFiles(outDir).filter((f) => !NOT_CACHED.has(f)).sort()
+      // Nor the data files (data/, D-028): they're large, and the fetcher
+      // keeps what it takes from them in the download cache.
+      const files = listFiles(outDir)
+        .filter((f) => !NOT_CACHED.has(f) && !f.startsWith('data/'))
+        .sort()
       const hash = createHash('sha256')
       for (const f of files) hash.update(f).update(readFileSync(path.join(outDir, f)))
       const manifest = { version: hash.digest('hex').slice(0, 16), files }

@@ -27,7 +27,7 @@ pub enum Need {
         /// The day it covers.
         day: Day,
     },
-    /// A named file from a `files` source, such as `igs20.atx`.
+    /// A named file from a `files` source, such as [`ANTEX`].
     File {
         /// The source's id.
         source: String,
@@ -125,6 +125,12 @@ impl Default for Options {
     }
 }
 
+/// The ANTEX file: the IGS's weekly release of `igs20.atx`, pinned so that
+/// every run, and the web app's copy, uses the same calibrations. Moving to
+/// a newer week changes results slightly, so it's a deliberate change here
+/// and in the pack (D-028).
+pub const ANTEX: &str = "igs20_2434.atx.gz";
+
 /// The needs for a set of wants: per station, the union of its padded
 /// windows; navigation data for every day touched; precise products and
 /// ANTEX if asked for. Sorted, without repeats.
@@ -158,7 +164,7 @@ pub fn plan(wants: &[Want], options: &Options) -> Vec<Need> {
     if options.antex && !wants.is_empty() {
         needs.insert(Need::File {
             source: "igs-files".into(),
-            name: "igs20.atx".into(),
+            name: ANTEX.into(),
         });
     }
     needs.into_iter().collect()
@@ -227,7 +233,7 @@ mod tests {
         assert!(
             needs
                 .iter()
-                .any(|n| matches!(n, Need::File { name, .. } if name == "igs20.atx"))
+                .any(|n| matches!(n, Need::File { name, .. } if name == ANTEX))
         );
         assert!(!needs.iter().any(|n| matches!(n, Need::Product { .. })));
     }

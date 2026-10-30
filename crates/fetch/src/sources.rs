@@ -60,6 +60,24 @@ pub struct Source {
     /// when the stations in use have no mixed-constellation file.
     #[serde(default)]
     pub nav_stations: Vec<String>,
+    /// Files of the source the web app serves itself, from `data/` beside
+    /// the page, so a browser needs no relay for them. Each is the source's
+    /// file exactly, checked by hash, which needs its licence to allow
+    /// redistribution.
+    #[serde(default)]
+    pub app_files: Vec<AppFile>,
+}
+
+/// A file a web app serves itself (`Source::app_files`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AppFile {
+    /// Its name, one of the source's `files`.
+    pub name: String,
+    /// Its SHA-256, in hexadecimal.
+    pub sha256: String,
+    /// Its size in bytes.
+    pub bytes: u64,
 }
 
 impl Source {
@@ -107,6 +125,17 @@ pub fn read_sources(pack: &str) -> Result<Vec<Source>, FetchError> {
                 source.id
             )));
         }
+        for app in &source.app_files {
+            if !source.files.contains(&app.name)
+                || app.sha256.len() != 64
+                || !app.sha256.bytes().all(|b| b.is_ascii_hexdigit())
+            {
+                return Err(FetchError::Pack(format!(
+                    "source {}: app file {} must be one of its files, with a SHA-256",
+                    source.id, app.name
+                )));
+            }
+        }
     }
     Ok(pack.sources)
 }
@@ -138,7 +167,9 @@ mod tests {
         assert!(!code.allows("https://example.org/aiub/CODE/x"));
         assert!(find(&sources, SourceKind::GaSites).is_some());
         let igs = find(&sources, SourceKind::Files).unwrap();
-        assert!(igs.files.iter().any(|f| f == "igs20.atx"));
+        assert!(igs.files.iter().any(|f| f == crate::plan::ANTEX));
+        // The web app serves it, so the browser needs no relay for it.
+        assert!(igs.app_files.iter().any(|f| f.name == crate::plan::ANTEX));
     }
 
     #[test]

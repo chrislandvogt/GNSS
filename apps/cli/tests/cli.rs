@@ -603,7 +603,7 @@ fn fetch_plans_what_the_occupations_need() {
     for n in [
         "navigation data, 2025-06-15",
         "orbit product, 2025-06-15",
-        "igs20.atx",
+        "igs20_2434.atx.gz",
     ] {
         assert!(needs.contains(&n), "{n} in {needs:?}");
     }

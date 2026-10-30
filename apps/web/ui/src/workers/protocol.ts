@@ -148,8 +148,10 @@ export interface FetchOptions {
   within_km: number
   /** CODE's precise orbits, clocks and ERPs: through the relay. */
   precise: boolean
-  /** The ANTEX file: through the relay. */
+  /** The ANTEX file: the web app's own copy. */
   antex: boolean
+  /** Where the web app serves its copies of files: data/ beside the page. */
+  app_data: string | null
   /** A relay the user turned on, or null. */
   relay: string | null
   /** The page's clock, as an ISO string. */
