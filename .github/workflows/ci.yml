@@ -152,7 +152,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       WASI_SDK_VERSION: "34"
-      WASMTIME_VERSION: "49.0.3"
+      WASMTIME_VERSION: "49.0.5"
     steps:
       - uses: actions/checkout@v5
       - name: Install wasi-sdk
