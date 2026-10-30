@@ -13,6 +13,8 @@ pub enum SourceKind {
     GaArchive,
     /// Geoscience Australia's list of CORS sites, with positions.
     GaSites,
+    /// Geoscience Australia's CORS site logs: equipment histories.
+    GaSitelogs,
     /// CODE's products at AIUB (`crate::products`).
     Code,
     /// Files by name under a base URL.

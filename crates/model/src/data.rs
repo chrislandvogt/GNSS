@@ -45,6 +45,10 @@ pub struct DataFile {
     /// out yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// For a CORS file: its RINEX header against the station's site log,
+    /// `agrees` or what differs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site_log: Option<String>,
 }
 
 impl DataFiles {
@@ -79,9 +83,19 @@ impl DataFiles {
     /// Adds files and attributions, replacing any entry for the same
     /// purpose and name, and keeps both lists sorted.
     pub fn merge(&mut self, files: Vec<DataFile>, attributions: impl IntoIterator<Item = String>) {
-        for file in files {
-            self.files
-                .retain(|f| !(f.purpose == file.purpose && f.name == file.name));
+        for mut file in files {
+            if let Some(old) = self
+                .files
+                .iter()
+                .position(|f| f.purpose == file.purpose && f.name == file.name)
+            {
+                let old = self.files.remove(old);
+                // A file found in the cache isn't checked again: keep what
+                // was found when it was.
+                if file.site_log.is_none() && old.sha256 == file.sha256 {
+                    file.site_log = old.site_log;
+                }
+            }
             self.files.push(file);
         }
         self.files
@@ -116,6 +130,7 @@ mod tests {
             fetched: "2026-10-29T00:00:00Z".into(),
             licence: "CC BY 4.0".into(),
             note: None,
+            site_log: None,
         }
     }
 

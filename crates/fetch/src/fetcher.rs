@@ -14,6 +14,7 @@ use crate::ga::{self, FileType, Period};
 use crate::plan::{Need, Options, Want};
 use crate::products::{self, Latency};
 use crate::relay::Route;
+use crate::sitelog::{SiteLog, parse_site_log, site_log_url};
 use crate::sites::{Site, parse_sites};
 use crate::sources::{Source, SourceKind, find};
 use crate::time::{Day, Window, format_time};
@@ -40,6 +41,10 @@ fn site_page(data: &[u8]) -> Result<(Vec<serde_json::Value>, usize), FetchError>
         .map_or(1, |n| usize::try_from(n).unwrap_or(1));
     Ok((sites, pages))
 }
+
+/// Days a cached site log is used before it's fetched again: logs change
+/// when equipment does.
+pub const SITE_LOG_MAX_AGE_DAYS: i64 = 7;
 
 /// Days a cached site list is used before it's fetched again.
 pub const SITES_MAX_AGE_DAYS: i64 = 30;
@@ -210,6 +215,40 @@ impl<H: Http, S: Store> Fetcher<'_, H, S> {
         };
         self.cache.put(entry, &data)?;
         Ok(sites)
+    }
+
+    /// A CORS station's site log, from the cache if it was fetched in the
+    /// last [`SITE_LOG_MAX_AGE_DAYS`] days; `None` if the service has none.
+    pub fn site_log(&mut self, station: &str) -> Result<Option<SiteLog>, FetchError> {
+        let source = self.source(SourceKind::GaSitelogs)?.clone();
+        let station = station.to_uppercase();
+        let name = format!("{station}.json");
+        if let Some(entry) = self.cache.get(&source.id, &name)? {
+            let age = Day::parse(entry.fetched.get(..10).unwrap_or_default())
+                .map(|d| d.days_until(self.today));
+            if age.is_some_and(|a| a <= SITE_LOG_MAX_AGE_DAYS)
+                && let Some(bytes) = self.cache.read(&entry)?
+            {
+                return parse_site_log(&String::from_utf8_lossy(&bytes)).map(Some);
+            }
+        }
+        let url = site_log_url(&source.url, &station);
+        let Some(data) = self.get(&source, &url)? else {
+            return Ok(None);
+        };
+        // Only a log that reads is kept.
+        let log = parse_site_log(&String::from_utf8_lossy(&data))?;
+        let entry = Entry {
+            source: source.id.clone(),
+            name,
+            sha256: String::new(),
+            bytes: 0,
+            url,
+            fetched: self.now.clone(),
+            licence: source.licence.clone(),
+        };
+        self.cache.put(entry, &data)?;
+        Ok(Some(log))
     }
 
     /// For each want with a count, keeps the first of its candidate
@@ -820,6 +859,48 @@ mod tests {
             report.problems[0].message.contains("3 of 6 bytes"),
             "{:?}",
             report.problems
+        );
+    }
+
+    #[test]
+    fn site_logs_are_cached_for_a_week() {
+        let sources = read_sources(include_str!("../../../packs/au/pack.toml")).unwrap();
+        let base = "https://gws.geodesy.ga.gov.au/api/siteLogs/search/findByFourCharacterId";
+        let mut http = Fake::default();
+        http.pages.insert(
+            format!("{base}?id=SYDN&format=json"),
+            br#"{"gnssReceivers": [], "gnssAntennas": [
+              {"type": "LEIAR25.R3      LEIT", "dateInstalled": "2026-03-31T05:00:00Z"}]}"#
+                .to_vec(),
+        );
+        http.pages
+            .insert(format!("{base}?id=BAD1&format=json"), b"<html>".to_vec());
+        let mut fetcher = Fetcher {
+            sources: &sources,
+            http,
+            cache: Cache::new(MemoryStore::default()),
+            today: Day::parse("2026-10-29").unwrap(),
+            now: "2026-10-29T00:00:00Z".into(),
+            options: Options::default(),
+            route: Route::Direct,
+        };
+        let log = fetcher.site_log("sydn").unwrap().unwrap();
+        assert_eq!(log.antennas[0].radome, "LEIT");
+        assert_eq!(fetcher.site_log("SYDN").unwrap(), Some(log.clone()));
+        assert_eq!(fetcher.http.gets.len(), 1);
+        // A week on, it's asked for again.
+        fetcher.today = Day::parse("2026-11-06").unwrap();
+        assert_eq!(fetcher.site_log("SYDN").unwrap(), Some(log));
+        assert_eq!(fetcher.http.gets.len(), 2);
+        // Stations GA has no log for, and logs that don't read.
+        assert_eq!(fetcher.site_log("NONE").unwrap(), None);
+        assert!(fetcher.site_log("BAD1").is_err());
+        assert!(
+            fetcher
+                .cache
+                .get("ga-sitelogs", "BAD1.json")
+                .unwrap()
+                .is_none()
         );
     }
 }

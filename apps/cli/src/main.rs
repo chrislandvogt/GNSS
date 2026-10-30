@@ -550,8 +550,10 @@ fn fetch(cli: &Cli, args: &FetchArgs) -> Result<u8, Failure> {
     // next nearest.
     let chosen = fetcher.choose_stations(&mut wants);
     let needs = f::plan(&wants, &options);
-    let report = fetcher.fetch(&needs);
-    gnss_api::fetch::record(&mut store, &report).map_err(|e| e.to_string())?;
+    let mut report = fetcher.fetch(&needs);
+    // Each CORS file's header against its station's site log.
+    let site_logs = gnss_api::fetch::check_site_logs(&mut fetcher, &mut report);
+    gnss_api::fetch::record(&mut store, &report, &site_logs).map_err(|e| e.to_string())?;
     problems.extend(
         report
             .problems
@@ -584,6 +586,7 @@ fn fetch(cli: &Cli, args: &FetchArgs) -> Result<u8, Failure> {
             "fetched": fetched,
             "problems": problems,
             "stations": chosen,
+            "site_logs": site_logs,
             "attributions": report.attributions,
         }),
         || {
@@ -596,6 +599,17 @@ fn fetch(cli: &Cli, args: &FetchArgs) -> Result<u8, Failure> {
                 println!("{}: {} ({how})", purpose(&x.need), names.join(", "));
                 if let Some(note) = &x.note {
                     println!("  note: {note}");
+                }
+            }
+            for c in &site_logs {
+                if c.findings.is_empty() {
+                    println!(
+                        "{}: the header agrees with {}'s site log",
+                        c.file, c.station
+                    );
+                }
+                for f in &c.findings {
+                    println!("site log: {} ({}): {f}", c.file, c.station);
                 }
             }
             for p in &problems {

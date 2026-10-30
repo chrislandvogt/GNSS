@@ -238,6 +238,7 @@ fn the_report_lists_data_from_outside_and_its_attribution() {
             fetched: "2026-10-29T00:00:00Z".into(),
             licence: "CC BY 4.0, Geoscience Australia".into(),
             note: Some("rapid: finals aren't out yet".into()),
+            site_log: Some("antenna: the header says LEIAS10, the site log LEIAR25.R4".into()),
         }],
         ["CORS data from <GA>, CC BY 4.0.".to_owned()],
     );
@@ -248,6 +249,7 @@ fn the_report_lists_data_from_outside_and_its_attribution() {
         html.contains("rapid: finals aren&#39;t out yet")
             || html.contains("rapid: finals aren't out yet")
     );
+    assert!(html.contains("Site log: antenna: the header says LEIAS10, the site log LEIAR25.R4"));
     assert!(
         html.contains("<h3>Attribution</h3>\n<ul>\n<li>CORS data from &lt;GA&gt;, CC BY 4.0.</li>")
     );

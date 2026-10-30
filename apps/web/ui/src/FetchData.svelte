@@ -111,6 +111,18 @@
           {#each outcome.problems as p, i (i)}<li>{p}</li>{/each}
         </ul>
       {/if}
+      {#if outcome.site_logs.length}
+        <h4>Site logs</h4>
+        <ul data-testid="site-logs">
+          {#each outcome.site_logs as c (c.file)}
+            {#if c.findings.length}
+              {#each c.findings as f, i (i)}<li>{c.file} ({c.station}): {f}</li>{/each}
+            {:else}
+              <li class="muted">{c.file}: the header agrees with {c.station}'s site log</li>
+            {/if}
+          {/each}
+        </ul>
+      {/if}
       {#if outcome.attributions.length}
         <p class="muted">{outcome.attributions.join(' ')}</p>
       {/if}

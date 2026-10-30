@@ -12,7 +12,7 @@
 use gnss_api::fetch::gnss_fetch::products::Constellations;
 use gnss_api::fetch::gnss_fetch::time::Day;
 use gnss_api::fetch::gnss_fetch::{self as f, Cache, Fetcher, Http, Route};
-use gnss_api::fetch::{Stations, purpose, record};
+use gnss_api::fetch::{SiteLogCheck, Stations, check_site_logs, purpose, record};
 use gnss_api::folder;
 use gnss_store::{MemoryStore, ProjectPath, Store, StoreError};
 use serde::{Deserialize, Serialize};
@@ -67,6 +67,8 @@ pub struct FetchOutcome {
     pub notes: Vec<String>,
     /// What reports must say about the data.
     pub attributions: Vec<String>,
+    /// CORS files' headers against their stations' site logs.
+    pub site_logs: Vec<SiteLogCheck>,
     /// The project's `data.toml`, updated, for the page to save.
     pub data_toml: String,
     /// Files the fetch added to the cache, for the page to save.
@@ -147,8 +149,9 @@ pub fn fetch_data<H: Http>(
     };
     let (mut wants, mut problems) = gnss_api::fetch::wants(&loaded, &stations, &sites);
     let notes = fetcher.choose_stations(&mut wants);
-    let report = fetcher.fetch(&f::plan(&wants, &fetch_options));
-    let data = record(&mut project, &report).map_err(|e| e.to_string())?;
+    let mut report = fetcher.fetch(&f::plan(&wants, &fetch_options));
+    let site_logs = check_site_logs(&mut fetcher, &mut report);
+    let data = record(&mut project, &report, &site_logs).map_err(|e| e.to_string())?;
     problems.extend(
         report
             .problems
@@ -182,6 +185,7 @@ pub fn fetch_data<H: Http>(
         problems,
         notes,
         attributions: report.attributions.into_iter().collect(),
+        site_logs,
         data_toml: data.to_toml(),
         cache_writes,
     })

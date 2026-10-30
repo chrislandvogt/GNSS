@@ -3,10 +3,14 @@
 //! `data.toml` (ARCHITECTURE.md section 13).
 
 use gnss_fetch::plan::{Need, Want};
+use gnss_fetch::sitelog::SiteLog;
 use gnss_fetch::sites::{Site, nearest};
+use gnss_fetch::sources::{SourceKind, find};
 use gnss_fetch::time::{Day, Window, format_time};
 use gnss_fetch::{Fetched, Report};
+use gnss_fetch::{Fetcher, Http};
 use gnss_model::{DataFile, DataFiles, ModelError, Timestamp};
+use gnss_rinex_io::ObsHeader;
 use gnss_store::{ProjectPath, Store, StoreError};
 use hifitime::TimeScale;
 
@@ -118,7 +122,11 @@ pub fn purpose(need: &Need) -> String {
 }
 
 /// `data.toml` with what a fetch got added: read, merged and written.
-pub fn record<S: Store + ?Sized>(store: &mut S, report: &Report) -> Result<DataFiles, RecordError> {
+pub fn record<S: Store + ?Sized>(
+    store: &mut S,
+    report: &Report,
+    checks: &[SiteLogCheck],
+) -> Result<DataFiles, RecordError> {
     let path = data_path();
     let mut data = match store.read(&path)? {
         Some(bytes) => DataFiles::from_toml(&String::from_utf8_lossy(&bytes))?,
@@ -138,12 +146,182 @@ pub fn record<S: Store + ?Sized>(store: &mut S, report: &Report) -> Result<DataF
                 fetched: e.fetched.clone(),
                 licence: e.licence.clone(),
                 note: f.note.clone(),
+                site_log: checks
+                    .iter()
+                    .find(|c| c.file == e.name)
+                    .map(SiteLogCheck::summary),
             })
         })
         .collect();
     data.merge(files, report.attributions.iter().cloned());
     store.write(&path, data.to_toml().as_bytes())?;
     Ok(data)
+}
+
+/// A CORS file's RINEX header against its station's site log.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct SiteLogCheck {
+    /// The station.
+    pub station: String,
+    /// The file.
+    pub file: String,
+    /// What differs, one line each; empty if the header agrees.
+    pub findings: Vec<String>,
+}
+
+impl SiteLogCheck {
+    /// `agrees`, or the findings, for `data.toml`.
+    pub fn summary(&self) -> String {
+        if self.findings.is_empty() {
+            "agrees".into()
+        } else {
+            self.findings.join("; ")
+        }
+    }
+}
+
+/// Antenna offsets within this many metres agree.
+const OFFSET_TOLERANCE: f64 = 0.0005;
+
+/// What differs between a RINEX header and a site log over a window: the
+/// receiver's and antenna's types and serial numbers, the radome, and the
+/// antenna's height and offsets. Equipment changes in the window, and
+/// windows with no equipment logged, are said too.
+pub fn compare_header(log: &SiteLog, header: &ObsHeader, window: Window) -> Vec<String> {
+    let mut findings = Vec::new();
+    let same = |a: &str, b: &str| a.trim().eq_ignore_ascii_case(b.trim());
+    let receivers = log.receivers_in(window);
+    match receivers.as_slice() {
+        [] => findings.push("the site log has no receiver installed then".into()),
+        [r] => {
+            if !same(&header.receiver.kind, &r.kind) {
+                findings.push(format!(
+                    "receiver: the header says {}, the site log {}",
+                    header.receiver.kind.trim(),
+                    r.kind
+                ));
+            }
+            if !header.receiver.number.trim().is_empty()
+                && !r.serial.is_empty()
+                && !same(&header.receiver.number, &r.serial)
+            {
+                findings.push(format!(
+                    "receiver serial: the header says {}, the site log {}",
+                    header.receiver.number.trim(),
+                    r.serial
+                ));
+            }
+        }
+        many => findings.push(format!(
+            "the site log records a receiver change then: {}",
+            many.iter()
+                .map(|r| r.kind.as_str())
+                .collect::<Vec<_>>()
+                .join(" to ")
+        )),
+    }
+    let antennas = log.antennas_in(window);
+    match antennas.as_slice() {
+        [] => findings.push("the site log has no antenna installed then".into()),
+        [a] => {
+            if !same(&header.antenna.kind, &a.kind) {
+                findings.push(format!(
+                    "antenna: the header says {}, the site log {}",
+                    header.antenna.kind.trim(),
+                    a.kind
+                ));
+            }
+            if let Some(radome) = header
+                .antenna
+                .radome
+                .as_deref()
+                .filter(|r| !r.trim().is_empty())
+                && !same(radome, &a.radome)
+            {
+                findings.push(format!(
+                    "radome: the header says {}, the site log {}",
+                    radome.trim(),
+                    a.radome
+                ));
+            }
+            if !header.antenna.number.trim().is_empty()
+                && !a.serial.is_empty()
+                && !same(&header.antenna.number, &a.serial)
+            {
+                findings.push(format!(
+                    "antenna serial: the header says {}, the site log {}",
+                    header.antenna.number.trim(),
+                    a.serial
+                ));
+            }
+            if let Some([h, e, n]) = header.antenna_delta {
+                let logged = [a.up, a.east, a.north];
+                if [h, e, n]
+                    .iter()
+                    .zip(logged)
+                    .any(|(x, y)| (x - y).abs() > OFFSET_TOLERANCE)
+                {
+                    findings.push(format!(
+                        "antenna height and offsets (H/E/N): the header says {h:.4}/{e:.4}/{n:.4} m, the site log {:.4}/{:.4}/{:.4} m",
+                        a.up, a.east, a.north
+                    ));
+                }
+            }
+        }
+        many => findings.push(format!(
+            "the site log records an antenna change then: {}",
+            many.iter()
+                .map(|a| a.kind.as_str())
+                .collect::<Vec<_>>()
+                .join(" to ")
+        )),
+    }
+    findings
+}
+
+/// Checks each CORS file a fetch got against its station's site log, and
+/// adds the site logs' attribution to the report if any was used. Files the
+/// cache only knows by name (in the browser, ones fetched before) are left
+/// unchecked; `data.toml` keeps what was found when they were.
+pub fn check_site_logs<H: Http, S: Store>(
+    fetcher: &mut Fetcher<'_, H, S>,
+    report: &mut Report,
+) -> Vec<SiteLogCheck> {
+    let mut checks = Vec::new();
+    let mut used = false;
+    for fetched in &report.fetched {
+        let Need::CorsObs { station, window } = &fetched.need else {
+            continue;
+        };
+        // Fetched only once there's a header to check it against.
+        let mut log = None;
+        for entry in &fetched.files {
+            let Ok(Some(bytes)) = fetcher.cache.read(entry) else {
+                continue;
+            };
+            let log = log.get_or_insert_with(|| fetcher.site_log(station));
+            let findings = match log {
+                Err(e) => vec![format!("the site log couldn't be fetched: {e}")],
+                Ok(None) => vec!["the station has no site log".into()],
+                Ok(Some(log)) => {
+                    used = true;
+                    match gnss_rinex_io::read_obs(&bytes[..]) {
+                        Ok(reader) => compare_header(log, reader.header(), *window),
+                        Err(e) => vec![format!("its header doesn't read: {e}")],
+                    }
+                }
+            };
+            checks.push(SiteLogCheck {
+                station: station.clone(),
+                file: entry.name.clone(),
+                findings,
+            });
+        }
+    }
+    if used && let Some(source) = find(fetcher.sources, SourceKind::GaSitelogs) {
+        report.attributions.insert(source.attribution.clone());
+    }
+    checks
 }
 
 fn data_path() -> ProjectPath {
@@ -245,6 +423,60 @@ value = 1.5
         assert_eq!(named[0].stations, ["STR1"]);
     }
 
+    /// SWTC's header: a LEICA GR30 (1706697) and a LEIAS10 NONE (18171017),
+    /// 1.9310 m up.
+    const SWTC: &[u8] = include_bytes!("../../rinex-io/tests/data/rinex/SWTC00AUS_20251660000.rnx");
+
+    fn swtc_log(antenna: &str, up: f64) -> SiteLog {
+        gnss_fetch::sitelog::parse_site_log(&format!(
+            r#"{{"gnssReceivers": [
+              {{"type": "LEICA GR30", "serialNumber": "1706697", "firmwareVersion": "4.82",
+               "dateInstalled": "2020-01-01T00:00:00Z", "dateRemoved": null}}],
+              "gnssAntennas": [
+              {{"type": "{antenna}", "serialNumber": "18171017", "markerArpUpEcc": {up},
+               "markerArpNorthEcc": 0.0, "markerArpEastEcc": 0.0,
+               "dateInstalled": "2020-01-01T00:00:00Z", "dateRemoved": "2025-06-15T12:00:00Z"}},
+              {{"type": "LEIAR25.R4      LEIT", "serialNumber": "9",
+               "dateInstalled": "2025-06-15T12:00:00Z", "dateRemoved": null}}]}}"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn headers_are_checked_against_site_logs() {
+        let reader = gnss_rinex_io::read_obs(SWTC).unwrap();
+        let header = reader.header();
+        let t = |s: &str| gnss_fetch::time::parse_time(s).unwrap();
+        let morning = Window::new(t("2025-06-15T00:00:00Z"), t("2025-06-15T02:00:00Z"));
+        let agrees = swtc_log("LEIAS10         NONE", 1.931);
+        assert_eq!(
+            compare_header(&agrees, header, morning),
+            Vec::<String>::new()
+        );
+
+        let findings = compare_header(&swtc_log("LEIAR20         LEIM", 1.9), header, morning);
+        assert_eq!(findings.len(), 3, "{findings:?}");
+        assert!(findings[0].starts_with("antenna: the header says LEIAS10, the site log LEIAR20"));
+        assert!(findings[1].starts_with("radome: the header says NONE, the site log LEIM"));
+        assert!(findings[2].contains("1.9310/0.0000/0.0000 m, the site log 1.9000/"));
+
+        // Over the change, and after the receiver came out.
+        let day = Window::new(t("2025-06-15T00:00:00Z"), t("2025-06-16T00:00:00Z"));
+        assert_eq!(
+            compare_header(&agrees, header, day),
+            ["the site log records an antenna change then: LEIAS10 to LEIAR25.R4"]
+        );
+        let before = Window::new(t("2019-01-01T00:00:00Z"), t("2019-01-02T00:00:00Z"));
+        assert_eq!(compare_header(&agrees, header, before).len(), 2);
+
+        let check = SiteLogCheck {
+            station: "SWTC".into(),
+            file: "f".into(),
+            findings: Vec::new(),
+        };
+        assert_eq!(check.summary(), "agrees");
+    }
+
     #[test]
     fn fetched_files_are_recorded_in_data_toml() {
         let mut store = MemoryStore::new();
@@ -267,7 +499,7 @@ value = 1.5
             problems: Vec::new(),
             attributions: ["GA data".to_owned()].into_iter().collect(),
         };
-        let data = record(&mut store, &report).unwrap();
+        let data = record(&mut store, &report, &[]).unwrap();
         assert_eq!(data.files[0].purpose, "navigation data, 2025-06-15");
         let text = String::from_utf8(store.read(&data_path()).unwrap().unwrap()).unwrap();
         assert!(
@@ -275,6 +507,6 @@ value = 1.5
             "{text}"
         );
         // Again: one entry still.
-        assert_eq!(record(&mut store, &report).unwrap().files.len(), 1);
+        assert_eq!(record(&mut store, &report, &[]).unwrap().files.len(), 1);
     }
 }
