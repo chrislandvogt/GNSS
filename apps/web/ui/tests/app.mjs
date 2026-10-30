@@ -197,7 +197,60 @@ try {
   if (!/242 of 242 epochs/.test(rawChecked) || !/GPS\s+9\b/.test(rawChecked)) throw new Error(`unexpected check of the converted file:\n${rawChecked}`)
   console.log('converted raw u-blox data with convbin and checked it: 242 epochs, 9 GPS satellites')
 
-  // 5. Offline: wait for the service worker to finish caching, then reload
+  // 5. Fetching CORS data for a project, from the browser. GA's hosts are
+  //    answered here, so the test doesn't depend on them; CODE's isn't, and
+  //    mustn't be asked without a relay.
+  const API = 'https://data.gnss.ga.gov.au/api/v1/rinexFiles'
+  const S3 = 'https://geodesy-archive-permanent-storage-prod.s3.ap-southeast-2.amazonaws.com/default'
+  const asked = []
+  const listing = (name, kind) =>
+    JSON.stringify([
+      { siteId: 'sydn', fileType: kind, filePeriod: '01D', startDate: '2025-06-15T00:00:00Z', rinexVersion: '3', fileLocation: `${S3}/${name}?sig=1`, fileSize: 4 },
+    ])
+  const cors = { 'Access-Control-Allow-Origin': '*' }
+  await context.route(/^https:\/\/(data\.gnss\.ga\.gov\.au|geodesy-archive-permanent-storage-prod|download\.aiub|files\.igs)/, (route) => {
+    const url = route.request().url()
+    asked.push(url)
+    if (url.startsWith(API) && url.includes('fileType=obs') && url.includes('filePeriod=01D')) {
+      return route.fulfill({ status: 200, headers: cors, contentType: 'application/json', body: listing('SYDN00AUS_R_20251660000_01D_30S_MO.crx.gz', 'obs') })
+    }
+    if (url.startsWith(API) && url.includes('fileType=nav')) {
+      return route.fulfill({ status: 200, headers: cors, contentType: 'application/json', body: listing('SYDN00AUS_R_20251660000_01D_MN.rnx.gz', 'nav') })
+    }
+    if (url.startsWith(S3)) return route.fulfill({ status: 200, headers: cors, body: 'data' })
+    return route.fulfill({ status: 404, headers: cors, body: '' })
+  })
+  const survey = path.join(scratch, 'Fetch.zip')
+  writeFileSync(
+    survey,
+    zipOf([
+      ['Fetch/project.toml', 'schema = 1\nname = "Fetch test"\n\n[adjustment]\nframe = "GDA2020"\n'],
+      ['Fetch/marks.toml', 'schema = 1\n\n[[mark]]\nid = "PM1"\napprox = [-33.815, 151.003, 20.0]\n'],
+      [
+        'Fetch/occupations/2025-06-15-PM1-A.toml',
+        'schema = 1\nid = "2025-06-15-PM1-A"\nmark = "PM1"\nstart = "2025-06-15T03:10:00Z"\nend = "2025-06-15T05:10:00Z"\n\n[receiver]\nmake = "Trimble"\nmodel = "R12"\n\n[antenna]\nigs = "TRM159800.00"\nradome = "NONE"\n\n[height]\nmethod = "vertical"\nto = "ARP"\nvalue = 1.5\n',
+      ],
+    ]),
+  )
+  await page.getByLabel('Import a project zip').setInputFiles(survey)
+  await page.getByText('Fetch (browser storage)').waitFor()
+  await page.getByTestId('fetch-cors').fill('SYDN')
+  await page.getByTestId('fetch-data').getByRole('button', { name: 'Fetch', exact: true }).click()
+  const fetched = await page.getByTestId('fetch-result').innerText()
+  if (!/2 files \(2 downloaded\)/.test(fetched) || !fetched.includes('SYDN00AUS_R_20251660000_01D_30S_MO.crx.gz')) {
+    throw new Error(`unexpected fetch:\n${fetched}`)
+  }
+  await page.getByRole('cell', { name: 'data.toml' }).waitFor()
+  if (asked.some((u) => u.includes('aiub') || u.includes('igs'))) throw new Error(`asked a relay-only host: ${asked.join(', ')}`)
+  // Again: everything from the download cache in browser storage.
+  const before = asked.filter((u) => u.startsWith(S3)).length
+  await page.getByTestId('fetch-data').getByRole('button', { name: 'Fetch', exact: true }).click()
+  await page.getByTestId('fetch-result').filter({ hasText: '2 files (0 downloaded)' }).waitFor()
+  if (asked.filter((u) => u.startsWith(S3)).length !== before) throw new Error('fetched again what was cached')
+  console.log('fetched SYDN observations and navigation data from (routed) GA hosts into browser storage, then from the cache')
+  await context.unroute(/^https:/)
+
+  // 6. Offline: wait for the service worker to finish caching, then reload
   //    with no network and load the engine from the cache.
   await page.evaluate(async () => {
     const registration = await navigator.serviceWorker.ready

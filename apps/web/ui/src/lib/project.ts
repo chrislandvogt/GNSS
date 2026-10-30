@@ -112,3 +112,10 @@ export async function storageUse(): Promise<{ used: number; quota: number; persi
   const { usage = 0, quota = 0 } = await navigator.storage.estimate()
   return { used: usage, quota, persisted: (await navigator.storage.persisted?.()) ?? false }
 }
+
+/** Writes a text file at the top of the project, replacing it if it's there. */
+export async function writeProjectFile(project: ProjectRoot, name: string, text: string): Promise<void> {
+  const writable = await (await project.handle.getFileHandle(name, { create: true })).createWritable()
+  await writable.write(text)
+  await writable.close()
+}

@@ -8,6 +8,8 @@ import type {
   CoreRequest,
   CoreResponse,
   ExportedFile,
+  FetchOptions,
+  FetchOutcome,
   LoadedFile,
   ProjectFileData,
   ProjectSpec,
@@ -98,6 +100,11 @@ class CoreClient {
   checkProject(files: ProjectFileData[]): Promise<CheckedProject> {
     return this.call<CheckedProject>({ type: 'check-project', files }, files.map((f) => f.data))
   }
+  /** Fetches what the project's occupations need into the download cache. */
+  fetchData(files: ProjectFileData[], options: FetchOptions): Promise<FetchOutcome> {
+    return this.call<FetchOutcome>({ type: 'fetch-data', files, options }, files.map((f) => f.data))
+  }
+
 }
 
 export const core = new CoreClient()

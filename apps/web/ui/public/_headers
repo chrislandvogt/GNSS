@@ -1,10 +1,12 @@
 # Response headers for static hosts that support this file (Cloudflare Pages,
-# Netlify). See ARCHITECTURE.md sections 14.5 and 18. Hosts listed in packs
-# are added to connect-src as data fetching arrives (M7). The hash in
+# Netlify). See ARCHITECTURE.md sections 14.5 and 18. connect-src lists the
+# hosts packs mark browser = "direct" (a test in crates/fetch checks it), and
+# a relay on this machine (127.0.0.1 or localhost, any port); a relay
+# elsewhere needs the site served with that host added. The hash in
 # style-src allows the adjustment report's one inline style, so the page can
 # show the report as it's downloaded; the report crate's tests check it.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'sha256-Edh1qlzBYX8fMzQsZ4VBTVS+KKuy3u5KPOyWMt3qtQs='; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'sha256-Edh1qlzBYX8fMzQsZ4VBTVS+KKuy3u5KPOyWMt3qtQs='; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://data.gnss.ga.gov.au https://geodesy-archive-permanent-storage-prod.s3.ap-southeast-2.amazonaws.com https://gws.geodesy.ga.gov.au http://127.0.0.1:* http://localhost:*; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   Cross-Origin-Opener-Policy: same-origin

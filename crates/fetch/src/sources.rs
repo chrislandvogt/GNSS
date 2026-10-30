@@ -140,6 +140,29 @@ mod tests {
     }
 
     #[test]
+    fn the_web_app_may_connect_to_every_host_the_browser_reaches_directly() {
+        let headers = include_str!("../../../apps/web/ui/public/_headers");
+        let connect = headers
+            .split(';')
+            .find_map(|d| d.trim().strip_prefix("connect-src"))
+            .unwrap();
+        let allowed: Vec<&str> = connect.split_whitespace().collect();
+        for source in read_sources(AU).unwrap() {
+            if source.browser == Browser::Direct {
+                for host in &source.hosts {
+                    let origin = format!("https://{host}");
+                    assert!(
+                        allowed.contains(&origin.as_str()),
+                        "{origin} isn't in connect-src"
+                    );
+                }
+            }
+        }
+        // And a relay on this machine.
+        assert!(allowed.contains(&"http://127.0.0.1:*"));
+    }
+
+    #[test]
     fn hosts_are_https_only() {
         assert_eq!(host("https://a.example/x?y"), Some("a.example"));
         assert_eq!(host("https://a.example"), Some("a.example"));

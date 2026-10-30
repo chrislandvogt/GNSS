@@ -8,6 +8,8 @@
 
 use std::collections::BTreeMap;
 
+pub mod fetch;
+
 use gnss_api::folder;
 use gnss_api::project::{self, ExportFile, ExportFormat, Format, Project, Run, Summary};
 use gnss_datum::FrameId;
@@ -476,6 +478,57 @@ mod bindings {
             array.push(&entry);
         }
         Ok(array)
+    }
+
+    /// HTTP through a page function: `get(url)` returns the body as a
+    /// `Uint8Array`, `null` for a missing file, or throws.
+    struct JsHttp<'a>(&'a js_sys::Function);
+
+    impl gnss_api::fetch::gnss_fetch::Http for JsHttp<'_> {
+        fn get(
+            &mut self,
+            url: &str,
+        ) -> Result<Option<Vec<u8>>, gnss_api::fetch::gnss_fetch::FetchError> {
+            match self.0.call1(&JsValue::NULL, &JsValue::from_str(url)) {
+                Ok(body) if body.is_null() || body.is_undefined() => Ok(None),
+                Ok(body) => Ok(Some(js_sys::Uint8Array::new(&body).to_vec())),
+                Err(e) => Err(gnss_api::fetch::gnss_fetch::FetchError::Http {
+                    url: gnss_api::fetch::gnss_fetch::cache::without_query(url).to_owned(),
+                    message: js_sys::Error::from(e)
+                        .message()
+                        .as_string()
+                        .unwrap_or_else(|| "the request failed".into()),
+                }),
+            }
+        }
+    }
+
+    /// Fetches what the project's occupations need (`fetch::fetch_data`).
+    /// `project` and `cache` are arrays of `{ path, data }` (the cache's
+    /// objects may be empty: only their names are used); `options` is JSON;
+    /// `get(url)` does the HTTP. Returns `[outcome JSON, cache files to
+    /// save as { path, data }]`.
+    #[wasm_bindgen(js_name = fetchData)]
+    pub fn fetch_data(
+        project: &js_sys::Array,
+        cache: &js_sys::Array,
+        options: &str,
+        get: &js_sys::Function,
+    ) -> Result<js_sys::Array, JsError> {
+        let options: super::fetch::FetchOptions =
+            serde_json::from_str(options).map_err(|e| JsError::new(&e.to_string()))?;
+        let mut outcome = super::fetch::fetch_data(
+            files_from(project)?,
+            files_from(cache)?,
+            &options,
+            JsHttp(get),
+        )
+        .map_err(|e| JsError::new(&e))?;
+        let writes = files_to(std::mem::take(&mut outcome.cache_writes))?;
+        let out = js_sys::Array::new();
+        out.push(&JsValue::from_str(&json(&outcome)?));
+        out.push(&writes);
+        Ok(out)
     }
 
     /// A project's files, as an array of `{ path, data }`, as a zip.

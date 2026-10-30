@@ -140,6 +140,41 @@ export interface RinexChecked {
   seconds: number
 }
 
+/** What to fetch for a project (`fetch::FetchOptions` in the core). */
+export interface FetchOptions {
+  /** CORS stations for every occupation; empty for the nearest. */
+  cors: string[]
+  nearest: number
+  within_km: number
+  /** CODE's precise orbits, clocks and ERPs: through the relay. */
+  precise: boolean
+  /** The ANTEX file: through the relay. */
+  antex: boolean
+  /** A relay the user turned on, or null. */
+  relay: string | null
+  /** The page's clock, as an ISO string. */
+  now: string
+}
+
+/** A file a fetch got or found (`fetch::FetchedFile`). */
+export interface FetchedFile {
+  purpose: string
+  name: string
+  bytes: number
+  downloaded: boolean
+  note: string | null
+}
+
+/** What a fetch did (`fetch::FetchOutcome`). */
+export interface FetchOutcome {
+  fetched: FetchedFile[]
+  problems: string[]
+  notes: string[]
+  attributions: string[]
+  /** The project's data.toml, updated, for the page to save. */
+  data_toml: string
+}
+
 export type CoreRequest =
   | { id: number; type: 'info' }
   | { id: number; type: 'hash'; data: ArrayBuffer }
@@ -153,6 +188,7 @@ export type CoreRequest =
   | { id: number; type: 'zip-import'; data: ArrayBuffer }
   | { id: number; type: 'check-project'; files: ProjectFileData[] }
   | { id: number; type: 'check-rinex'; file: File; nav: File[] }
+  | { id: number; type: 'fetch-data'; files: ProjectFileData[]; options: FetchOptions }
 
 export type CoreResponse =
   | { id: number; ok: true; result: unknown }
