@@ -38,3 +38,19 @@ Until the secrets are set, main's deploy job does nothing and says so; CI stays 
 ## A custom domain
 
 Attach it to the Pages project under *Custom domains*. It serves the production branch, which releases fill.
+
+## The relay
+
+The web app can download GA's CORS data itself, but some sources (CODE's precise products, the IGS's ANTEX file) don't send the cross-origin headers a browser needs. For those it can use a relay, `gnss-relay`, which agencies or users can run themselves:
+
+```bash
+cargo build --release -p gnss-relay
+./target/release/gnss-relay --listen 127.0.0.1:8787                      # this machine only
+./target/release/gnss-relay --listen 0.0.0.0:8787 --allow-origin https://gnss.example.org
+```
+
+- It forwards GET requests only to HTTPS URLs on the hosts the jurisdiction pack declares (`--pack`, default the built-in Australian pack), and follows redirects only to those hosts.
+- It keeps no logs or copies, and prints only its start-up line. It still sees which files are requested, which hints at where and when a survey happened, so run it where you'd trust that to be seen.
+- It uses the proxy in `HTTPS_PROXY` and the like for its own requests, and trusts the platform's certificates.
+- `--allow-origin` limits which web app may use it from a browser; the default, `*`, suits a relay on your own machine.
+- Behind a TLS-terminating reverse proxy if it's reachable beyond the machine: it speaks plain HTTP.

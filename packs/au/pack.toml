@@ -198,7 +198,7 @@ name = "Geoscience Australia CORS sites"
 kind = "ga-sites"
 url = "https://gws.geodesy.ga.gov.au/corsSites"
 hosts = ["gws.geodesy.ga.gov.au"]
-browser = "relay" # not checked
+browser = "direct" # checked 2026-10-30
 licence = "CC BY 4.0, Geoscience Australia"
 attribution = "CORS site information from Geoscience Australia's GNSS site log service, CC BY 4.0."
 
