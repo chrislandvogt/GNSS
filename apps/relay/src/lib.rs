@@ -15,6 +15,9 @@
 //! The HTTP it speaks is a deliberately small HTTP/1.1: one request per
 //! connection, a request head of at most 8 KiB, and time limits on reading
 //! it, so a slow or malformed client can't hold the relay up.
+//!
+//! With a [`Site`], it's `gnss serve`: the web app on this machine, with the
+//! relay at `/relay/` (`site`).
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -24,6 +27,10 @@ use std::time::Duration;
 
 use gnss_fetch::Source;
 use gnss_fetch::relay::{allowed, requested};
+
+pub mod site;
+
+pub use site::Site;
 
 /// How the relay runs.
 #[derive(Debug, Clone)]
@@ -35,6 +42,9 @@ pub struct Config {
     pub allow_origin: String,
     /// Requests served at once; more are refused with 503.
     pub max_connections: usize,
+    /// The web app to serve too, with the relay at `/relay/` (`gnss
+    /// serve`), or none for the relay alone.
+    pub site: Option<Site>,
 }
 
 /// What an upstream server answered.
@@ -102,11 +112,14 @@ fn linger(stream: &TcpStream) {
     let _ = io::copy(&mut stream.take(64 * 1024), &mut io::sink());
 }
 
-/// A request's method, target and `Range` header.
+/// A request's method, target, and the headers that matter here.
 struct Request {
     method: String,
     target: String,
     range: Option<String>,
+    host: Option<String>,
+    origin: Option<String>,
+    fetch_site: Option<String>,
 }
 
 fn read_request(stream: &TcpStream) -> io::Result<Request> {
@@ -122,7 +135,7 @@ fn read_request(stream: &TcpStream) -> io::Result<Request> {
         ));
     };
     let (method, target) = (method.to_owned(), target.to_owned());
-    let mut range = None;
+    let (mut range, mut host, mut origin, mut fetch_site) = (None, None, None, None);
     loop {
         let mut header = String::new();
         if reader.read_line(&mut header)? == 0 {
@@ -135,20 +148,28 @@ fn read_request(stream: &TcpStream) -> io::Result<Request> {
         if header.is_empty() {
             break;
         }
-        if let Some((name, value)) = header.split_once(':')
-            && name.eq_ignore_ascii_case("range")
-        {
-            let value = value.trim();
+        let Some((name, value)) = header.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        match name.to_ascii_lowercase().as_str() {
             // Only a plain byte range, as a resumed download sends.
-            if value.starts_with("bytes=") && value.len() < 64 {
+            "range" if value.starts_with("bytes=") && value.len() < 64 => {
                 range = Some(value.to_owned());
             }
+            "host" => host = Some(value.to_owned()),
+            "origin" => origin = Some(value.to_owned()),
+            "sec-fetch-site" => fetch_site = Some(value.to_owned()),
+            _ => {}
         }
     }
     Ok(Request {
         method,
         target,
         range,
+        host,
+        origin,
+        fetch_site,
     })
 }
 
@@ -178,6 +199,7 @@ fn reason(status: u16) -> &'static str {
         206 => "Partial Content",
         400 => "Bad Request",
         403 => "Forbidden",
+        421 => "Misdirected Request",
         404 => "Not Found",
         405 => "Method Not Allowed",
         416 => "Range Not Satisfiable",
@@ -192,6 +214,84 @@ fn handle(stream: &TcpStream, config: &Config, upstream: &dyn Upstream) -> io::R
         Ok(r) => r,
         Err(_) => return reply(stream, config, 400, "that isn't a request the relay reads"),
     };
+    if let Some(site) = &config.site {
+        return serve_site(stream, config, upstream, site, request);
+    }
+    relay(stream, config, upstream, &request, &request.target)
+}
+
+/// `gnss serve`: the web app, and the relay at `/relay/`, only to this
+/// machine's own pages.
+fn serve_site(
+    mut stream: &TcpStream,
+    config: &Config,
+    upstream: &dyn Upstream,
+    site: &Site,
+    request: Request,
+) -> io::Result<()> {
+    let Some(host) = request.host.as_deref().filter(|h| site.is_our_host(h)) else {
+        return reply(
+            stream,
+            config,
+            421,
+            "ask for this machine by 127.0.0.1 or localhost and the port it serves on",
+        );
+    };
+    let own = format!("http://{host}");
+    let foreign_origin = request.origin.as_deref().is_some_and(|o| o != own);
+    let foreign_site = request
+        .fetch_site
+        .as_deref()
+        .is_some_and(|s| s != "same-origin" && s != "none");
+    if foreign_origin || foreign_site {
+        return reply(stream, config, 403, "only this app's own pages may use it");
+    }
+    let path = request.target.split(['?', '#']).next().unwrap_or("/");
+    if path == site::RELAY || path.starts_with(&format!("{}/", site::RELAY)) {
+        let target = request
+            .target
+            .get(site::RELAY.len()..)
+            .filter(|t| !t.is_empty())
+            .unwrap_or("/");
+        return relay(stream, config, upstream, &request, target);
+    }
+    if request.method != "GET" && request.method != "HEAD" {
+        return reply(stream, config, 405, "it only answers GET");
+    }
+    let Some((bytes, kind)) = site.file(path) else {
+        return reply(stream, config, 404, "no such file in the web app");
+    };
+    let mut head = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n",
+        bytes.len()
+    );
+    for (name, value) in site.headers(path) {
+        // The file's own type stands; other headers are added.
+        if !name.eq_ignore_ascii_case("content-type") {
+            head.push_str(&format!("{name}: {value}\r\n"));
+        }
+    }
+    if kind.starts_with("text/html") {
+        // A hint for the app that its relay is here (`site::RELAY`): read
+        // by the page, sent to no one else.
+        head.push_str("Set-Cookie: gnss-serve=relay; Path=/; SameSite=Strict\r\n");
+    }
+    head.push_str("\r\n");
+    stream.write_all(head.as_bytes())?;
+    if request.method == "GET" {
+        stream.write_all(bytes)?;
+    }
+    stream.flush()
+}
+
+/// Forwards a request, for the file its target names, to its source.
+fn relay(
+    stream: &TcpStream,
+    config: &Config,
+    upstream: &dyn Upstream,
+    request: &Request,
+    target: &str,
+) -> io::Result<()> {
     match request.method.as_str() {
         "OPTIONS" => {
             let mut out = stream;
@@ -205,11 +305,11 @@ fn handle(stream: &TcpStream, config: &Config, upstream: &dyn Upstream) -> io::R
         "GET" => {}
         _ => return reply(stream, config, 405, "the relay only answers GET"),
     }
-    let Some(mut url) = requested(&request.target) else {
+    let Some(mut url) = requested(target) else {
         return reply(
             stream,
             config,
-            if request.target == "/" { 200 } else { 400 },
+            if target == "/" { 200 } else { 400 },
             "gnss relay: ask for /?url=<a percent-encoded https URL on a host the packs declare>",
         );
     };
@@ -397,6 +497,7 @@ mod tests {
             sources,
             allow_origin: "*".into(),
             max_connections: 8,
+            site: None,
         });
         let fake = Arc::new(fake);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -515,5 +616,64 @@ mod tests {
             resolve("https://a.example/x", "https://b.example/c"),
             "https://b.example/c"
         );
+    }
+
+    #[test]
+    fn gnss_serve_serves_the_app_and_its_relay_to_its_own_pages_only() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let addr = format!("127.0.0.1:{port}");
+        let mut files = BTreeMap::new();
+        files.insert("index.html".to_owned(), b"<!doctype html>".to_vec());
+        files.insert(
+            "_headers".to_owned(),
+            b"/*\n  Content-Security-Policy: default-src 'self'\n".to_vec(),
+        );
+        let mut store = gnss_store::MemoryStore::new();
+        for (name, bytes) in &files {
+            let _ = gnss_store::Store::write(
+                &mut store,
+                &gnss_store::ProjectPath::new(name.as_str()).unwrap(),
+                bytes,
+            );
+        }
+        let site = Site::from_zip(&gnss_store::zip::export(&store).unwrap(), port).unwrap();
+        let config = Arc::new(Config {
+            sources: gnss_fetch::read_sources(include_str!("../../../packs/au/pack.toml")).unwrap(),
+            allow_origin: format!("http://{addr}"),
+            max_connections: 8,
+            site: Some(site),
+        });
+        let upstream: Arc<dyn Upstream> = Arc::new(code_with_redirect());
+        std::thread::spawn(move || serve(listener, config, upstream));
+        let ask_as = |target: &str, headers: &str| {
+            ask(&addr, &format!("GET {target} HTTP/1.1\r\n{headers}\r\n"))
+        };
+        let host = format!("Host: {addr}\r\n");
+
+        let page = ask_as("/", &host);
+        assert!(page.starts_with("HTTP/1.1 200 OK\r\n"), "{page}");
+        assert!(page.contains("Content-Type: text/html; charset=utf-8\r\n"));
+        assert!(page.contains("Content-Security-Policy: default-src 'self'\r\n"));
+        assert!(page.contains("Set-Cookie: gnss-serve=relay;"));
+        assert!(page.ends_with("<!doctype html>"));
+        assert!(ask_as("/_headers", &host).starts_with("HTTP/1.1 404"));
+
+        // The relay, beside it.
+        let target = gnss_fetch::relay::relay_url("/relay", CODE);
+        let relayed = ask_as(&target, &format!("{host}Sec-Fetch-Site: same-origin\r\n"));
+        assert!(relayed.ends_with("0123456789"), "{relayed}");
+        let undeclared = gnss_fetch::relay::relay_url("/relay", "https://example.org/x");
+        assert!(ask_as(&undeclared, &host).starts_with("HTTP/1.1 403"));
+
+        // Not by another name (DNS rebinding), nor for other sites.
+        assert!(ask_as("/", "Host: evil.example\r\n").starts_with("HTTP/1.1 421"));
+        assert!(ask_as("/", "").starts_with("HTTP/1.1 421"));
+        let cross = format!("{host}Origin: https://evil.example\r\n");
+        assert!(ask_as(&target, &cross).starts_with("HTTP/1.1 403"));
+        let cross = format!("{host}Sec-Fetch-Site: cross-site\r\n");
+        assert!(ask_as(&target, &cross).starts_with("HTTP/1.1 403"));
+        let own = format!("{host}Origin: http://{addr}\r\n");
+        assert!(ask_as(&target, &own).starts_with("HTTP/1.1 200"));
     }
 }

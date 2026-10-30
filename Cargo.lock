@@ -473,6 +473,7 @@ dependencies = [
  "gnss-api",
  "gnss-datum",
  "gnss-model",
+ "gnss-relay",
  "gnss-store",
  "hifitime",
  "serde",
@@ -568,6 +569,7 @@ name = "gnss-relay"
 version = "0.1.0"
 dependencies = [
  "gnss-fetch",
+ "gnss-store",
  "ureq",
 ]
 

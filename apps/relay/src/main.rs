@@ -85,6 +85,7 @@ fn main() -> ExitCode {
         sources,
         allow_origin,
         max_connections: 32,
+        site: None,
     });
     serve(listener, config, Arc::new(Network::new()));
     ExitCode::SUCCESS

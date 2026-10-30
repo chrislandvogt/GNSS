@@ -686,3 +686,50 @@ licence = "CC BY 4.0"
     assert_eq!(o.status.code(), Some(1));
     assert!(stderr(&o).contains("isn't in the cache"), "{}", stderr(&o));
 }
+
+#[test]
+fn serve_serves_a_bundle_on_this_machine_only() {
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::process::Stdio;
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("index.html"), "<!doctype html>").unwrap();
+    fs::write(
+        dir.path().join("_headers"),
+        "/*\n  Content-Security-Policy: default-src 'self'\n",
+    )
+    .unwrap();
+    // Port 0: whichever is free; it says which.
+    let mut child = Command::new(env!("CARGO_BIN_EXE_gnss"))
+        .args(["serve", "--port", "0", "--bundle"])
+        .arg(dir.path())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut line = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut line)
+        .unwrap();
+    let origin = line
+        .split_whitespace()
+        .find(|w| w.starts_with("http://127.0.0.1:"))
+        .unwrap()
+        .trim_end_matches('/')
+        .to_owned();
+    let addr = origin.trim_start_matches("http://").to_owned();
+    let ask = |host: &str| {
+        let mut stream = std::net::TcpStream::connect(&addr).unwrap();
+        write!(stream, "GET / HTTP/1.1\r\nHost: {host}\r\n\r\n").unwrap();
+        let mut out = String::new();
+        stream.read_to_string(&mut out).unwrap();
+        out
+    };
+    let page = ask(&addr);
+    let other = ask("evil.example");
+    let _ = child.kill();
+    let _ = child.wait();
+    assert!(page.starts_with("HTTP/1.1 200 OK"), "{page}");
+    assert!(page.contains("Content-Security-Policy: default-src 'self'"));
+    assert!(page.ends_with("<!doctype html>"));
+    assert!(other.starts_with("HTTP/1.1 421"), "{other}");
+    assert!(line.contains("/relay/"), "{line}");
+}
