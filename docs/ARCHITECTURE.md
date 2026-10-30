@@ -727,7 +727,7 @@ The initial catalogue (M9):
   | Source | From the web app |
   |---|---|
   | GA Web API, its archive downloads (observation and navigation files) and the `ga-gnss-data-rinex-v1` bucket | Direct |
-  | GA's CORS site list (`gws.geodesy.ga.gov.au`, checked 2026-10-30) | Direct |
+  | GA's CORS site list and site logs (`gws.geodesy.ga.gov.au`, checked 2026-10-30) | Direct |
   | `files.igs.org` (ANTEX, IGS station files) | Relay or data pack |
   | The AUSGeoid2020 grid and its uncertainty grid on Geoscience Australia's S3 host | Relay or data pack |
   | PROJ-data on GitHub: the GDA94 to GDA2020 grid, and AUSGeoid2020's N without its uncertainty, as GeoTIFF (checked 2026-10-19) | Direct |
@@ -749,6 +749,7 @@ The initial catalogue (M9):
 - **Cache.** A per-user cache shared across projects, keyed by content hash: in the user's cache directory natively, and in browser storage (OPFS) in the web app. Files are kept exactly as published (`objects/<sha256>`) and found by source and name (`index/<source>/<name>.json`). Projects record exactly which files they used, in `data.toml`.
 - **Time.** Planning is in GPS time, as archives name and split their files by GPS days and hours: a daily file "for 2025-06-15" starts at 23:59:42 UTC the day before. CORS windows are padded (5 minutes by default), but never into a day the occupation doesn't touch.
 - **Offline data packs.** A zip containing the files plus a manifest of sources, hashes and licences (`manifest.json`, and each file at `files/<source>/<name>`). A pack is exported on a connected machine, from the web app or the CLI (`gnss data export`), and imported on an air-gapped one (`gnss data import`), which checks every file against its hash before any goes into the cache. Packs are also how to bring in sources the browser can't reach without using a relay.
+- **Site logs.** Each CORS file fetched has its RINEX header checked against the station's site log (GA's, as JSON, cached for a week): the receiver's and antenna's types and serial numbers, the radome, and the antenna's height and offsets over the occupation's window. A header can be wrong, and the antenna it names decides the antenna model applied, so differences are reported rather than corrected, as is equipment changing during the window or none being logged. The result goes in `data.toml` with the file (`site_log`) and on into the report. Files the browser's cache only knows by name keep the result from when they were fetched.
 - **Attribution.** Licence and attribution metadata follow the data into reports.
 
 ## 14. Web app

@@ -165,11 +165,20 @@ export interface FetchedFile {
   note: string | null
 }
 
+/** A CORS file's header against its site log (`fetch::SiteLogCheck`). */
+export interface SiteLogCheck {
+  station: string
+  file: string
+  /** What differs; empty if the header agrees. */
+  findings: string[]
+}
+
 /** What a fetch did (`fetch::FetchOutcome`). */
 export interface FetchOutcome {
   fetched: FetchedFile[]
   problems: string[]
   notes: string[]
+  site_logs: SiteLogCheck[]
   attributions: string[]
   /** The project's data.toml, updated, for the page to save. */
   data_toml: string

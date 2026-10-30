@@ -17,6 +17,7 @@ pub mod pack;
 pub mod plan;
 pub mod products;
 pub mod relay;
+pub mod sitelog;
 pub mod sites;
 pub mod sources;
 pub mod time;

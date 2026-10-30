@@ -328,7 +328,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 **Goal:** no more data chasing.
 
 - [ ] Source registry, driven by the jurisdiction pack (`[[sources]]` in `packs/au/pack.toml`, read by `gnss_fetch::sources`):
-  - [x] GA GNSS Data Repository, through its Web API: daily and hourly RINEX 3 files, chosen per day by how much of it is needed (`gnss_fetch::ga`), and its CORS site list, read a page at a time (GA serves at most 2,000 sites a page and has 2,020). S3 and SFTP access, and site logs, not yet.
+  - [x] GA GNSS Data Repository, through its Web API: daily and hourly RINEX 3 files, chosen per day by how much of it is needed (`gnss_fetch::ga`), and its CORS site list, read a page at a time (GA serves at most 2,000 sites a page and has 2,020). Its site logs too, for the checks below. S3 and SFTP access not yet.
   - [ ] State CORS networks, where they're openly available.
   - [ ] IGS product mirrors that don't need a login. CODE covers precise products for now.
   - [x] CODE (AIUB, the Bernese team's analysis centre): final, rapid and ultra-rapid orbits, clocks and ERPs, and multi-GNSS (MGEX) finals, over HTTPS without a login, with the citation CODE asks for per series (`gnss_fetch::products`). Biases and ionosphere maps are named but not planned yet.
@@ -347,7 +347,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [x] Record for each source whether the web app can download from it directly. GA's Web API, archive downloads and site list can; `files.igs.org`, CODE's host and the AUSGeoid2020 grid host can't (checked 2026-10-15, 2026-10-29 and 2026-10-30).
   - [x] Relay (`apps/relay`, `gnss-relay`): optional and off by default, stateless, limited to pack-declared hosts, and with no logs. Self-hostable. It forwards `GET /?url=…` only for HTTPS URLs on hosts the packs declare, follows redirects itself and only to such hosts, passes `Range` on so downloads resume, adds cross-origin headers, and prints nothing but its start-up line. The fetcher routes sources a browser can't reach through it (`gnss_fetch::Route`; `gnss fetch --relay` to check one). Still to do: building it into `gnss serve`, which doesn't exist yet. The web app explains what the relay can see where it's turned on, and it's off unless the user turns it on.
   - [ ] Confirm whether ANTEX and the AUSGeoid2020 grid may be redistributed with the app, so the Australian v1 workflow needs no relay.
-- [ ] Use site logs to check CORS antenna and receiver history against RINEX headers.
+- [x] Use site logs to check CORS antenna and receiver history against RINEX headers (`gnss_fetch::sitelog`, `gnss_api::fetch::compare_header`): receiver and antenna types and serials, radome, and antenna height and offsets over the window, with equipment changes in the window flagged. Results go in `data.toml` and the report, and show in the CLI and web app. Checked live on 2026-10-30 against BANK, BLKT, CNCD and VLWD, which all agree.
 - [x] Respect data licences, and carry attribution (for example CC BY for GA data) into reports. `data.toml` records each file's licence and the attributions; the report's provenance lists the data from outside the project and quotes the attributions word for word.
 - [x] Read gzipped files (`gnss_rinex_io::decoded`), as archives publish them: observation and navigation files, plain or Hatanaka-compressed, natively and in the browser.
 

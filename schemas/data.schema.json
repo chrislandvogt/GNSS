@@ -67,6 +67,13 @@
           "description": "The file's SHA-256, in hex: its key in the download cache.",
           "type": "string"
         },
+        "site_log": {
+          "description": "For a CORS file: its RINEX header against the station's site log,\n`agrees` or what differs.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "source": {
           "description": "The source's id in the jurisdiction pack.",
           "type": "string"

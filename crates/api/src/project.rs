@@ -777,6 +777,7 @@ pub fn report_with_data(
                         sha256: f.sha256.clone(),
                         licence: f.licence.clone(),
                         note: f.note.clone(),
+                        site_log: f.site_log.clone(),
                     })
                     .collect()
             })

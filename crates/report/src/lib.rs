@@ -90,6 +90,9 @@ pub struct DataInfo {
     pub licence: String,
     /// Anything to know about it.
     pub note: Option<String>,
+    /// For a CORS file: its header against the station's site log,
+    /// `agrees` or what differs.
+    pub site_log: Option<String>,
 }
 
 /// `text` with HTML's special characters escaped.
@@ -641,11 +644,18 @@ pub fn html(input: &Input<'_>) -> String {
              <tr><th>For</th><th>File</th><th>Licence</th><th>SHA-256</th></tr>\n",
         );
         for d in &input.data {
-            let note = d
+            let mut note = d
                 .note
                 .as_ref()
                 .map(|n| format!("<br><span class=\"note\">{}</span>", escape(n)))
                 .unwrap_or_default();
+            if let Some(log) = &d.site_log {
+                let _ = write!(
+                    note,
+                    "<br><span class=\"note\">Site log: {}</span>",
+                    escape(log)
+                );
+            }
             let _ = writeln!(
                 out,
                 "<tr><td>{}{note}</td><td>{}<br><span class=\"note\">{}</span></td><td>{}</td><td><code>{}</code></td></tr>",
