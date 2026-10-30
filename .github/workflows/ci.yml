@@ -181,6 +181,12 @@ jobs:
             engine-modules/rtklib-ex/dist/testdata/
           cp engine-modules/rtklib-ex/.src/rtklib/test/data/rcvraw/ubx_20080526.ubx \
             engine-modules/rtklib-ex/dist/testdata/
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - name: The module under the CLI's host (wasmtime, as a library)
+        env:
+          GNSS_RTKLIB_DIST: ${{ github.workspace }}/engine-modules/rtklib-ex/dist
+        run: cargo test -p gnss-engine-host --test golden --locked -- --ignored
       - uses: actions/upload-artifact@v6
         with:
           name: rnx2rtkp-wasm

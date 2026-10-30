@@ -384,6 +384,13 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [x] Antenna types, deltas and ANTEX. Types, heights and offsets come from the reconciled RINEX headers; ANTEX is the pinned file, given uncompressed.
   - [x] The base position from known coordinates (ECEF in the orbits' frame at the epoch), or the header's position when nothing better is known. The frame and epoch transformation is the driver's job.
 - [ ] Module hosts: a pool of engine workers in the browser and of wasmtime instances natively, with a fresh instance per run, timeouts, stderr capture and trap handling. Size the browser pool by memory as well as cores (about 90 MB per 2-hour run, 228 MB for a whole day at 30 s).
+  - [x] Native: `gnss_engine_host` (wasmtime 49.0.3 as a library).
+    - It compiles a module once, then gives each run a fresh instance with one folder as its working directory, and no network.
+    - It enforces a time limit (epoch interruption) and a memory limit, keeps standard output and error in memory, and reports traps with the module's standard error.
+    - RTKLIB's test data gives the golden `test4.pos` under it; CI checks this where the module is built.
+    - A generated configuration on the spike's CNCD–SYDN baseline gives the spike's solution exactly, in 7.7 s.
+  - [ ] Running runs in parallel natively.
+  - [ ] The browser's pool of engine workers.
 - [ ] Before each run, trim each RINEX file to the overlap window and decimate it to the processing interval. This keeps runs within WebAssembly's memory limit and roughly halves their time in the browser (M0 spike).
 - [ ] Check that the navigation data covers every constellation being processed, and refuse to run otherwise. In the M0 spike, per-constellation navigation files silently degraded solutions.
 - [ ] Output parsing:
