@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 gnss-fetch.workspace = true
+gnss-store.workspace = true
 ureq.workspace = true
 
 [lints]

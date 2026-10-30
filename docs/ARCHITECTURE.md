@@ -860,12 +860,14 @@ gnss report --format html|pdf
 gnss export --format dynaml|starnet|landxml|gpkg|csv
 gnss verify                     # re-run from scratch and compare output hashes
 gnss bench run --manifest benchmarks/<manifest>.toml
-gnss serve [--bundle <zip>]     # serve the web app on localhost, with a private relay
+gnss serve --bundle <zip|dir>   # serve the web app on localhost, with a private relay
 ```
 
 - The binary name follows the project name (D-014).
 - Every command supports `--json`, and takes the project folder as `--project` (the current folder by default).
-- **`serve`** serves the web app that ships with the CLI, or a given release bundle. A web app served this way can also hand native-only jobs, such as Ginan, to the CLI. It listens on localhost only, checks the `Origin` and `Host` headers, and requires a per-session token, so other websites can't use it.
+- **`serve`** serves a release bundle (its zip, or a folder) on `127.0.0.1`, with the bundle's own `_headers` (the hosted app's Content Security Policy), and the relay at `/relay/`. The web app finds that relay itself and offers it, still off until the user turns it on.
+  - It answers only requests addressed to this machine at its port (`Host`), so a website can't reach it through DNS rebinding. It answers only the app's own pages (`Origin`, `Sec-Fetch-Site`), so another site can't use its relay.
+  - Still to come: carrying the web app inside the CLI, so `--bundle` is optional; and handing native-only jobs, such as Ginan, from the web app to the CLI, which will need a per-session token as well.
 - Exit codes:
 
   | Code | Meaning |

@@ -81,6 +81,22 @@ enum Command {
     /// no network.
     #[command(subcommand)]
     Data(DataCommand),
+    /// Serve the web app on this machine, from a release bundle, with a
+    /// private relay for the data sources a browser can't reach. It answers
+    /// only this machine's own pages, and works with no network but for
+    /// the relay.
+    Serve(ServeArgs),
+}
+
+#[derive(Args)]
+struct ServeArgs {
+    /// The web app: a release bundle's zip (gnss-web-<version>.zip) or a
+    /// folder holding it.
+    #[arg(long, value_name = "ZIP or FOLDER")]
+    bundle: PathBuf,
+    /// The port on 127.0.0.1 to serve on.
+    #[arg(long, default_value_t = 8765)]
+    port: u16,
 }
 
 #[derive(Args)]
@@ -350,6 +366,7 @@ fn dispatch(cli: &Cli) -> Result<u8, Failure> {
         Command::ExportRinex(args) => export_rinex(cli, args),
         Command::Fetch(args) => fetch(cli, args),
         Command::Data(command) => data(cli, command),
+        Command::Serve(args) => serve(args),
     }
 }
 
@@ -380,6 +397,42 @@ struct DataImportArgs {
     /// The download cache. Default: $GNSS_CACHE, or the user's cache folder.
     #[arg(long, value_name = "DIR")]
     cache: Option<PathBuf>,
+}
+
+fn serve(args: &ServeArgs) -> Result<u8, Failure> {
+    use std::sync::Arc;
+
+    use gnss_relay::{Config, Network, Site};
+    // This machine only: browsers treat it as a secure context, and nothing
+    // else on the network can reach it.
+    let listener = std::net::TcpListener::bind(("127.0.0.1", args.port))
+        .map_err(|e| format!("127.0.0.1:{}: {e}", args.port))?;
+    let port = listener.local_addr()?.port();
+    let bundle = &args.bundle;
+    let site = if bundle.is_dir() {
+        Site::from_dir(bundle, port)
+    } else {
+        std::fs::read(bundle)
+            .map_err(|e| e.to_string())
+            .and_then(|zip| Site::from_zip(&zip, port))
+    }
+    .map_err(|e| format!("{}: {e}", bundle.display()))?;
+    let sources = gnss_api::fetch::gnss_fetch::read_sources(gnss_api::fetch::AU_PACK)?;
+    let origin = format!("http://127.0.0.1:{port}");
+    // The only thing it prints: requests aren't logged.
+    println!(
+        "Serving the web app ({} files) at {origin}/ with its relay at {origin}{}/; Ctrl+C stops it.",
+        site.len(),
+        gnss_relay::site::RELAY
+    );
+    let config = Arc::new(Config {
+        sources,
+        allow_origin: origin,
+        max_connections: 32,
+        site: Some(site),
+    });
+    gnss_relay::serve(listener, config, Arc::new(Network::new()));
+    Ok(0)
 }
 
 fn data(cli: &Cli, command: &DataCommand) -> Result<u8, Failure> {

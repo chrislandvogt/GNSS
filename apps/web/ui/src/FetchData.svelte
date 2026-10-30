@@ -22,6 +22,23 @@
   let busy = $state(false)
   let error = $state('')
   let outcome = $state<FetchOutcome | null>(null)
+  // Served by `gnss serve`, whose relay is beside the app on this machine:
+  // its pages carry a cookie saying so, confirmed by asking the relay.
+  let localRelay = $state(false)
+
+  $effect(() => {
+    if (!document.cookie.split('; ').includes('gnss-serve=relay')) return
+    const here = new URL('relay', document.baseURI).href
+    fetch(here, { cache: 'no-store' })
+      .then(async (r) => r.ok && (await r.text()).startsWith('gnss relay'))
+      .then((found) => {
+        if (found) {
+          localRelay = true
+          relay = here
+        }
+      })
+      .catch(() => {})
+  })
 
   const kb = (bytes: number) => (bytes < 1e6 ? `${(bytes / 1e3).toFixed(0)} kB` : `${(bytes / 1e6).toFixed(1)} MB`)
 
@@ -78,6 +95,12 @@
       when a survey happened. It keeps no logs, but use one only where you'd trust it to see that. Or bring the files
       in a data pack (<code>gnss data export</code> on a connected machine).
     </p>
+    {#if localRelay}
+      <p class="muted" data-testid="fetch-local-relay">
+        This app is served by <code>gnss serve</code>, whose relay runs on this machine, so only you see what it
+        fetches; the sources still see the requests, as they would from the CLI.
+      </p>
+    {/if}
     <p class="actions">
       <label><input type="checkbox" bind:checked={useRelay} data-testid="fetch-use-relay" /> Use a relay:</label>
       <input bind:value={relay} size="28" disabled={!useRelay} />
