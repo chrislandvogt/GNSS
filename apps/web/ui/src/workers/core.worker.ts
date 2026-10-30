@@ -8,6 +8,7 @@ import init, {
   checkProject,
   checkRinex,
   exportResults,
+  fetchData,
   hashFile,
   projectToml,
   removeFile,
@@ -16,6 +17,7 @@ import init, {
   zipImport,
 } from '../generated/core/gnss_web_core.js'
 import type { CoreRequest, CoreResponse, ExportedFile, ProjectFileData, WorkerScope } from './protocol'
+import { httpGet, loadCache, saveCache } from './download-cache'
 
 const scope = self as unknown as WorkerScope<CoreRequest, CoreResponse>
 
@@ -93,6 +95,16 @@ scope.onmessage = async ({ data: request }) => {
         const start = performance.now()
         const qc = JSON.parse(checkRinex(file.size, slice, nav))
         reply({ qc, bytes: file.size, seconds: (performance.now() - start) / 1000 })
+        break
+      }
+      case 'fetch-data': {
+        const cache = asBytes(await loadCache())
+        const [outcome, written] = fetchData(asBytes(request.files), cache, JSON.stringify(request.options), httpGet) as [
+          string,
+          { path: string; data: Uint8Array }[],
+        ]
+        await saveCache(written)
+        reply(JSON.parse(outcome))
         break
       }
     }

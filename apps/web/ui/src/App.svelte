@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import Adjustment from './Adjustment.svelte'
   import RinexCheck from './RinexCheck.svelte'
+  import FetchData from './FetchData.svelte'
   import { detectCapabilities } from './lib/capabilities'
   import { core } from './lib/core'
   import { download } from './lib/download'
@@ -259,6 +260,7 @@
           <button onclick={hashAll} disabled={busy}>Compute SHA-256 hashes</button>
           {#if project.kind === 'browser'}<button onclick={remove} disabled={busy}>Remove from browser storage</button>{/if}
         </p>
+        <FetchData {project} onsaved={refresh} />
         {#if checked}
           <div role="status" class="checked">
             <p>

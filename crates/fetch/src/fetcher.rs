@@ -18,6 +18,29 @@ use crate::sites::{Site, parse_sites};
 use crate::sources::{Source, SourceKind, find};
 use crate::time::{Day, Window, format_time};
 
+/// Sites asked for a page at a time; GA's limit is 2,000.
+const SITES_PAGE: usize = 1000;
+
+/// Pages of sites read at most: far more than there are.
+const MAX_SITE_PAGES: usize = 50;
+
+/// A page of GA's site list: its sites, as they come, and how many pages
+/// there are (one, if it doesn't say).
+fn site_page(data: &[u8]) -> Result<(Vec<serde_json::Value>, usize), FetchError> {
+    let page: serde_json::Value =
+        serde_json::from_slice(data).map_err(|e| FetchError::Listing(e.to_string()))?;
+    let sites = page
+        .pointer("/_embedded/corsSites")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .ok_or_else(|| FetchError::Listing("the site list has no sites".into()))?;
+    let pages = page
+        .pointer("/page/totalPages")
+        .and_then(serde_json::Value::as_u64)
+        .map_or(1, |n| usize::try_from(n).unwrap_or(1));
+    Ok((sites, pages))
+}
+
 /// Days a cached site list is used before it's fetched again.
 pub const SITES_MAX_AGE_DAYS: i64 = 30;
 
@@ -148,13 +171,34 @@ impl<H: Http, S: Store> Fetcher<'_, H, S> {
                 return parse_sites(&String::from_utf8_lossy(&bytes));
             }
         }
-        let url = format!("{}?size=10000", source.url);
-        let data = self.get(&source, &url)?.ok_or_else(|| FetchError::Http {
-            url: url.clone(),
-            message: "not found".into(),
-        })?;
+        // GA serves at most 2,000 sites a page, and has more, so the list
+        // is read a page at a time and kept whole.
+        let mut entries: Vec<serde_json::Value> = Vec::new();
+        let mut page = 0;
+        loop {
+            let url = format!("{}?size={SITES_PAGE}&page={page}", source.url);
+            let data = match self.get(&source, &url) {
+                Ok(data) => data,
+                // The host is sometimes slow to answer; once more.
+                Err(_) => self.get(&source, &url)?,
+            }
+            .ok_or_else(|| FetchError::Http {
+                url: url.clone(),
+                message: "not found".into(),
+            })?;
+            let (sites, pages) = site_page(&data)?;
+            entries.extend(sites);
+            page += 1;
+            if page >= pages || page >= MAX_SITE_PAGES {
+                break;
+            }
+        }
+        let data =
+            serde_json::to_vec(&serde_json::json!({ "_embedded": { "corsSites": entries } }))
+                .map_err(|e| FetchError::Listing(e.to_string()))?;
         // Only a list that reads is kept.
         let sites = parse_sites(&String::from_utf8_lossy(&data))?;
+        let url = format!("{}?size={SITES_PAGE}", source.url);
         let entry = Entry {
             source: source.id.clone(),
             name: name.into(),
@@ -635,9 +679,14 @@ mod tests {
     fn the_site_list_is_cached_for_a_month() {
         let sources = read_sources(include_str!("../../../packs/au/pack.toml")).unwrap();
         let mut web = Fake::default();
+        // Two pages, as GA serves more sites than fit in one.
         web.pages.insert(
-            "https://gws.geodesy.ga.gov.au/corsSites?size=10000".into(),
-            br#"{"_embedded":{"corsSites":[{"fourCharacterId":"SYDN","name":"Sydney","approximatePosition":{"coordinates":[-33.78,151.15,86.2]},"siteStatus":"PUBLIC"}]}}"#.to_vec(),
+            "https://gws.geodesy.ga.gov.au/corsSites?size=1000&page=0".into(),
+            br#"{"_embedded":{"corsSites":[{"fourCharacterId":"SYDN","name":"Sydney","approximatePosition":{"coordinates":[-33.78,151.15,86.2]},"siteStatus":"PUBLIC"}]},"page":{"size":1000,"totalElements":1001,"totalPages":2,"number":0}}"#.to_vec(),
+        );
+        web.pages.insert(
+            "https://gws.geodesy.ga.gov.au/corsSites?size=1000&page=1".into(),
+            br#"{"_embedded":{"corsSites":[{"fourCharacterId":"STR1","name":"Mount Stromlo","approximatePosition":{"coordinates":[-35.3,149.0,800.0]},"siteStatus":"PUBLIC"}]},"page":{"size":1000,"totalElements":1001,"totalPages":2,"number":1}}"#.to_vec(),
         );
         let mut fetcher = Fetcher {
             sources: &sources,
@@ -648,12 +697,13 @@ mod tests {
             options: Options::default(),
             route: Route::Direct,
         };
-        assert_eq!(fetcher.sites().unwrap()[0].id, "SYDN");
-        assert_eq!(fetcher.sites().unwrap().len(), 1);
-        assert_eq!(fetcher.http.gets.len(), 1);
+        let ids: Vec<String> = fetcher.sites().unwrap().into_iter().map(|s| s.id).collect();
+        assert_eq!(ids, ["STR1", "SYDN"]);
+        assert_eq!(fetcher.sites().unwrap().len(), 2);
+        assert_eq!(fetcher.http.gets.len(), 2);
         fetcher.today = Day::parse("2026-12-29").unwrap();
         fetcher.sites().unwrap();
-        assert_eq!(fetcher.http.gets.len(), 2);
+        assert_eq!(fetcher.http.gets.len(), 4);
     }
 
     #[test]
