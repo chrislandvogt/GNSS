@@ -13,6 +13,7 @@ use crate::cache::{Cache, Entry, without_query};
 use crate::ga::{self, FileType, Period};
 use crate::plan::{Need, Options, Want};
 use crate::products::{self, Latency};
+use crate::relay::Route;
 use crate::sites::{Site, parse_sites};
 use crate::sources::{Source, SourceKind, find};
 use crate::time::{Day, Window, format_time};
@@ -75,6 +76,8 @@ pub struct Fetcher<'a, H: Http, S: Store> {
     pub now: String,
     /// What was asked for.
     pub options: Options,
+    /// How sources are reached: directly, or some through a relay.
+    pub route: Route,
 }
 
 impl<H: Http, S: Store> Fetcher<'_, H, S> {
@@ -146,7 +149,7 @@ impl<H: Http, S: Store> Fetcher<'_, H, S> {
             }
         }
         let url = format!("{}?size=10000", source.url);
-        let data = self.http.get(&url)?.ok_or_else(|| FetchError::Http {
+        let data = self.get(&source, &url)?.ok_or_else(|| FetchError::Http {
             url: url.clone(),
             message: "not found".into(),
         })?;
@@ -224,6 +227,18 @@ impl<H: Http, S: Store> Fetcher<'_, H, S> {
         Ok(!choice.files.is_empty() && choice.missing.is_empty())
     }
 
+    /// A GET of a source's URL, by the route.
+    fn get(&mut self, source: &Source, url: &str) -> Result<Option<Vec<u8>>, FetchError> {
+        let routed = self.route.url(source, url).ok_or_else(|| FetchError::Http {
+            url: crate::cache::without_query(url).to_owned(),
+            message: format!(
+                "{} can't be reached from a browser without the relay; turn the relay on, or bring the file in a data pack",
+                source.name
+            ),
+        })?;
+        self.http.get(&routed)
+    }
+
     fn source(&self, kind: SourceKind) -> Result<&Source, FetchError> {
         find(self.sources, kind).ok_or(FetchError::NoSource(kind))
     }
@@ -243,7 +258,7 @@ impl<H: Http, S: Store> Fetcher<'_, H, S> {
         if !source.allows(url) {
             return Err(FetchError::Host(url.to_owned()));
         }
-        let Some(data) = self.http.get(url)? else {
+        let Some(data) = self.get(source, url)? else {
             return Ok(None);
         };
         if let Some(expected) = bytes
@@ -276,7 +291,7 @@ impl<H: Http, S: Store> Fetcher<'_, H, S> {
         period: Period,
     ) -> Result<Vec<ga::RemoteFile>, FetchError> {
         let url = ga::listing_url(&source.url, station, window, file, period);
-        match self.http.get(&url)? {
+        match self.get(source, &url)? {
             None => Ok(Vec::new()),
             Some(body) => ga::parse_listing(&String::from_utf8_lossy(&body)),
         }
@@ -535,6 +550,7 @@ mod tests {
             today: Day::parse("2026-10-29").unwrap(),
             now: "2026-10-29T00:00:00Z".into(),
             options: Options::default(),
+            route: Route::Direct,
         };
         let report = fetcher.fetch(&needs);
         assert_eq!(report.problems, []);
@@ -594,6 +610,7 @@ mod tests {
             today: Day::parse("2026-10-29").unwrap(),
             now: "2026-10-29T00:00:00Z".into(),
             options: Options::default(),
+            route: Route::Direct,
         };
         let day = Day::parse("2025-06-15").unwrap();
         let report = fetcher.fetch(&[
@@ -629,6 +646,7 @@ mod tests {
             today: Day::parse("2026-10-29").unwrap(),
             now: "2026-10-29T00:00:00Z".into(),
             options: Options::default(),
+            route: Route::Direct,
         };
         assert_eq!(fetcher.sites().unwrap()[0].id, "SYDN");
         assert_eq!(fetcher.sites().unwrap().len(), 1);
@@ -648,6 +666,7 @@ mod tests {
             today: Day::parse("2026-10-29").unwrap(),
             now: "2026-10-29T00:00:00Z".into(),
             options: Options::default(),
+            route: Route::Direct,
         };
         // ZZZZ is nearest but has nothing; SYDN does; STR1 isn't needed.
         let window = Window::new(
@@ -681,6 +700,50 @@ mod tests {
     }
 
     #[test]
+    fn a_browser_without_the_relay_gets_ga_data_but_not_codes() {
+        let sources = read_sources(include_str!("../../../packs/au/pack.toml")).unwrap();
+        let mut fetcher = Fetcher {
+            sources: &sources,
+            http: web(),
+            cache: Cache::new(MemoryStore::default()),
+            today: Day::parse("2026-10-29").unwrap(),
+            now: "2026-10-29T00:00:00Z".into(),
+            options: Options::default(),
+            route: Route::BrowserOnly,
+        };
+        let day = Day::parse("2025-06-15").unwrap();
+        let report = fetcher.fetch(&[
+            Need::Nav { day },
+            Need::Product {
+                product: ProductKind::Orbit,
+                day,
+            },
+        ]);
+        assert_eq!(report.fetched.len(), 1);
+        assert!(
+            report.problems[0].message.contains("without the relay"),
+            "{:?}",
+            report.problems
+        );
+        // Nothing was asked of CODE.
+        assert!(fetcher.http.gets.iter().all(|u| !u.contains("aiub")));
+
+        // Through a relay, CODE's file is asked of the relay.
+        fetcher.route = Route::Via("http://relay.example".into());
+        let relayed = "http://relay.example/?url=https%3A%2F%2Fdownload.aiub.unibe.ch%2FCODE%2F2025%2FCOD0OPSFIN_20251660000_01D_05M_ORB.SP3.gz";
+        fetcher.http.pages.insert(relayed.into(), b"sp3".to_vec());
+        let report = fetcher.fetch(&[Need::Product {
+            product: ProductKind::Orbit,
+            day,
+        }]);
+        assert_eq!(report.problems, []);
+        assert_eq!(
+            report.fetched[0].files[0].url,
+            "https://download.aiub.unibe.ch/CODE/2025/COD0OPSFIN_20251660000_01D_05M_ORB.SP3.gz"
+        );
+    }
+
+    #[test]
     fn a_short_download_is_an_error() {
         let sources = read_sources(include_str!("../../../packs/au/pack.toml")).unwrap();
         let mut web = web();
@@ -694,6 +757,7 @@ mod tests {
             today: Day::parse("2026-10-29").unwrap(),
             now: "2026-10-29T00:00:00Z".into(),
             options: Options::default(),
+            route: Route::Direct,
         };
         let report = fetcher.fetch(&[Need::CorsObs {
             station: "SYDN".into(),

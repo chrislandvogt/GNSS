@@ -727,6 +727,7 @@ The initial catalogue (M9):
   | Source | From the web app |
   |---|---|
   | GA Web API, its archive downloads (observation and navigation files) and the `ga-gnss-data-rinex-v1` bucket | Direct |
+  | GA's CORS site list (`gws.geodesy.ga.gov.au`, checked 2026-10-30) | Direct |
   | `files.igs.org` (ANTEX, IGS station files) | Relay or data pack |
   | The AUSGeoid2020 grid and its uncertainty grid on Geoscience Australia's S3 host | Relay or data pack |
   | PROJ-data on GitHub: the GDA94 to GDA2020 grid, and AUSGeoid2020's N without its uncertainty, as GeoTIFF (checked 2026-10-19) | Direct |
@@ -734,6 +735,8 @@ The initial catalogue (M9):
   | CODE's products at AIUB (`download.aiub.unibe.ch`, which redirects to its object store; checked 2026-10-29) | Relay or data pack |
 
 - **Relay.** Sources the browser can't reach go through an optional relay (`apps/relay`): a small, stateless proxy that forwards GET requests only to hosts declared in the packs, and keeps no logs or copies.
+  - A request is `GET <relay>/?url=<percent-encoded URL>`. The relay refuses anything but HTTPS on a declared host, follows redirects itself (only to declared hosts), passes `Range` on, and adds cross-origin headers. Its HTTP is deliberately small: one request per connection, an 8 KiB request head, time limits, and a cap on connections.
+  - Each source in a pack lists every host its files come from, redirects included (CODE's download host redirects to its object store), which is the relay's allow-list.
   - It's off by default. The relay sees which files are requested (station, date and product), which hints at where and when a survey happened, so the app says so before it's first used.
   - Agencies can host their own, the project may run a public instance, and `gnss serve` includes a private one on the user's own machine.
 - **Navigation files must be mixed-constellation.** In the GA archive, many stations publish their daily broadcast navigation data as separate per-constellation files (GPS, Galileo, BeiDou, GLONASS, QZSS) rather than one mixed (`_MN`) file. A single per-constellation file leaves the engine without ephemerides for the other systems. In the M0 spike this silently produced degraded single-constellation solutions, or no solution at all. The planner therefore requests a mixed file, or merges a station's per-constellation files, and a check flags navigation data that doesn't cover every constellation being processed.

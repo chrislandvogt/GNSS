@@ -114,6 +114,11 @@ struct FetchArgs {
     /// Only list what's needed; fetch nothing.
     #[arg(long)]
     dry_run: bool,
+    /// A relay (gnss-relay) to reach the sources a browser can't, such as
+    /// http://127.0.0.1:8787. Not needed here, where every source is
+    /// reached directly; for checking a relay.
+    #[arg(long, value_name = "URL")]
+    relay: Option<String>,
 }
 
 #[derive(Args)]
@@ -506,6 +511,10 @@ fn fetch(cli: &Cli, args: &FetchArgs) -> Result<u8, Failure> {
         // Whole seconds are plenty.
         now: format!("{}Z", stamp.get(..19).unwrap_or(&stamp)),
         options,
+        route: match &args.relay {
+            Some(relay) => f::Route::Via(relay.clone()),
+            None => f::Route::Direct,
+        },
     };
     let stations = if args.cors.is_empty() {
         Stations::Nearest {

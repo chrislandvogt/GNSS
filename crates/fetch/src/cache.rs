@@ -55,11 +55,15 @@ impl<S: Store> Cache<S> {
             // A damaged index entry is a cache miss, not an error.
             return Ok(None);
         };
-        Ok(self
-            .store
-            .read(&object_path(&entry.sha256)?)?
-            .is_some()
-            .then_some(entry))
+        Ok(self.has_object(&entry.sha256)?.then_some(entry))
+    }
+
+    /// Whether an object is kept, without reading it: a listing of its
+    /// folder, not the file, which can be tens of megabytes.
+    fn has_object(&self, sha256: &str) -> Result<bool, StoreError> {
+        let object = object_path(sha256)?;
+        let dir = object.as_str().rsplit_once('/').map_or("", |(d, _)| d);
+        Ok(self.store.list(dir)?.contains(&object))
     }
 
     /// A cached file's bytes, checked against its hash. A damaged object is
@@ -76,7 +80,7 @@ impl<S: Store> Cache<S> {
         entry.sha256 = sha256_hex(data);
         entry.bytes = data.len() as u64;
         let object = object_path(&entry.sha256)?;
-        if self.store.read(&object)?.is_none() {
+        if !self.has_object(&entry.sha256)? {
             self.store.write(&object, data)?;
         }
         let index = index_path(&entry.source, &entry.name)?;

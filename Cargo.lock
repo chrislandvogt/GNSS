@@ -566,6 +566,10 @@ dependencies = [
 [[package]]
 name = "gnss-relay"
 version = "0.1.0"
+dependencies = [
+ "gnss-fetch",
+ "ureq",
+]
 
 [[package]]
 name = "gnss-report"

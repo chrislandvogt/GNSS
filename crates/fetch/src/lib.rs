@@ -16,6 +16,7 @@ pub mod native;
 pub mod pack;
 pub mod plan;
 pub mod products;
+pub mod relay;
 pub mod sites;
 pub mod sources;
 pub mod time;
@@ -26,6 +27,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 pub use cache::{Cache, Entry};
 pub use fetcher::{Fetched, Fetcher, Http, Problem, Report};
 pub use plan::{Need, Options, Want, plan};
+pub use relay::Route;
 pub use sources::{Source, SourceKind, read_sources};
 
 /// Why something couldn't be fetched.
