@@ -34,7 +34,8 @@ const TESTS_FAILED: u8 = 2;
     about = "Adjust GNSS networks and report on them: a second opinion on vectors from any \
              processing package.",
     after_help = "Exit codes: 0 success; 1 error; 2 the adjustment ran, but a statistical test \
-                  failed or there was no redundancy to test with (adjust and report)."
+                  failed or there was no redundancy to test with (adjust and report), or \
+                  something needed couldn't be fetched (fetch)."
 )]
 struct Cli {
     /// The project folder.
@@ -72,6 +73,43 @@ enum Command {
     /// Write the occupations' RINEX files as plain RINEX, with their
     /// overlays applied, for delivery.
     ExportRinex(ExportRinexArgs),
+    /// Fetch what the occupations need from outside the project (CORS
+    /// observations, navigation data, precise products and ANTEX) into the
+    /// shared download cache, and record it in data.toml.
+    Fetch(FetchArgs),
+}
+
+#[derive(Args)]
+struct FetchArgs {
+    /// CORS stations to use with every occupation, by four-character id
+    /// (comma-separated). Otherwise the nearest public ones to each mark.
+    #[arg(long, value_delimiter = ',', value_name = "ID")]
+    cors: Vec<String>,
+    /// How many of the nearest CORS to use, without --cors.
+    #[arg(long, default_value_t = 2, value_name = "N")]
+    nearest: usize,
+    /// How far away a nearest CORS can be, in km.
+    #[arg(long, default_value_t = 100.0, value_name = "KM")]
+    within: f64,
+    /// Precise orbits, clocks and Earth rotation parameters too, from CODE.
+    #[arg(long)]
+    precise: bool,
+    /// With --precise: CODE's multi-GNSS products, which add BeiDou and
+    /// QZSS, where they're out.
+    #[arg(long)]
+    multi_gnss: bool,
+    /// Leave out the ANTEX file (igs20.atx).
+    #[arg(long)]
+    no_antex: bool,
+    /// Minutes of CORS data either side of each occupation.
+    #[arg(long, default_value_t = 5, value_name = "MINUTES")]
+    pad: i64,
+    /// The download cache. Default: $GNSS_CACHE, or the user's cache folder.
+    #[arg(long, value_name = "DIR")]
+    cache: Option<PathBuf>,
+    /// Only list what's needed; fetch nothing.
+    #[arg(long)]
+    dry_run: bool,
 }
 
 #[derive(Args)]
@@ -301,7 +339,156 @@ fn dispatch(cli: &Cli) -> Result<u8, Failure> {
         Command::Qc(args) => qc(cli, args),
         Command::Reconcile(args) => reconcile(cli, args),
         Command::ExportRinex(args) => export_rinex(cli, args),
+        Command::Fetch(args) => fetch(cli, args),
     }
+}
+
+/// The download cache: `$GNSS_CACHE`, or a `gnss` folder in the platform's
+/// cache directory.
+fn cache_dir(given: Option<&PathBuf>) -> Result<PathBuf, String> {
+    if let Some(dir) = given {
+        return Ok(dir.clone());
+    }
+    let env = |name: &str| {
+        std::env::var_os(name)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    };
+    if let Some(dir) = env("GNSS_CACHE") {
+        return Ok(dir);
+    }
+    let base = if cfg!(windows) {
+        env("LOCALAPPDATA")
+    } else if cfg!(target_os = "macos") {
+        env("HOME").map(|h| h.join("Library/Caches"))
+    } else {
+        env("XDG_CACHE_HOME").or_else(|| env("HOME").map(|h| h.join(".cache")))
+    };
+    base.map(|b| b.join("gnss"))
+        .ok_or_else(|| "no cache folder: set GNSS_CACHE or give --cache".to_owned())
+}
+
+fn fetch(cli: &Cli, args: &FetchArgs) -> Result<u8, Failure> {
+    use gnss_api::fetch::gnss_fetch::{
+        self as f, Cache, Fetcher, native::NativeHttp, products::Constellations,
+    };
+    use gnss_api::fetch::{Stations, purpose};
+    let folder = Folder::open(&cli.project)?;
+    let mut store = folder.store();
+    let loaded = gnss_api::folder::load(&store).map_err(|e| e.to_string())?;
+    let sources = f::read_sources(gnss_api::fetch::AU_PACK)?;
+    let cache_dir = cache_dir(args.cache.as_ref())?;
+    let (stamp, today, _) = now();
+    let today = f::time::Day::parse(&today).ok_or("the system clock's date doesn't read")?;
+    let options = f::Options {
+        pad: args.pad * 60,
+        precise: args.precise,
+        constellations: if args.multi_gnss {
+            Constellations::Multi
+        } else {
+            Constellations::Operational
+        },
+        antex: !args.no_antex,
+    };
+    let mut fetcher = Fetcher {
+        sources: &sources,
+        http: NativeHttp::new(cache_dir.join("partial")),
+        cache: Cache::new(gnss_store::FsStore::new(&cache_dir)),
+        today,
+        // Whole seconds are plenty.
+        now: format!("{}Z", stamp.get(..19).unwrap_or(&stamp)),
+        options,
+    };
+    let stations = if args.cors.is_empty() {
+        Stations::Nearest {
+            count: args.nearest,
+            within: args.within * 1000.0,
+        }
+    } else {
+        Stations::Named(args.cors.clone())
+    };
+    let sites = match stations {
+        Stations::Nearest { .. } => fetcher.sites()?,
+        Stations::Named(_) => Vec::new(),
+    };
+    let (wants, mut problems) = gnss_api::fetch::wants(&loaded, &stations, &sites);
+    let needs = f::plan(&wants, &options);
+    if args.dry_run {
+        let purposes: Vec<String> = needs.iter().map(purpose).collect();
+        print(
+            cli,
+            &serde_json::json!({ "needs": purposes, "problems": problems }),
+            || {
+                for p in &purposes {
+                    println!("Needs {p}");
+                }
+                for p in &problems {
+                    println!("problem: {p}");
+                }
+            },
+        )?;
+        return Ok(if problems.is_empty() { 0 } else { TESTS_FAILED });
+    }
+    let report = fetcher.fetch(&needs);
+    gnss_api::fetch::record(&mut store, &report).map_err(|e| e.to_string())?;
+    problems.extend(
+        report
+            .problems
+            .iter()
+            .map(|p| format!("{}: {}", purpose(&p.need), p.message)),
+    );
+    let fetched: Vec<serde_json::Value> = report
+        .fetched
+        .iter()
+        .map(|x| {
+            let files: Vec<serde_json::Value> = x
+                .files
+                .iter()
+                .map(
+                    |e| serde_json::json!({ "name": e.name, "bytes": e.bytes, "sha256": e.sha256 }),
+                )
+                .collect();
+            serde_json::json!({
+                "purpose": purpose(&x.need),
+                "files": files,
+                "downloaded": x.downloaded,
+                "note": x.note,
+            })
+        })
+        .collect();
+    print(
+        cli,
+        &serde_json::json!({
+            "cache": cache_dir.display().to_string(),
+            "fetched": fetched,
+            "problems": problems,
+            "attributions": report.attributions,
+        }),
+        || {
+            for x in &report.fetched {
+                let how = if x.downloaded { "downloaded" } else { "cached" };
+                let names: Vec<&str> = x.files.iter().map(|e| e.name.as_str()).collect();
+                println!("{}: {} ({how})", purpose(&x.need), names.join(", "));
+                if let Some(note) = &x.note {
+                    println!("  note: {note}");
+                }
+            }
+            for p in &problems {
+                println!("problem: {p}");
+            }
+            println!(
+                "Recorded in data.toml; the files are in {}.",
+                cache_dir.display()
+            );
+            if !report.attributions.is_empty() {
+                println!("Attribution:");
+                for a in &report.attributions {
+                    println!("  {a}");
+                }
+            }
+        },
+    )?;
+    Ok(if problems.is_empty() { 0 } else { TESTS_FAILED })
 }
 
 fn qc(cli: &Cli, args: &QcArgs) -> Result<u8, Failure> {

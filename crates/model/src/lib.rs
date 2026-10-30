@@ -11,6 +11,7 @@
 //! Reading one checks it on its own ([`Occupation::from_toml`]); a whole
 //! project is checked with [`validate`], which reports every problem at once.
 
+mod data;
 mod error;
 mod ids;
 mod mark;
@@ -19,6 +20,7 @@ mod overlay;
 mod session;
 mod time;
 
+pub use data::{DataFile, DataFiles};
 pub use error::{Issue, ModelError};
 pub use ids::{MarkId, OccupationId, OverlayId};
 pub use mark::{Constraint, KnownCoordinate, Mark, MarkFile, MarkKind};

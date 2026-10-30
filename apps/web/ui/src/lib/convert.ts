@@ -49,8 +49,11 @@ export function needsDate(format: RawFormat): boolean {
 }
 
 /** Whether a file starts like RINEX: `RINEX VERSION / TYPE` (or a CRINEX
- *  header) in the first record. */
+ *  header) in the first record. Gzipped files count: the core reads them,
+ *  and archives publish RINEX that way. */
 export async function looksLikeRinex(file: File): Promise<boolean> {
+  const magic = new Uint8Array(await file.slice(0, 2).arrayBuffer())
+  if (magic[0] === 0x1f && magic[1] === 0x8b) return true
   const head = await file.slice(0, 160).text()
   const first = head.split('\n')[0] ?? ''
   return first.includes('RINEX VERSION / TYPE') || first.includes('CRINEX VERS')

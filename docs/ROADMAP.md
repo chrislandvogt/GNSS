@@ -327,24 +327,28 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 
 **Goal:** no more data chasing.
 
-- [ ] Source registry, driven by the jurisdiction pack:
-  - [ ] GA GNSS Data Repository (Web API, S3 and SFTP) for CORS RINEX and site logs.
+- [ ] Source registry, driven by the jurisdiction pack (`[[sources]]` in `packs/au/pack.toml`, read by `gnss_fetch::sources`):
+  - [x] GA GNSS Data Repository, through its Web API: daily and hourly RINEX 3 files, chosen per day by how much of it is needed (`gnss_fetch::ga`), and its CORS site list. S3 and SFTP access, and site logs, not yet.
   - [ ] State CORS networks, where they're openly available.
-  - [ ] IGS product mirrors that don't need a login.
-  - [ ] CODE (AIUB, the Bernese team's analysis centre): final, rapid, ultra-rapid and multi-GNSS orbits, clocks, ERPs, biases and ionosphere maps, over HTTPS without a login (`https://www.aiub.unibe.ch/download`), with the citation AIUB asks for. Reachable where the IGS's own mirrors weren't, so a good first source.
-  - [ ] ANTEX (igs20.atx).
-- [ ] Nearest-CORS suggestions ranked by distance and by data availability in the occupation window.
-- [ ] Products: broadcast navigation, plus precise orbits and clocks (final, rapid or ultra-rapid, chosen by latency). Record product versions in provenance.
+  - [ ] IGS product mirrors that don't need a login. CODE covers precise products for now.
+  - [x] CODE (AIUB, the Bernese team's analysis centre): final, rapid and ultra-rapid orbits, clocks and ERPs, and multi-GNSS (MGEX) finals, over HTTPS without a login, with the citation CODE asks for per series (`gnss_fetch::products`). Biases and ionosphere maps are named but not planned yet.
+  - [x] ANTEX (igs20.atx), from the IGS.
+- [ ] Nearest-CORS suggestions ranked by distance and by data availability in the occupation window. Distance is done (`gnss fetch` without `--cors` takes the nearest public sites to each mark); a site with no files in the window is reported, not yet passed over for the next.
+- [x] Products: broadcast navigation, plus precise orbits and clocks (final, rapid or ultra-rapid, chosen by latency). Record product versions in provenance.
+  - Navigation files are mixed-constellation (`_MN`) only: from a station in use, else from the pack's list of stations that publish them, with a note saying which.
+  - Each product is looked for best first, falling back while finals aren't out, with a note when a lesser one is used.
+  - `gnss fetch` records every file used in `data.toml` (schema in `schemas/`): what it's for, its name, source, SHA-256, size, URL, licence and when it was fetched, and the attributions.
 - [ ] Downloads:
-  - [ ] A cache with checksums: in the user's cache directory natively, and in OPFS in the web app.
-  - [ ] Resumable downloads and proxy support.
+  - [x] A cache with checksums (`gnss_fetch::cache`): files kept as published by SHA-256, found by source and name, in the user's cache directory natively (or `$GNSS_CACHE`). The same code works over browser storage; the web app doesn't use it yet.
+  - [x] Resumable downloads and proxy support (`gnss_fetch::native`): a cut download resumes with a range request, server errors are retried with backoff, the proxy comes from `HTTPS_PROXY` and the like (or the Windows setting), and TLS trusts the platform's certificates, so a proxy that inspects TLS works.
   - [ ] Offline data packs: export and import a bundle for air-gapped machines.
 - [ ] Browser access ([details](ARCHITECTURE.md#13-data-fetch)):
-  - [ ] Record for each source whether the web app can download from it directly. GA's Web API and archive downloads can; `files.igs.org` and the AUSGeoid2020 grid host can't (checked 2026-10-15).
-  - [ ] Relay (`apps/relay`): optional and off by default, stateless, limited to pack-declared hosts, and with no logs. Self-hostable, and built into `gnss serve`. The app explains what the relay can see before it's first used.
+  - [x] Record for each source whether the web app can download from it directly. GA's Web API and archive downloads can; `files.igs.org`, CODE's host and the AUSGeoid2020 grid host can't (checked 2026-10-15 and 2026-10-29).
+  - [ ] Relay (`apps/relay`): optional and off by default, stateless, limited to pack-declared hosts, and with no logs. Self-hostable, and built into `gnss serve`. The app explains what the relay can see before it's first used. Each source now lists every host its files come from, which is what the relay will allow.
   - [ ] Confirm whether ANTEX and the AUSGeoid2020 grid may be redistributed with the app, so the Australian v1 workflow needs no relay.
 - [ ] Use site logs to check CORS antenna and receiver history against RINEX headers.
-- [ ] Respect data licences, and carry attribution (for example CC BY for GA data) into reports.
+- [ ] Respect data licences, and carry attribution (for example CC BY for GA data) into reports. Carried into `data.toml`; reports next.
+- [x] Read gzipped files (`gnss_rinex_io::decoded`), as archives publish them: observation and navigation files, plain or Hatanaka-compressed, natively and in the browser.
 
 **Exit criteria:**
 - Given a set of occupations, one command or one click fetches everything needed.

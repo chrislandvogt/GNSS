@@ -731,6 +731,7 @@ The initial catalogue (M9):
   | The AUSGeoid2020 grid and its uncertainty grid on Geoscience Australia's S3 host | Relay or data pack |
   | PROJ-data on GitHub: the GDA94 to GDA2020 grid, and AUSGeoid2020's N without its uncertainty, as GeoTIFF (checked 2026-10-19) | Direct |
   | The BKG and IGN IGS mirrors | Unknown: no response to the test |
+  | CODE's products at AIUB (`download.aiub.unibe.ch`, which redirects to its object store; checked 2026-10-29) | Relay or data pack |
 
 - **Relay.** Sources the browser can't reach go through an optional relay (`apps/relay`): a small, stateless proxy that forwards GET requests only to hosts declared in the packs, and keeps no logs or copies.
   - It's off by default. The relay sees which files are requested (station, date and product), which hints at where and when a survey happened, so the app says so before it's first used.
@@ -741,7 +742,8 @@ The initial catalogue (M9):
   - ANTEX and the AUSGeoid2020 grid are served with the app, and cached on first use, if their licences allow redistribution (to confirm in M7). Otherwise they come through the relay or a data pack.
   - Precise orbits, clocks and biases, needed for Ginan and long baselines in Phase 2, come through the relay or a data pack.
 - **Downloader.** Resumable, with checksums and retries with backoff. The CLI supports proxies through standard environment variables; the browser uses the system's proxy settings.
-- **Cache.** A per-user cache shared across projects, keyed by content hash: in the user's cache directory natively, and in browser storage (OPFS) in the web app. Projects record exactly which files they used.
+- **Cache.** A per-user cache shared across projects, keyed by content hash: in the user's cache directory natively, and in browser storage (OPFS) in the web app. Files are kept exactly as published (`objects/<sha256>`) and found by source and name (`index/<source>/<name>.json`). Projects record exactly which files they used, in `data.toml`.
+- **Time.** Planning is in GPS time, as archives name and split their files by GPS days and hours: a daily file "for 2025-06-15" starts at 23:59:42 UTC the day before. CORS windows are padded (5 minutes by default), but never into a day the occupation doesn't touch.
 - **Offline data packs.** A zip containing the files plus a manifest of sources, hashes and licences. A pack is exported on a connected machine, from the web app or the CLI, and imported on an air-gapped one. Packs are also how to bring in sources the browser can't reach without using a relay.
 - **Attribution.** Licence and attribution metadata follow the data into reports.
 

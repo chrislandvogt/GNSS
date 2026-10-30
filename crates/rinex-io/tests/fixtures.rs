@@ -196,5 +196,39 @@ fn damaged_compressed_files_are_refused_not_crashed_on() {
     let err = decompress(&b"hello\n"[..], std::io::sink()).unwrap_err();
     assert!(err.to_string().contains("isn't a Hatanaka-compressed file"));
     let gz = read_obs(&[0x1f, 0x8b, 8, 0][..]).err().unwrap();
-    assert!(gz.to_string().contains("gzip"));
+    assert!(gz.to_string().contains("gzip"), "{gz}");
+    let z = read_obs(&[0x1f, 0x9d, 0x90][..]).err().unwrap();
+    assert!(z.to_string().contains(".Z"), "{z}");
+}
+
+#[test]
+fn gzipped_files_read_as_the_file_inside() {
+    use std::io::Write;
+    let crx: &[u8] = include_bytes!("data/rinex/SWTC00AUS_20251660000.rnx.crx");
+    let gzip = |data: &[u8]| {
+        let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        e.write_all(data).unwrap();
+        e.finish().unwrap()
+    };
+    let epochs = |data: &[u8]| {
+        let mut r = read_obs(data).unwrap();
+        let mut all = Vec::new();
+        while let Some(epoch) = r.next_epoch().unwrap() {
+            all.push(format!("{epoch:?}"));
+        }
+        all
+    };
+    let plain = epochs(crx);
+    assert!(!plain.is_empty());
+    assert_eq!(epochs(&gzip(crx)), plain);
+    // Two members, as concatenated .gz files are; gunzip reads both.
+    let (a, b) = crx.split_at(crx.len() / 2);
+    let two = [gzip(a), gzip(b)].concat();
+    assert_eq!(epochs(&two), plain);
+    // Cut short anywhere: an error, never a panic.
+    for cut in (0..two.len()).step_by(211) {
+        if let Ok(mut r) = read_obs(&two[..cut]) {
+            while let Ok(Some(_)) = r.next_epoch() {}
+        }
+    }
 }
