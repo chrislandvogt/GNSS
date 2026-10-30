@@ -17,6 +17,10 @@ pub use gnss_fetch;
 /// The Australian jurisdiction pack, the only one so far.
 pub const AU_PACK: &str = include_str!("../../../packs/au/pack.toml");
 
+/// Candidates beyond the number of nearest CORS wanted, tried in order of
+/// distance where nearer ones have no data.
+pub const SPARE_CORS: usize = 3;
+
 /// Which CORS stations go with the occupations.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stations {
@@ -46,8 +50,8 @@ pub fn wants(loaded: &Loaded, stations: &Stations, sites: &[Site]) -> (Vec<Want>
             ));
             continue;
         };
-        let chosen = match stations {
-            Stations::Named(names) => names.iter().map(|s| s.to_uppercase()).collect(),
+        let (chosen, count) = match stations {
+            Stations::Named(names) => (names.iter().map(|s| s.to_uppercase()).collect(), None),
             Stations::Nearest { count, within } => {
                 // Latitude and longitude in degrees, height in metres.
                 let approx = loaded.marks.get(&occupation.mark).and_then(|m| m.approx);
@@ -60,7 +64,8 @@ pub fn wants(loaded: &Loaded, stations: &Stations, sites: &[Site]) -> (Vec<Want>
                     ));
                     continue;
                 };
-                let near: Vec<String> = nearest(sites, position, *count, *within)
+                // Spares, to fall back on where the nearest have no data.
+                let near: Vec<String> = nearest(sites, position, *count + SPARE_CORS, *within)
                     .into_iter()
                     .map(|n| n.site.id.clone())
                     .collect();
@@ -73,12 +78,13 @@ pub fn wants(loaded: &Loaded, stations: &Stations, sites: &[Site]) -> (Vec<Want>
                     ));
                     continue;
                 }
-                near
+                (near, Some(*count))
             }
         };
         wants.push(Want {
             window: Window::new(start, end),
             stations: chosen,
+            count,
         });
     }
     (wants, problems)
@@ -224,6 +230,7 @@ value = 1.5
         );
         assert_eq!(problems, Vec::<String>::new());
         assert_eq!(found[0].stations, ["SYDN"]);
+        assert_eq!(found[0].count, Some(2));
         assert_eq!(found[0].window.end - found[0].window.start, 7200);
         let (_, problems) = wants(
             &loaded(None),

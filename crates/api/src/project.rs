@@ -668,6 +668,17 @@ pub fn summary(project: &Project, run: &Run) -> Summary {
 
 /// The run's HTML report. `generated` is when, as the caller wants it shown.
 pub fn report(project: &Project, run: &Run, generated: &str) -> String {
+    report_with_data(project, run, None, generated)
+}
+
+/// The report, with the files from outside the project that `data.toml`
+/// records, and the attributions their licences ask for.
+pub fn report_with_data(
+    project: &Project,
+    run: &Run,
+    data: Option<&gnss_model::DataFiles>,
+    generated: &str,
+) -> String {
     let built = &run.built;
     let fixed = match &built.datum {
         gnss_adjust::Datum::Constrained { fixed } => fixed.len(),
@@ -755,6 +766,22 @@ pub fn report(project: &Project, run: &Run, generated: &str) -> String {
                 bytes: f.bytes,
             })
             .collect(),
+        data: data
+            .map(|d| {
+                d.files
+                    .iter()
+                    .map(|f| gnss_report::DataInfo {
+                        purpose: f.purpose.clone(),
+                        name: f.name.clone(),
+                        url: f.url.clone(),
+                        sha256: f.sha256.clone(),
+                        licence: f.licence.clone(),
+                        note: f.note.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        attributions: data.map(|d| d.attributions.clone()).unwrap_or_default(),
         transformations,
         notes: built
             .notes

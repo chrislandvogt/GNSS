@@ -472,6 +472,7 @@ dependencies = [
  "clap",
  "gnss-api",
  "gnss-datum",
+ "gnss-model",
  "gnss-store",
  "hifitime",
  "serde",

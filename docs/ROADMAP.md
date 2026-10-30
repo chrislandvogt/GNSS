@@ -333,7 +333,7 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [ ] IGS product mirrors that don't need a login. CODE covers precise products for now.
   - [x] CODE (AIUB, the Bernese team's analysis centre): final, rapid and ultra-rapid orbits, clocks and ERPs, and multi-GNSS (MGEX) finals, over HTTPS without a login, with the citation CODE asks for per series (`gnss_fetch::products`). Biases and ionosphere maps are named but not planned yet.
   - [x] ANTEX (igs20.atx), from the IGS.
-- [ ] Nearest-CORS suggestions ranked by distance and by data availability in the occupation window. Distance is done (`gnss fetch` without `--cors` takes the nearest public sites to each mark); a site with no files in the window is reported, not yet passed over for the next.
+- [x] Nearest-CORS suggestions ranked by distance and by data availability in the occupation window. Without `--cors`, `gnss fetch` takes the nearest public sites to each mark (`--nearest`, `--within`) whose archive listings cover the window, passing over those that don't for the next nearest, and says which it passed over (`Fetcher::choose_stations`).
 - [x] Products: broadcast navigation, plus precise orbits and clocks (final, rapid or ultra-rapid, chosen by latency). Record product versions in provenance.
   - Navigation files are mixed-constellation (`_MN`) only: from a station in use, else from the pack's list of stations that publish them, with a note saying which.
   - Each product is looked for best first, falling back while finals aren't out, with a note when a lesser one is used.
@@ -341,13 +341,13 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 - [ ] Downloads:
   - [x] A cache with checksums (`gnss_fetch::cache`): files kept as published by SHA-256, found by source and name, in the user's cache directory natively (or `$GNSS_CACHE`). The same code works over browser storage; the web app doesn't use it yet.
   - [x] Resumable downloads and proxy support (`gnss_fetch::native`): a cut download resumes with a range request, server errors are retried with backoff, the proxy comes from `HTTPS_PROXY` and the like (or the Windows setting), and TLS trusts the platform's certificates, so a proxy that inspects TLS works.
-  - [ ] Offline data packs: export and import a bundle for air-gapped machines.
+  - [x] Offline data packs: export and import a bundle for air-gapped machines. `gnss data export` writes the files `data.toml` records, from the cache, to a zip with a manifest (sources, hashes, licences, attributions); `gnss data import` reads one into another machine's cache, checking every file against its hash first, all or nothing (`gnss_fetch::pack`). Zips are limited to 4 GiB for now (no zip64).
 - [ ] Browser access ([details](ARCHITECTURE.md#13-data-fetch)):
   - [x] Record for each source whether the web app can download from it directly. GA's Web API and archive downloads can; `files.igs.org`, CODE's host and the AUSGeoid2020 grid host can't (checked 2026-10-15 and 2026-10-29).
   - [ ] Relay (`apps/relay`): optional and off by default, stateless, limited to pack-declared hosts, and with no logs. Self-hostable, and built into `gnss serve`. The app explains what the relay can see before it's first used. Each source now lists every host its files come from, which is what the relay will allow.
   - [ ] Confirm whether ANTEX and the AUSGeoid2020 grid may be redistributed with the app, so the Australian v1 workflow needs no relay.
 - [ ] Use site logs to check CORS antenna and receiver history against RINEX headers.
-- [ ] Respect data licences, and carry attribution (for example CC BY for GA data) into reports. Carried into `data.toml`; reports next.
+- [x] Respect data licences, and carry attribution (for example CC BY for GA data) into reports. `data.toml` records each file's licence and the attributions; the report's provenance lists the data from outside the project and quotes the attributions word for word.
 - [x] Read gzipped files (`gnss_rinex_io::decoded`), as archives publish them: observation and navigation files, plain or Hatanaka-compressed, natively and in the browser.
 
 **Exit criteria:**

@@ -4,18 +4,18 @@
 //! Network access goes through [`Http`], so the same code runs natively
 //! (`crate::native`), in the browser, and against a fake in tests.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use gnss_store::Store;
 
 use crate::FetchError;
 use crate::cache::{Cache, Entry, without_query};
 use crate::ga::{self, FileType, Period};
-use crate::plan::{Need, Options};
+use crate::plan::{Need, Options, Want};
 use crate::products::{self, Latency};
 use crate::sites::{Site, parse_sites};
 use crate::sources::{Source, SourceKind, find};
-use crate::time::{Day, Window};
+use crate::time::{Day, Window, format_time};
 
 /// Days a cached site list is used before it's fetched again.
 pub const SITES_MAX_AGE_DAYS: i64 = 30;
@@ -163,6 +163,65 @@ impl<H: Http, S: Store> Fetcher<'_, H, S> {
         };
         self.cache.put(entry, &data)?;
         Ok(sites)
+    }
+
+    /// For each want with a count, keeps the first of its candidate
+    /// stations, in order, whose files cover its CORS window by the
+    /// archive's listings, and says which were passed over and why. Wants
+    /// without a count are left alone. Nothing is downloaded.
+    pub fn choose_stations(&mut self, wants: &mut [Want]) -> Vec<String> {
+        let mut notes = Vec::new();
+        let mut seen: BTreeMap<(String, Window), Result<bool, String>> = BTreeMap::new();
+        for want in wants.iter_mut() {
+            let Some(count) = want.count else { continue };
+            let window = want.cors_window(self.options.pad);
+            let mut chosen = Vec::new();
+            for station in &want.stations {
+                if chosen.len() == count {
+                    break;
+                }
+                let key = (station.clone(), window);
+                let found = match seen.get(&key) {
+                    Some(found) => found.clone(),
+                    None => {
+                        let found = self.covers(station, window).map_err(|e| e.to_string());
+                        seen.insert(key, found.clone());
+                        found
+                    }
+                };
+                match found {
+                    Ok(true) => chosen.push(station.clone()),
+                    Ok(false) => notes.push(format!(
+                        "{station} has no files covering {} to {} GPS, so the next nearest was tried",
+                        format_time(window.start),
+                        format_time(window.end)
+                    )),
+                    Err(e) => notes.push(format!("{station} couldn't be checked ({e}), so the next nearest was tried")),
+                }
+            }
+            if chosen.len() < count {
+                notes.push(format!(
+                    "only {} of the {count} nearest CORS wanted have data from {} to {} GPS",
+                    chosen.len(),
+                    format_time(window.start),
+                    format_time(window.end)
+                ));
+            }
+            want.stations = chosen;
+            want.count = None;
+        }
+        notes.sort();
+        notes.dedup();
+        notes
+    }
+
+    /// Whether the archive's files from a station cover a window.
+    fn covers(&mut self, station: &str, window: Window) -> Result<bool, FetchError> {
+        let source = self.source(SourceKind::GaArchive)?.clone();
+        let daily = self.listing(&source, station, window, FileType::Obs, Period::Daily)?;
+        let hourly = self.listing(&source, station, window, FileType::Obs, Period::Hourly)?;
+        let choice = ga::choose(&daily, &hourly, window);
+        Ok(!choice.files.is_empty() && choice.missing.is_empty())
     }
 
     fn source(&self, kind: SourceKind) -> Result<&Source, FetchError> {
@@ -462,6 +521,7 @@ mod tests {
                 parse_time("2025-06-15T05:00:00Z").unwrap(),
             ),
             stations: vec!["SYDN".into()],
+            count: None,
         }];
         let mut needs = plan(&wants, &Options::default());
         needs.push(Need::Product {
@@ -576,6 +636,48 @@ mod tests {
         fetcher.today = Day::parse("2026-12-29").unwrap();
         fetcher.sites().unwrap();
         assert_eq!(fetcher.http.gets.len(), 2);
+    }
+
+    #[test]
+    fn the_nearest_stations_with_data_are_chosen() {
+        let sources = read_sources(include_str!("../../../packs/au/pack.toml")).unwrap();
+        let mut fetcher = Fetcher {
+            sources: &sources,
+            http: web(),
+            cache: Cache::new(MemoryStore::default()),
+            today: Day::parse("2026-10-29").unwrap(),
+            now: "2026-10-29T00:00:00Z".into(),
+            options: Options::default(),
+        };
+        // ZZZZ is nearest but has nothing; SYDN does; STR1 isn't needed.
+        let window = Window::new(
+            parse_time("2025-06-15T01:00:00Z").unwrap(),
+            parse_time("2025-06-15T05:00:00Z").unwrap(),
+        );
+        let mut wants = [Want {
+            window,
+            stations: vec!["ZZZZ".into(), "SYDN".into(), "STR1".into()],
+            count: Some(1),
+        }];
+        let notes = fetcher.choose_stations(&mut wants);
+        assert_eq!(wants[0].stations, ["SYDN"]);
+        assert_eq!(wants[0].count, None);
+        assert!(
+            notes[0].starts_with("ZZZZ has no files covering 2025-06-15T00:55:00Z"),
+            "{notes:?}"
+        );
+        // Nothing was downloaded.
+        assert!(fetcher.http.gets.iter().all(|u| u.starts_with(API)));
+        let mut short = [Want {
+            window,
+            stations: vec!["ZZZZ".into()],
+            count: Some(2),
+        }];
+        let notes = fetcher.choose_stations(&mut short);
+        assert!(
+            notes.iter().any(|n| n.starts_with("only 0 of the 2")),
+            "{notes:?}"
+        );
     }
 
     #[test]

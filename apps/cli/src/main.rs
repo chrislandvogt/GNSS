@@ -77,6 +77,10 @@ enum Command {
     /// observations, navigation data, precise products and ANTEX) into the
     /// shared download cache, and record it in data.toml.
     Fetch(FetchArgs),
+    /// Offline data packs: the files a project fetched, for a machine with
+    /// no network.
+    #[command(subcommand)]
+    Data(DataCommand),
 }
 
 #[derive(Args)]
@@ -340,6 +344,110 @@ fn dispatch(cli: &Cli) -> Result<u8, Failure> {
         Command::Reconcile(args) => reconcile(cli, args),
         Command::ExportRinex(args) => export_rinex(cli, args),
         Command::Fetch(args) => fetch(cli, args),
+        Command::Data(command) => data(cli, command),
+    }
+}
+
+#[derive(Subcommand)]
+enum DataCommand {
+    /// Write the files data.toml records, from the download cache, to an
+    /// offline data pack (a zip with a manifest), for a machine with no
+    /// network.
+    Export(DataExportArgs),
+    /// Read an offline data pack into the download cache, checking every
+    /// file against its hash first.
+    Import(DataImportArgs),
+}
+
+#[derive(Args)]
+struct DataExportArgs {
+    /// The pack to write.
+    output: PathBuf,
+    /// The download cache. Default: $GNSS_CACHE, or the user's cache folder.
+    #[arg(long, value_name = "DIR")]
+    cache: Option<PathBuf>,
+}
+
+#[derive(Args)]
+struct DataImportArgs {
+    /// The pack to read.
+    pack: PathBuf,
+    /// The download cache. Default: $GNSS_CACHE, or the user's cache folder.
+    #[arg(long, value_name = "DIR")]
+    cache: Option<PathBuf>,
+}
+
+fn data(cli: &Cli, command: &DataCommand) -> Result<u8, Failure> {
+    use gnss_api::fetch::gnss_fetch::{Cache, pack};
+    match command {
+        DataCommand::Export(args) => {
+            let folder = Folder::open(&cli.project)?;
+            let text = std::fs::read_to_string(folder.root().join("data.toml"))
+                .map_err(|_| "there's no data.toml: run gnss fetch first")?;
+            let data =
+                gnss_model::DataFiles::from_toml(&text).map_err(|e| format!("data.toml: {e}"))?;
+            let cache_dir = cache_dir(args.cache.as_ref())?;
+            let cache = Cache::new(gnss_store::FsStore::new(&cache_dir));
+            let mut entries = Vec::new();
+            for f in &data.files {
+                let entry = cache
+                    .get(&f.source, &f.name)
+                    .map_err(|e| e.to_string())?
+                    .filter(|e| e.sha256 == f.sha256)
+                    .ok_or_else(|| {
+                        format!(
+                            "{} isn't in the cache as data.toml records it; run gnss fetch again",
+                            f.name
+                        )
+                    })?;
+                if !entries.contains(&entry) {
+                    entries.push(entry);
+                }
+            }
+            let (stamp, _, _) = now();
+            let created = format!("{}Z", stamp.get(..19).unwrap_or(&stamp));
+            let zip = pack::export(&cache, &entries, &data.attributions, &created)?;
+            std::fs::write(&args.output, &zip)
+                .map_err(|e| format!("{}: {e}", args.output.display()))?;
+            let bytes: u64 = entries.iter().map(|e| e.bytes).sum();
+            print(
+                cli,
+                &serde_json::json!({ "pack": args.output.display().to_string(), "files": entries.len(), "bytes": bytes }),
+                || {
+                    println!(
+                        "Wrote {}: {} files, {:.1} MB.",
+                        args.output.display(),
+                        entries.len(),
+                        bytes as f64 / 1e6
+                    );
+                },
+            )?;
+            Ok(0)
+        }
+        DataCommand::Import(args) => {
+            let zip =
+                std::fs::read(&args.pack).map_err(|e| format!("{}: {e}", args.pack.display()))?;
+            let cache_dir = cache_dir(args.cache.as_ref())?;
+            let mut cache = Cache::new(gnss_store::FsStore::new(&cache_dir));
+            let manifest = pack::import(&mut cache, &zip)?;
+            let names: Vec<&str> = manifest.files.iter().map(|e| e.name.as_str()).collect();
+            print(
+                cli,
+                &serde_json::json!({ "files": names, "attributions": manifest.attributions, "cache": cache_dir.display().to_string() }),
+                || {
+                    println!(
+                        "Read {} files, made {}, into {}.",
+                        names.len(),
+                        manifest.created,
+                        cache_dir.display()
+                    );
+                    for n in &names {
+                        println!("  {n}");
+                    }
+                },
+            )?;
+            Ok(0)
+        }
     }
 }
 
@@ -411,9 +519,9 @@ fn fetch(cli: &Cli, args: &FetchArgs) -> Result<u8, Failure> {
         Stations::Nearest { .. } => fetcher.sites()?,
         Stations::Named(_) => Vec::new(),
     };
-    let (wants, mut problems) = gnss_api::fetch::wants(&loaded, &stations, &sites);
-    let needs = f::plan(&wants, &options);
+    let (mut wants, mut problems) = gnss_api::fetch::wants(&loaded, &stations, &sites);
     if args.dry_run {
+        let needs = f::plan(&wants, &options);
         let purposes: Vec<String> = needs.iter().map(purpose).collect();
         print(
             cli,
@@ -429,6 +537,10 @@ fn fetch(cli: &Cli, args: &FetchArgs) -> Result<u8, Failure> {
         )?;
         return Ok(if problems.is_empty() { 0 } else { TESTS_FAILED });
     }
+    // The nearest stations with data in each window, falling back on the
+    // next nearest.
+    let chosen = fetcher.choose_stations(&mut wants);
+    let needs = f::plan(&wants, &options);
     let report = fetcher.fetch(&needs);
     gnss_api::fetch::record(&mut store, &report).map_err(|e| e.to_string())?;
     problems.extend(
@@ -462,9 +574,13 @@ fn fetch(cli: &Cli, args: &FetchArgs) -> Result<u8, Failure> {
             "cache": cache_dir.display().to_string(),
             "fetched": fetched,
             "problems": problems,
+            "stations": chosen,
             "attributions": report.attributions,
         }),
         || {
+            for note in &chosen {
+                println!("note: {note}");
+            }
             for x in &report.fetched {
                 let how = if x.downloaded { "downloaded" } else { "cached" };
                 let names: Vec<&str> = x.files.iter().map(|e| e.name.as_str()).collect();
@@ -948,7 +1064,15 @@ fn report(cli: &Cli, args: &ReportArgs) -> Result<u8, Failure> {
     let (folder, project, run) = run(cli, &args.datum)?;
     let summary = project::summary(&project, &run);
     let (_, date, time) = now();
-    let html = project::report(&project, &run, &format!("{date} {time} UTC"));
+    // Data from outside the project, if it fetched any.
+    let data = match std::fs::read_to_string(folder.root().join("data.toml")) {
+        Ok(text) => {
+            Some(gnss_model::DataFiles::from_toml(&text).map_err(|e| format!("data.toml: {e}"))?)
+        }
+        Err(_) => None,
+    };
+    let html =
+        project::report_with_data(&project, &run, data.as_ref(), &format!("{date} {time} UTC"));
     let path = args
         .output
         .clone()
