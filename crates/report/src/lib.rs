@@ -36,6 +36,10 @@ pub struct Input<'a> {
     pub observations: Vec<ObservationInfo>,
     /// The input files.
     pub files: Vec<FileInfo>,
+    /// Files from outside the project, such as CORS data and orbits.
+    pub data: Vec<DataInfo>,
+    /// What the data's licences ask a report to say, word for word.
+    pub attributions: Vec<String>,
     /// The transformations applied to bring measurements into the network's
     /// frame and epoch, one line each.
     pub transformations: Vec<String>,
@@ -69,6 +73,23 @@ pub struct FileInfo {
     pub sha256: String,
     /// Its size in bytes.
     pub bytes: usize,
+}
+
+/// A file from outside the project.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataInfo {
+    /// What it's for, such as "SYDN observations, … GPS".
+    pub purpose: String,
+    /// Its name, as published.
+    pub name: String,
+    /// Where it came from.
+    pub url: String,
+    /// Its SHA-256, in hexadecimal.
+    pub sha256: String,
+    /// The data's licence.
+    pub licence: String,
+    /// Anything to know about it.
+    pub note: Option<String>,
 }
 
 /// `text` with HTML's special characters escaped.
@@ -614,6 +635,36 @@ pub fn html(input: &Input<'_>) -> String {
         );
     }
     out.push_str("</table></div>\n");
+    if !input.data.is_empty() {
+        out.push_str(
+            "<h3>Data from outside the project</h3>\n<div class=\"scroll\"><table>\n\
+             <tr><th>For</th><th>File</th><th>Licence</th><th>SHA-256</th></tr>\n",
+        );
+        for d in &input.data {
+            let note = d
+                .note
+                .as_ref()
+                .map(|n| format!("<br><span class=\"note\">{}</span>", escape(n)))
+                .unwrap_or_default();
+            let _ = writeln!(
+                out,
+                "<tr><td>{}{note}</td><td>{}<br><span class=\"note\">{}</span></td><td>{}</td><td><code>{}</code></td></tr>",
+                escape(&d.purpose),
+                escape(&d.name),
+                escape(&d.url),
+                escape(&d.licence),
+                escape(&d.sha256)
+            );
+        }
+        out.push_str("</table></div>\n");
+    }
+    if !input.attributions.is_empty() {
+        out.push_str("<h3>Attribution</h3>\n<ul>\n");
+        for a in &input.attributions {
+            let _ = writeln!(out, "<li>{}</li>", escape(a));
+        }
+        out.push_str("</ul>\n");
+    }
     let list = |out: &mut String, heading: &str, items: &[String], empty: &str| {
         let _ = writeln!(out, "<h3>{heading}</h3>");
         if items.is_empty() {

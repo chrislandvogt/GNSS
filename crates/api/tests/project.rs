@@ -218,6 +218,43 @@ fn the_report_is_one_page_with_everything_escaped() {
     // BEEC, with its MGA zone 55 coordinates.
     assert!(html.contains("<tr><td>BEEC</td><td>weighted</td>"));
     assert!(html.contains("<td class=\"n\">55</td><td class=\"n\">469288.6177</td>"));
+    // Without data from outside the project, no such sections.
+    assert!(!html.contains("Data from outside the project") && !html.contains("Attribution"));
+}
+
+#[test]
+fn the_report_lists_data_from_outside_and_its_attribution() {
+    let project = sample();
+    let run = project::run(&project, &mut files).unwrap();
+    let mut data = gnss_model::DataFiles::new();
+    data.merge(
+        vec![gnss_model::DataFile {
+            purpose: "SYDN observations, 2025-06-15 00:00:00 to 2025-06-15 02:00:00 GPS".into(),
+            name: "SYDN00AUS_R_20251660000_01D_30S_MO.crx.gz".into(),
+            source: "ga-archive".into(),
+            sha256: "a".repeat(64),
+            bytes: 10,
+            url: "https://x.example/SYDN.crx.gz".into(),
+            fetched: "2026-10-29T00:00:00Z".into(),
+            licence: "CC BY 4.0, Geoscience Australia".into(),
+            note: Some("rapid: finals aren't out yet".into()),
+        }],
+        ["CORS data from <GA>, CC BY 4.0.".to_owned()],
+    );
+    let html = project::report_with_data(&project, &run, Some(&data), "2026-10-20 08:00 UTC");
+    assert!(html.contains("<h3>Data from outside the project</h3>"));
+    assert!(html.contains("SYDN00AUS_R_20251660000_01D_30S_MO.crx.gz"));
+    assert!(
+        html.contains("rapid: finals aren&#39;t out yet")
+            || html.contains("rapid: finals aren't out yet")
+    );
+    assert!(
+        html.contains("<h3>Attribution</h3>\n<ul>\n<li>CORS data from &lt;GA&gt;, CC BY 4.0.</li>")
+    );
+    // Still self-contained: the URL is text, not something loaded or linked.
+    for outside in ["<script", "src=", "<link", "href=\"https:"] {
+        assert!(!html.contains(outside), "{outside}");
+    }
 }
 
 /// Every export and the report of the sample network, hashed: the same

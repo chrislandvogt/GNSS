@@ -744,7 +744,7 @@ The initial catalogue (M9):
 - **Downloader.** Resumable, with checksums and retries with backoff. The CLI supports proxies through standard environment variables; the browser uses the system's proxy settings.
 - **Cache.** A per-user cache shared across projects, keyed by content hash: in the user's cache directory natively, and in browser storage (OPFS) in the web app. Files are kept exactly as published (`objects/<sha256>`) and found by source and name (`index/<source>/<name>.json`). Projects record exactly which files they used, in `data.toml`.
 - **Time.** Planning is in GPS time, as archives name and split their files by GPS days and hours: a daily file "for 2025-06-15" starts at 23:59:42 UTC the day before. CORS windows are padded (5 minutes by default), but never into a day the occupation doesn't touch.
-- **Offline data packs.** A zip containing the files plus a manifest of sources, hashes and licences. A pack is exported on a connected machine, from the web app or the CLI, and imported on an air-gapped one. Packs are also how to bring in sources the browser can't reach without using a relay.
+- **Offline data packs.** A zip containing the files plus a manifest of sources, hashes and licences (`manifest.json`, and each file at `files/<source>/<name>`). A pack is exported on a connected machine, from the web app or the CLI (`gnss data export`), and imported on an air-gapped one (`gnss data import`), which checks every file against its hash before any goes into the cache. Packs are also how to bring in sources the browser can't reach without using a relay.
 - **Attribution.** Licence and attribution metadata follow the data into reports.
 
 ## 14. Web app

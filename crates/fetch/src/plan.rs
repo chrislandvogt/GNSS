@@ -66,8 +66,39 @@ impl ProductKind {
 pub struct Want {
     /// When the occupation observed.
     pub window: Window,
-    /// The CORS stations to process it with.
+    /// The CORS stations to process it with, or candidates for them, best
+    /// first.
     pub stations: Vec<String>,
+    /// How many of `stations` to use: all of them if `None`. With a count,
+    /// [`crate::Fetcher::choose_stations`] keeps the first that have data.
+    pub count: Option<usize>,
+}
+
+impl Want {
+    /// The CORS data it needs: its window padded by `pad` seconds, but not
+    /// into a day it doesn't touch, which would fetch a day's files for a
+    /// few minutes of margin.
+    pub fn cors_window(&self, pad: i64) -> Window {
+        let touched = self.window.days();
+        let padded = self.window.padded(pad);
+        Window::new(
+            padded
+                .start
+                .max(touched.first().map_or(padded.start, |d| d.start())),
+            padded
+                .end
+                .min(touched.last().map_or(padded.end, |d| d.window().end)),
+        )
+    }
+
+    /// The stations to use: the first `count`, or all.
+    pub fn chosen(&self) -> &[String] {
+        let n = self
+            .count
+            .unwrap_or(self.stations.len())
+            .min(self.stations.len());
+        self.stations.get(..n).unwrap_or_default()
+    }
 }
 
 /// What to fetch beyond the CORS files.
@@ -101,17 +132,9 @@ pub fn plan(wants: &[Want], options: &Options) -> Vec<Need> {
     let mut by_station: BTreeMap<&str, Vec<Window>> = BTreeMap::new();
     let mut days = BTreeSet::new();
     for want in wants {
-        // Padding doesn't reach into a day the occupation doesn't touch:
-        // that would fetch a day's files for a few minutes of margin.
-        let touched = want.window.days();
-        let (first, last) = (touched.first(), touched.last());
-        let padded = want.window.padded(options.pad);
-        let window = Window::new(
-            padded.start.max(first.map_or(padded.start, |d| d.start())),
-            padded.end.min(last.map_or(padded.end, |d| d.window().end)),
-        );
-        days.extend(touched);
-        for station in &want.stations {
+        let window = want.cors_window(options.pad);
+        days.extend(want.window.days());
+        for station in want.chosen() {
             by_station.entry(station).or_default().push(window);
         }
     }
@@ -172,10 +195,12 @@ mod tests {
             Want {
                 window: Window::new(t("2025-06-15T01:00:00Z"), t("2025-06-15T03:00:00Z")),
                 stations: vec!["SYDN".into(), "str1".into()],
+                count: None,
             },
             Want {
                 window: Window::new(t("2025-06-15T02:30:00Z"), t("2025-06-15T05:00:00Z")),
                 stations: vec!["SYDN".into()],
+                count: None,
             },
         ];
         let needs = plan(&wants, &Options::default());
@@ -212,6 +237,7 @@ mod tests {
         let wants = [Want {
             window: Window::new(t("2025-06-15T00:01:00Z"), t("2025-06-15T23:58:00Z")),
             stations: vec!["SYDN".into()],
+            count: None,
         }];
         let needs = plan(&wants, &Options::default());
         assert_eq!(
@@ -235,6 +261,7 @@ mod tests {
         let wants = [Want {
             window: Window::new(t("2025-06-15T22:00:00Z"), t("2025-06-16T02:00:00Z")),
             stations: vec!["SYDN".into()],
+            count: None,
         }];
         let options = Options {
             precise: true,

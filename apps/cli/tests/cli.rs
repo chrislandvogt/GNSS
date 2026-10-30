@@ -611,3 +611,78 @@ fn fetch_plans_what_the_occupations_need() {
     assert!(!cache.exists());
     assert!(!project.join("data.toml").exists());
 }
+
+#[test]
+fn the_report_carries_fetched_data_and_packs_need_a_record() {
+    let root = tempfile::tempdir().unwrap();
+    let project = sample(root.path());
+    let cache = root.path().join("cache");
+    // No data.toml yet: nothing to pack.
+    let o = gnss(
+        &project,
+        &[
+            "data",
+            "export",
+            path(&root.path().join("p.zip")),
+            "--cache",
+            path(&cache),
+        ],
+    );
+    assert_eq!(o.status.code(), Some(1));
+    assert!(
+        stderr(&o).contains("run gnss fetch first"),
+        "{}",
+        stderr(&o)
+    );
+    // Something that isn't a pack is refused.
+    let o = gnss(
+        &project,
+        &[
+            "data",
+            "import",
+            path(&project.join("raw/gnss-networkstn.xml")),
+            "--cache",
+            path(&cache),
+        ],
+    );
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stderr(&o).contains("data pack"), "{}", stderr(&o));
+
+    fs::write(
+        project.join("data.toml"),
+        format!(
+            r#"schema = 1
+attributions = ["CORS data from Geoscience Australia, CC BY 4.0."]
+
+[[file]]
+purpose = "SYDN observations, 2025-06-15 00:00:00 to 2025-06-15 02:00:00 GPS"
+name = "SYDN00AUS_R_20251660000_01D_30S_MO.crx.gz"
+source = "ga-archive"
+sha256 = "{}"
+bytes = 10
+url = "https://x.example/SYDN.crx.gz"
+fetched = "2026-10-29T00:00:00Z"
+licence = "CC BY 4.0"
+"#,
+            "a".repeat(64)
+        ),
+    )
+    .unwrap();
+    ok(&project, &["report"], 2);
+    let html = fs::read_to_string(project.join("results/report.html")).unwrap();
+    assert!(html.contains("<h3>Data from outside the project</h3>"));
+    assert!(html.contains("<li>CORS data from Geoscience Australia, CC BY 4.0.</li>"));
+    // The record names a file the cache hasn't got.
+    let o = gnss(
+        &project,
+        &[
+            "data",
+            "export",
+            path(&root.path().join("p.zip")),
+            "--cache",
+            path(&cache),
+        ],
+    );
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stderr(&o).contains("isn't in the cache"), "{}", stderr(&o));
+}

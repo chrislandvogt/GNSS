@@ -13,6 +13,7 @@ pub mod fetcher;
 pub mod ga;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;
+pub mod pack;
 pub mod plan;
 pub mod products;
 pub mod sites;
@@ -60,6 +61,9 @@ pub enum FetchError {
         /// What failed.
         message: String,
     },
+    /// An offline data pack that can't be made or read.
+    #[error("data pack: {0}")]
+    DataPack(String),
     /// The cache failed.
     #[error(transparent)]
     Store(#[from] gnss_store::StoreError),
