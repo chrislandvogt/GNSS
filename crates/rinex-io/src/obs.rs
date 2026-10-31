@@ -98,6 +98,11 @@ impl EpochFlag {
         })
     }
 
+    /// Whether the record is an event (flags 2 to 5), not observations.
+    pub fn is_event(self) -> bool {
+        !self.has_observations()
+    }
+
     /// Whether the record carries observations (flags 0, 1 and 6).
     pub fn has_observations(self) -> bool {
         matches!(self, Self::Ok | Self::PowerFailure | Self::CycleSlips)
@@ -137,15 +142,35 @@ pub struct ObsReader<R> {
     header: ObsHeader,
     buf: Vec<u8>,
     done: bool,
+    /// The lines read, as they are, when they're being kept: the header's,
+    /// then each epoch's, for copying epochs out unchanged.
+    captured: Option<Vec<Vec<u8>>>,
 }
 
 impl<R: BufRead> ObsReader<R> {
     /// Reads the header, leaving the reader at the first epoch.
-    pub(crate) fn new(mut source: Source<R>) -> Result<Self, RinexError> {
+    pub(crate) fn new(source: Source<R>) -> Result<Self, RinexError> {
+        Self::open(source, false)
+    }
+
+    /// As [`new`](Self::new), keeping the lines read: the header's now, and
+    /// each epoch's as it's read ([`take_lines`](Self::take_lines)).
+    pub(crate) fn capturing(source: Source<R>) -> Result<Self, RinexError> {
+        Self::open(source, true)
+    }
+
+    fn open(mut source: Source<R>, capture: bool) -> Result<Self, RinexError> {
+        let mut captured = capture.then(Vec::new);
+        let mut keep = |buf: &Vec<u8>| {
+            if let Some(lines) = captured.as_mut() {
+                lines.push(buf.clone());
+            }
+        };
         let mut buf = Vec::new();
         if !source.read(&mut buf)? {
             return Err(RinexError::at(1, "the file is empty"));
         }
+        keep(&buf);
         let mut builder = HeaderBuilder::start(&buf, source.line())?;
         loop {
             if !source.read(&mut buf)? {
@@ -154,6 +179,7 @@ impl<R: BufRead> ObsReader<R> {
                     "the file ends before END OF HEADER",
                 ));
             }
+            keep(&buf);
             if builder.record(&buf, source.line())? {
                 break;
             }
@@ -164,7 +190,23 @@ impl<R: BufRead> ObsReader<R> {
             header,
             buf,
             done: false,
+            captured,
         })
+    }
+
+    /// The lines kept since the last call: the header's after opening, then
+    /// the last epoch's. Empty unless capturing.
+    pub(crate) fn take_lines(&mut self) -> Vec<Vec<u8>> {
+        self.captured
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default()
+    }
+
+    fn keep_line(&mut self) {
+        if let Some(lines) = self.captured.as_mut() {
+            lines.push(self.buf.clone());
+        }
     }
 
     /// The header, updated by any header records in events so far.
@@ -195,6 +237,7 @@ impl<R: BufRead> ObsReader<R> {
                 break;
             }
         }
+        self.keep_line();
         if self.header.version.major == 2 {
             self.epoch_v2()
         } else {
@@ -209,6 +252,7 @@ impl<R: BufRead> ObsReader<R> {
     /// The next line, which must exist.
     fn more(&mut self, what: &str) -> Result<(), RinexError> {
         if self.source.read(&mut self.buf)? {
+            self.keep_line();
             Ok(())
         } else {
             Err(self.err(format!(

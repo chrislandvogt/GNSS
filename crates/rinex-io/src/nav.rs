@@ -26,6 +26,83 @@ pub struct NavFile {
     pub ephemerides: Vec<Ephemeris>,
 }
 
+/// How well a navigation file's ephemerides of one constellation cover a
+/// window ([`NavFile::coverage`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Coverage {
+    /// The constellation: `G`, `R`, `E`, `C` or `J`.
+    pub system: char,
+    /// The satellites with ephemerides.
+    pub satellites: usize,
+    /// The parts of the window no ephemeris of the constellation covers.
+    pub gaps: Vec<(GnssTime, GnssTime)>,
+}
+
+impl Coverage {
+    /// Whether the whole window is covered.
+    pub fn complete(&self) -> bool {
+        self.satellites > 0 && self.gaps.is_empty()
+    }
+}
+
+impl NavFile {
+    /// For each constellation, whether its ephemerides cover a window (GPS
+    /// time): every moment within some ephemeris's validity
+    /// ([`Ephemeris::validity`]). A navigation file of one constellation
+    /// leaves the others uncovered, which in the M0 spike silently gave
+    /// degraded solutions, so baselines aren't processed without it.
+    pub fn coverage(&self, systems: &[char], window: (GnssTime, GnssTime)) -> Vec<Coverage> {
+        systems
+            .iter()
+            .map(|&system| {
+                let mine: Vec<&Ephemeris> = self
+                    .ephemerides
+                    .iter()
+                    .filter(|e| e.sv().system == system)
+                    .collect();
+                let mut satellites: Vec<u8> = mine.iter().map(|e| e.sv().prn).collect();
+                satellites.sort_unstable();
+                satellites.dedup();
+                let mut spans: Vec<(i64, i64)> = mine
+                    .iter()
+                    .map(|e| {
+                        let half = (e.validity() * TICKS_PER_SECOND as f64) as i64;
+                        (e.toe().ticks() - half, e.toe().ticks() + half)
+                    })
+                    .collect();
+                spans.sort_unstable();
+                let (start, end) = (window.0.ticks(), window.1.ticks());
+                let mut gaps = Vec::new();
+                let mut reached = start;
+                for (a, b) in spans {
+                    if b < reached {
+                        continue;
+                    }
+                    if a > reached {
+                        gaps.push((reached, a.min(end)));
+                    }
+                    reached = reached.max(b);
+                    if reached >= end {
+                        break;
+                    }
+                }
+                if reached < end {
+                    gaps.push((reached, end));
+                }
+                Coverage {
+                    system,
+                    satellites: satellites.len(),
+                    gaps: gaps
+                        .into_iter()
+                        .filter(|(a, b)| a < b)
+                        .map(|(a, b)| (GnssTime::from_ticks(a), GnssTime::from_ticks(b)))
+                        .collect(),
+                }
+            })
+            .collect()
+    }
+}
+
 /// One record's lines, and the RINEX 4 message type if there was one.
 struct Record {
     line: u64,

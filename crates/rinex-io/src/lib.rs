@@ -29,9 +29,9 @@ use std::io::{BufRead, Write};
 pub use error::RinexError;
 pub use gz::{Decoded, decoded};
 pub use header::{Antenna, ObsHeader, ObsTypes, Receiver, Version};
-pub use nav::{NavFile, read_nav};
+pub use nav::{Coverage, NavFile, read_nav};
 pub use obs::{Epoch, EpochFlag, ObsReader, Observation, SatObservations, Sv};
-pub use rewrite::{HeaderPatch, rewrite_obs};
+pub use rewrite::{HeaderPatch, Trim, Trimmed, rewrite_obs, trim_obs};
 pub use time::{GnssTime, TICKS_PER_SECOND, TimeSystem};
 
 use crinex::Crinex;
