@@ -13,6 +13,7 @@ pub mod fetch;
 pub mod folder;
 pub mod ingest;
 pub mod jobs;
+pub mod process;
 pub mod project;
 pub mod reconcile;
 pub mod rinex;

@@ -867,7 +867,7 @@ gnss import vectors <file> [--format dynaml|starnet|tdef|rtklib|csv]   # guessed
 gnss import control <file> [--format dynaml|csv|sinex]
 gnss fetch                      # CORS data, products and ANTEX for all occupations
 gnss check                      # run blunder checks
-gnss process                    # baselines
+gnss process [--engine <wasm>]  # baselines with RTKLIB-EX; fixed ones recorded for the adjustment
 gnss adjust [--minimal|--constrained]
 gnss exclude <observation> --reason <text>   # the outlier workflow, recorded in project.toml
 gnss report --format html|pdf

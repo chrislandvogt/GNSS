@@ -66,7 +66,7 @@ pub enum ReconcileError {
 }
 
 /// The overlays for a file, in order of their ids, as one patch.
-fn patch_for(overlays: &[Overlay], file: &str) -> HeaderPatch {
+pub(crate) fn patch_for(overlays: &[Overlay], file: &str) -> HeaderPatch {
     let mut patch = HeaderPatch::default();
     for o in overlays.iter().filter(|o| o.file == file) {
         if let Some(r) = &o.rinex {

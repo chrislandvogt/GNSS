@@ -103,6 +103,17 @@ pub enum Constellation {
 }
 
 impl Constellation {
+    /// Its letter in RINEX: `G`, `R`, `E`, `C` or `J`.
+    pub fn letter(self) -> char {
+        match self {
+            Constellation::Gps => 'G',
+            Constellation::Glonass => 'R',
+            Constellation::Galileo => 'E',
+            Constellation::Beidou => 'C',
+            Constellation::Qzss => 'J',
+        }
+    }
+
     /// Its bit in `pos1-navsys`.
     fn bit(self) -> u32 {
         match self {

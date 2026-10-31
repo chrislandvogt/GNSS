@@ -394,9 +394,9 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
 - [x] Before each run, trim each RINEX file to the overlap window and decimate it to the processing interval. This keeps runs within WebAssembly's memory limit and roughly halves their time in the browser (M0 spike).
   - The API is `gnss_rinex_io::trim_obs`. It keeps whole epochs as they are, RINEX 2, 3 and 4, plain or Hatanaka-compressed. The window is inclusive, as RTKLIB's `-ts`/`-te`, and the interval uses RTKLIB's 5 ms tolerance. Header overlays are applied in the same pass, and events are always kept.
   - On the spike's CNCD–SYDN baseline, trimming the 24-hour files to 2 hours (43 MB to 3.9 MB each) gave a solution identical to the untrimmed files, in 0.9 s instead of 1.6 s natively.
-- [ ] Check that the navigation data covers every constellation being processed, and refuse to run otherwise. In the M0 spike, per-constellation navigation files silently degraded solutions.
+- [x] Check that the navigation data covers every constellation being processed, and refuse to run otherwise. In the M0 spike, per-constellation navigation files silently degraded solutions.
   - [x] The check: `NavFile::coverage` gives each constellation's gaps over a window, using each ephemeris's validity. The spike's CNCD–SYDN mixed file covers all five constellations over its window.
-  - [ ] Refusing to run: comes with `gnss process`.
+  - [x] Refusing to run: `gnss process` reports the uncovered constellations and doesn't run the baseline.
 - [ ] Output parsing:
   - [ ] The final solution and its covariance, including the signed off-diagonal terms.
   - [ ] Q flag, ratio and satellite count.
@@ -413,6 +413,21 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
   - [ ] Inputs: fix status, ratio, percentage fixed, residual RMS, data overlap and length.
   - [ ] Classification as good, suspect or failed, with reasons.
 - [ ] CLI `process` command. With this, v0.3 is end to end in the CLI.
+  - [x] `gnss process` (`gnss_api::process`, with the engine behind a trait so the web app can supply its workers). It processes:
+    - every pair of overlapping occupations;
+    - every occupation against each CORS station `gnss fetch` got data for.
+  - [x] What it does for each baseline:
+    - applies the overlays and trims the observations to the overlap;
+    - joins a CORS station's files;
+    - refuses navigation data that doesn't cover a processed constellation;
+    - passes the pinned ANTEX uncompressed and generates the configuration;
+    - runs `rnx2rtkp.wasm` through wasmtime, after checking the module against its pinned hash.
+  - [x] Solutions are kept in `results/baselines/`, and fixed ones are recorded as RTKLIB imports, so `gnss adjust` uses them. Floats and failures are reported and not used.
+  - [x] Checked end to end on 2025-06-15 data:
+    - SYDN as a field occupation (02:00–04:00 UTC) and CNCD fetched live from GA as the CORS. Fixed, 25 satellites, ratio 4.3, 9.696 km, as in the M0 spike, in 19 s.
+    - `gnss adjust` read the result.
+    - RTKLIB's own two-receiver sample gives a fixed 3.335 km baseline through the CLI; CI runs this where the module is built.
+  - [ ] Still to come: choosing independent baselines (below), forward and backward runs, CORS coordinates for the datum, and carrying the engine module with the CLI.
 
 **Exit criteria:**
 - The CORS-pair benchmark subset processes at the expected fix rates.
