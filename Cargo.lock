@@ -861,6 +861,7 @@ dependencies = [
  "clap",
  "gnss-api",
  "gnss-datum",
+ "gnss-engine-host",
  "gnss-model",
  "gnss-relay",
  "gnss-store",

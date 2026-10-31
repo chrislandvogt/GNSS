@@ -81,11 +81,27 @@ enum Command {
     /// no network.
     #[command(subcommand)]
     Data(DataCommand),
+    /// Process baselines with RTKLIB-EX: between overlapping occupations,
+    /// and from each occupation to the CORS data fetched for it. Fixed
+    /// solutions are recorded for the adjustment.
+    Process(ProcessArgs),
     /// Serve the web app on this machine, from a release bundle, with a
     /// private relay for the data sources a browser can't reach. It answers
     /// only this machine's own pages, and works with no network but for
     /// the relay.
     Serve(ServeArgs),
+}
+
+#[derive(Args)]
+struct ProcessArgs {
+    /// The engine module, rnx2rtkp.wasm, checked against the hash it was
+    /// built to. Default: $GNSS_ENGINE, or rnx2rtkp.wasm beside this
+    /// program.
+    #[arg(long, value_name = "WASM")]
+    engine: Option<PathBuf>,
+    /// The download cache. Default: $GNSS_CACHE, or the user's cache folder.
+    #[arg(long, value_name = "DIR")]
+    cache: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -366,6 +382,7 @@ fn dispatch(cli: &Cli) -> Result<u8, Failure> {
         Command::ExportRinex(args) => export_rinex(cli, args),
         Command::Fetch(args) => fetch(cli, args),
         Command::Data(command) => data(cli, command),
+        Command::Process(args) => process(cli, args),
         Command::Serve(args) => serve(args),
     }
 }
@@ -397,6 +414,121 @@ struct DataImportArgs {
     /// The download cache. Default: $GNSS_CACHE, or the user's cache folder.
     #[arg(long, value_name = "DIR")]
     cache: Option<PathBuf>,
+}
+
+/// The engine modules' hashes, as their reproducible build gives them.
+const ENGINE_SHA256: &str = include_str!("../../../engine-modules/rtklib-ex/golden.sha256");
+
+/// Runs rnx2rtkp natively, a fresh instance for each run, in a folder made
+/// for it and removed after.
+struct NativeEngine {
+    host: gnss_engine_host::Host,
+}
+
+impl gnss_api::process::Engine for NativeEngine {
+    fn run(
+        &mut self,
+        inputs: &[(String, Vec<u8>)],
+        args: &[String],
+        output: &str,
+    ) -> Result<gnss_api::process::EngineRun, String> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static RUN: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "gnss-run-{}-{}",
+            std::process::id(),
+            RUN.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let result = (|| {
+            for (name, bytes) in inputs {
+                std::fs::write(dir.join(name), bytes).map_err(|e| e.to_string())?;
+            }
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            let out = self
+                .host
+                .run(&args, &dir, gnss_engine_host::Limits::default())
+                .map_err(|e| e.to_string())?;
+            Ok(gnss_api::process::EngineRun {
+                status: out.status,
+                stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+                output: std::fs::read(dir.join(output)).ok(),
+            })
+        })();
+        let _ = std::fs::remove_dir_all(&dir);
+        result
+    }
+}
+
+fn process(cli: &Cli, args: &ProcessArgs) -> Result<u8, Failure> {
+    use gnss_api::fetch::gnss_fetch::Cache;
+    let folder = Folder::open(&cli.project)?;
+    let mut store = folder.store();
+    let path = match (&args.engine, std::env::var_os("GNSS_ENGINE")) {
+        (Some(p), _) => p.clone(),
+        (None, Some(p)) => PathBuf::from(p),
+        (None, None) => std::env::current_exe()?
+            .parent()
+            .map(|d| d.join("rnx2rtkp.wasm"))
+            .ok_or("can't find the engine: give --engine")?,
+    };
+    let wasm = std::fs::read(&path).map_err(|e| {
+        format!(
+            "the engine {}: {e}; give --engine or set GNSS_ENGINE",
+            path.display()
+        )
+    })?;
+    let expected = ENGINE_SHA256
+        .lines()
+        .find_map(|l| l.strip_suffix("  rnx2rtkp.wasm"))
+        .ok_or("no recorded hash for rnx2rtkp.wasm")?;
+    if gnss_store::sha256_hex(&wasm) != expected {
+        return Err(format!(
+            "{} isn't the engine this version was built with (its SHA-256 differs)",
+            path.display()
+        )
+        .into());
+    }
+    let mut engine = NativeEngine {
+        host: gnss_engine_host::Host::new(&wasm)?,
+    };
+    let cache = Cache::new(gnss_store::FsStore::new(cache_dir(args.cache.as_ref())?));
+    let report = gnss_api::process::process(
+        &mut store,
+        &cache,
+        &mut engine,
+        gnss_api::process::MIN_OVERLAP,
+    )?;
+    let used = report.baselines.iter().filter(|b| b.used).count();
+    print(cli, &report, || {
+        for b in &report.baselines {
+            let what = match (&b.quality, b.length) {
+                (Some(q), Some(l)) => format!(
+                    "{q}, {} satellites, ratio {:.1}, {:.3} km",
+                    b.satellites.unwrap_or(0),
+                    b.ratio.unwrap_or(0.0),
+                    l / 1000.0
+                ),
+                (Some(q), None) => q.clone(),
+                _ => "not processed".into(),
+            };
+            println!(
+                "{} to {} ({} to {}): {what}",
+                b.base, b.rover, b.start, b.end
+            );
+            if let Some(p) = &b.problem {
+                println!("  {p}");
+            }
+        }
+        for n in &report.notes {
+            println!("note: {n}");
+        }
+        println!(
+            "{used} of {} baselines fixed and recorded for the adjustment.",
+            report.baselines.len()
+        );
+    })?;
+    Ok(if used == report.baselines.len() { 0 } else { 2 })
 }
 
 fn serve(args: &ServeArgs) -> Result<u8, Failure> {
@@ -1057,7 +1189,7 @@ fn run(cli: &Cli, datum: &AdjustArgs) -> Result<(Folder, Project, Run), Failure>
     } else if datum.constrained {
         project.adjustment.datum = "constrained".into();
     }
-    let run = project::run(&project, &mut |import| folder.read_raw(&import.file))?;
+    let run = project::run(&project, &mut |import| folder.read_import(&import.file))?;
     Ok((folder, project, run))
 }
 

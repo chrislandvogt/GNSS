@@ -111,6 +111,17 @@ impl Folder {
             })
     }
 
+    /// An import's bytes: a raw file checked against `raw.lock`, or a
+    /// solution `gnss process` wrote, which is regenerated, not locked.
+    pub fn read_import(&self, file: &str) -> Result<Vec<u8>, String> {
+        if gnss_api::process::is_result(file) {
+            return ProjectPath::new(file)
+                .and_then(|path| self.store.read_existing(&path))
+                .map_err(|e| e.to_string());
+        }
+        self.read_raw(file)
+    }
+
     /// Copies an import into `raw/`, records its hash and adds it to the project.
     pub fn add_import(&self, import: &Import, bytes: &[u8]) -> Result<(), String> {
         let path = ProjectPath::new(import.file.as_str()).map_err(|e| e.to_string())?;
