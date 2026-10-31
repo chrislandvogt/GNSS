@@ -391,8 +391,12 @@ The goal is to go from RINEX and field logs to an adjusted, reported control sur
     - A generated configuration on the spike's CNCD–SYDN baseline gives the spike's solution exactly, in 7.7 s.
   - [ ] Running runs in parallel natively.
   - [ ] The browser's pool of engine workers.
-- [ ] Before each run, trim each RINEX file to the overlap window and decimate it to the processing interval. This keeps runs within WebAssembly's memory limit and roughly halves their time in the browser (M0 spike).
+- [x] Before each run, trim each RINEX file to the overlap window and decimate it to the processing interval. This keeps runs within WebAssembly's memory limit and roughly halves their time in the browser (M0 spike).
+  - The API is `gnss_rinex_io::trim_obs`. It keeps whole epochs as they are, RINEX 2, 3 and 4, plain or Hatanaka-compressed. The window is inclusive, as RTKLIB's `-ts`/`-te`, and the interval uses RTKLIB's 5 ms tolerance. Header overlays are applied in the same pass, and events are always kept.
+  - On the spike's CNCD–SYDN baseline, trimming the 24-hour files to 2 hours (43 MB to 3.9 MB each) gave a solution identical to the untrimmed files, in 0.9 s instead of 1.6 s natively.
 - [ ] Check that the navigation data covers every constellation being processed, and refuse to run otherwise. In the M0 spike, per-constellation navigation files silently degraded solutions.
+  - [x] The check: `NavFile::coverage` gives each constellation's gaps over a window, using each ephemeris's validity. The spike's CNCD–SYDN mixed file covers all five constellations over its window.
+  - [ ] Refusing to run: comes with `gnss process`.
 - [ ] Output parsing:
   - [ ] The final solution and its covariance, including the signed off-diagonal terms.
   - [ ] Q flag, ratio and satellite count.
